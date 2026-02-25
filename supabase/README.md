@@ -2,7 +2,7 @@
 
 This folder contains the full database implementation for the Inventory Management System:
 
-- `migrations/001_extensions.sql` to `migrations/008_cron_alerts.sql`
+- `migrations/001_extensions.sql` to `migrations/010_audit_admin_entities.sql`
 - `seed.sql` sample locations, products, policies, stock, and alert refresh
 - `config.toml` local Supabase CLI configuration
 

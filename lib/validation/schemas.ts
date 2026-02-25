@@ -97,6 +97,33 @@ export const userPatchSchema = z.object({
   is_active: z.boolean().optional(),
 });
 
+export const userCreateSchema = z
+  .object({
+    email: z.string().email(),
+    full_name: z.string().min(1).max(120),
+    role: z.enum(["admin", "manager", "staff"]),
+    mode: z.enum(["invite", "password"]),
+    password: z.string().min(8).max(128).optional(),
+    location_ids: z.array(uuid).default([]),
+  })
+  .superRefine((value, ctx) => {
+    if (value.mode === "password" && !value.password) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["password"],
+        message: "Password is required when mode is 'password'.",
+      });
+    }
+  });
+
 export const userLocationAssignSchema = z.object({
   location_ids: z.array(uuid),
+});
+
+export const userStatusSchema = z.object({
+  note: z.string().max(240).optional(),
+});
+
+export const archiveActionSchema = z.object({
+  note: z.string().max(240).optional(),
 });

@@ -21,7 +21,8 @@ export async function GET() {
 
   const productsQuery = context.supabase
     .from("products")
-    .select("id", { count: "exact", head: true });
+    .select("id", { count: "exact", head: true })
+    .eq("is_active", true);
 
   const lowStockQuery = context.supabase
     .from("v_low_stock")

@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 
 type UserRow = {
   id: string;
+  email: string | null;
   full_name: string;
   role: "admin" | "manager" | "staff";
   is_active: boolean;
@@ -20,11 +21,15 @@ type LocationRow = {
   name: string;
 };
 
+type ProvisionMode = "invite" | "password";
+
 export default function UsersAdminPage() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [locations, setLocations] = useState<LocationRow[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([]);
+  const [createMode, setCreateMode] = useState<ProvisionMode>("invite");
+  const [createLocationIds, setCreateLocationIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -84,10 +89,51 @@ export default function UsersAdminPage() {
     }
   }, [selectedUserId, loadUserLocations]);
 
+  async function createUser(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+
+    const formData = new FormData(event.currentTarget);
+    const payload = {
+      email: String(formData.get("email") ?? ""),
+      full_name: String(formData.get("full_name") ?? ""),
+      role: String(formData.get("role") ?? "staff"),
+      mode: createMode,
+      password:
+        createMode === "password"
+          ? String(formData.get("password") ?? "")
+          : undefined,
+      location_ids: createLocationIds,
+    };
+
+    const response = await fetch("/api/admin/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const json = (await response.json()) as { id?: string; error?: string };
+    if (!response.ok) {
+      setError(json.error ?? "Failed to create user.");
+      setSaving(false);
+      return;
+    }
+
+    event.currentTarget.reset();
+    setCreateLocationIds([]);
+    await loadUsers();
+    if (json.id) {
+      setSelectedUserId(json.id);
+      await loadUserLocations(json.id);
+    }
+    setSaving(false);
+  }
+
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
     setError(null);
+
     const formData = new FormData(event.currentTarget);
     const payload = {
       id: String(formData.get("id") ?? ""),
@@ -102,6 +148,7 @@ export default function UsersAdminPage() {
       body: JSON.stringify(payload),
     });
     const json = (await response.json()) as { error?: string };
+
     if (!response.ok) {
       setError(json.error ?? "Failed to save user.");
       setSaving(false);
@@ -109,6 +156,45 @@ export default function UsersAdminPage() {
     }
 
     await loadUsers();
+    setSaving(false);
+  }
+
+  async function setUserEnabled(userId: string, enabled: boolean) {
+    setSaving(true);
+    setError(null);
+    const endpoint = enabled ? "enable" : "disable";
+    const response = await fetch(`/api/admin/users/${userId}/${endpoint}`, {
+      method: "POST",
+    });
+    const json = (await response.json()) as { error?: string };
+
+    if (!response.ok) {
+      setError(json.error ?? `Failed to ${endpoint} user.`);
+      setSaving(false);
+      return;
+    }
+
+    await loadUsers();
+    if (selectedUserId) {
+      await loadUserLocations(selectedUserId);
+    }
+    setSaving(false);
+  }
+
+  async function resendInvite(userId: string) {
+    setSaving(true);
+    setError(null);
+    const response = await fetch(`/api/admin/users/${userId}/invite-resend`, {
+      method: "POST",
+    });
+    const json = (await response.json()) as { error?: string };
+
+    if (!response.ok) {
+      setError(json.error ?? "Failed to send invite/reset email.");
+      setSaving(false);
+      return;
+    }
+
     setSaving(false);
   }
 
@@ -123,6 +209,7 @@ export default function UsersAdminPage() {
       body: JSON.stringify({ location_ids: selectedLocationIds }),
     });
     const json = (await response.json()) as { error?: string };
+
     if (!response.ok) {
       setError(json.error ?? "Failed to save location access.");
       setSaving(false);
@@ -139,12 +226,21 @@ export default function UsersAdminPage() {
     );
   }
 
+  function toggleCreateLocation(locationId: string) {
+    setCreateLocationIds((current) =>
+      current.includes(locationId)
+        ? current.filter((id) => id !== locationId)
+        : [...current, locationId],
+    );
+  }
+
   return (
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-bold">Users</h1>
         <p className="text-sm text-slate-600">
-          Admin controls for role management and location assignment.
+          Production user lifecycle controls: provisioning, role updates, status, and
+          location access.
         </p>
       </header>
 
@@ -152,38 +248,155 @@ export default function UsersAdminPage() {
         <Card className="border-rose-200 bg-rose-50 text-rose-700">{error}</Card>
       ) : null}
 
-      <section className="grid gap-4 lg:grid-cols-2">
-        <Card>
+      <Card className="overflow-hidden">
+        <h2 className="text-lg font-semibold">Create User</h2>
+        <form onSubmit={createUser} className="mt-4 space-y-3">
+          <div className="grid gap-3 lg:grid-cols-4">
+            <input
+              name="full_name"
+              required
+              placeholder="Full name"
+              className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
+            />
+            <input
+              name="email"
+              type="email"
+              required
+              placeholder="Email"
+              className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
+            />
+            <select
+              name="role"
+              defaultValue="staff"
+              className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
+            >
+              <option value="admin">admin</option>
+              <option value="manager">manager</option>
+              <option value="staff">staff</option>
+            </select>
+            <select
+              value={createMode}
+              onChange={(event) => setCreateMode(event.target.value as ProvisionMode)}
+              className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
+            >
+              <option value="invite">invite by email</option>
+              <option value="password">set temp password</option>
+            </select>
+          </div>
+
+          {createMode === "password" ? (
+            <input
+              name="password"
+              type="password"
+              minLength={8}
+              required
+              placeholder="Temporary password"
+              className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"
+            />
+          ) : (
+            <p className="text-xs text-slate-500">
+              Invite mode sends an email link to complete password setup.
+            </p>
+          )}
+
+          <div className="max-h-44 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Initial location access
+            </p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {locations.map((location) => (
+                <label key={location.id} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={createLocationIds.includes(location.id)}
+                    onChange={() => toggleCreateLocation(location.id)}
+                  />
+                  {location.code} - {location.name}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <Button type="submit" disabled={saving} className="h-11 w-full sm:w-auto">
+            Create user
+          </Button>
+        </form>
+      </Card>
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <Card className="min-h-[24rem]">
           <h2 className="text-lg font-semibold">User Profiles</h2>
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 max-h-[34rem] space-y-3 overflow-y-auto pr-1">
             {users.map((user) => (
               <form
                 key={user.id}
                 onSubmit={saveProfile}
-                className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 md:grid-cols-5"
+                className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3"
               >
                 <input type="hidden" name="id" value={user.id} />
-                <input
-                  name="full_name"
-                  defaultValue={user.full_name}
-                  className="rounded border border-slate-300 px-2 py-1 text-sm md:col-span-2"
-                />
-                <select
-                  name="role"
-                  defaultValue={user.role}
-                  className="rounded border border-slate-300 px-2 py-1 text-sm"
-                >
-                  <option value="admin">admin</option>
-                  <option value="manager">manager</option>
-                  <option value="staff">staff</option>
-                </select>
-                <label className="flex items-center gap-2 text-sm">
-                  <input name="is_active" type="checkbox" defaultChecked={user.is_active} />
-                  Active
-                </label>
-                <Button type="submit" variant="secondary" disabled={saving}>
-                  Save
-                </Button>
+                <div className="text-xs text-slate-500">
+                  {user.email ?? "No email"} · {new Date(user.created_at).toLocaleString()}
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <input
+                    name="full_name"
+                    defaultValue={user.full_name}
+                    className="h-10 rounded border border-slate-300 px-2 text-sm"
+                  />
+                  <select
+                    name="role"
+                    defaultValue={user.role}
+                    className="h-10 rounded border border-slate-300 px-2 text-sm"
+                  >
+                    <option value="admin">admin</option>
+                    <option value="manager">manager</option>
+                    <option value="staff">staff</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input name="is_active" type="checkbox" defaultChecked={user.is_active} />
+                    Active
+                  </label>
+                  <Button type="submit" variant="secondary" disabled={saving}>
+                    Save
+                  </Button>
+                  {user.is_active ? (
+                    <Button
+                      type="button"
+                      variant="danger"
+                      disabled={saving}
+                      onClick={() => {
+                        if (
+                          confirm("Disable this account and revoke all location access?")
+                        ) {
+                          setUserEnabled(user.id, false);
+                        }
+                      }}
+                    >
+                      Disable
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={saving}
+                      onClick={() => setUserEnabled(user.id, true)}
+                    >
+                      Enable
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={saving}
+                    onClick={() => resendInvite(user.id)}
+                  >
+                    Resend invite
+                  </Button>
+                </div>
               </form>
             ))}
             {users.length === 0 ? (
@@ -192,38 +405,52 @@ export default function UsersAdminPage() {
           </div>
         </Card>
 
-        <Card>
+        <Card className="min-h-[24rem]">
           <h2 className="text-lg font-semibold">Location Access</h2>
           <div className="mt-4 space-y-3">
             <select
-              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+              className="h-11 w-full rounded border border-slate-300 px-3 text-sm"
               value={selectedUserId}
               onChange={(event) => setSelectedUserId(event.target.value)}
             >
               <option value="">Select user</option>
               {users.map((user) => (
                 <option key={user.id} value={user.id}>
-                  {user.full_name} ({user.role})
+                  {user.full_name} ({user.role}) {user.is_active ? "" : "[disabled]"}
                 </option>
               ))}
             </select>
 
             {selectedUser ? (
               <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                <p className="text-sm font-medium">Assign locations for {selectedUser.full_name}</p>
-                {locations.map((location) => (
-                  <label key={location.id} className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={selectedLocationIds.includes(location.id)}
-                      onChange={() => toggleLocation(location.id)}
-                    />
-                    {location.code} - {location.name}
-                  </label>
-                ))}
-                <Button onClick={saveLocations} disabled={saving}>
-                  Save Location Access
+                <p className="text-sm font-medium">
+                  Assign locations for {selectedUser.full_name}
+                </p>
+                <div className="max-h-64 overflow-y-auto">
+                  {locations.map((location) => (
+                    <label key={location.id} className="flex items-center gap-2 py-1 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={selectedLocationIds.includes(location.id)}
+                        onChange={() => toggleLocation(location.id)}
+                        disabled={!selectedUser.is_active}
+                      />
+                      {location.code} - {location.name}
+                    </label>
+                  ))}
+                </div>
+                <Button
+                  onClick={saveLocations}
+                  disabled={saving || !selectedUser.is_active}
+                  className="h-11"
+                >
+                  Save location access
                 </Button>
+                {!selectedUser.is_active ? (
+                  <p className="text-xs text-amber-700">
+                    Enable this user first before assigning locations.
+                  </p>
+                ) : null}
               </div>
             ) : null}
           </div>

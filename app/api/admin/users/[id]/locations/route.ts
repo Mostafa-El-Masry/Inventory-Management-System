@@ -50,6 +50,23 @@ export async function PUT(
   }
 
   const { id } = await params;
+  const { data: profile, error: profileError } = await supabaseAdmin
+    .from("profiles")
+    .select("id, is_active")
+    .eq("id", id)
+    .maybeSingle<{ id: string; is_active: boolean }>();
+
+  if (profileError) {
+    return fail(profileError.message, 400);
+  }
+  if (!profile) {
+    return fail("User profile was not found.", 404);
+  }
+
+  if (!profile.is_active && payload.data.location_ids.length > 0) {
+    return fail("Cannot assign locations to a disabled user.", 409);
+  }
+
   const { error: deleteError } = await supabaseAdmin
     .from("user_location_access")
     .delete()

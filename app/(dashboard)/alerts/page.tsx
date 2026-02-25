@@ -63,9 +63,9 @@ export default function AlertsPage() {
         <Card className="border-rose-200 bg-rose-50 text-rose-700">{error}</Card>
       ) : null}
 
-      <Card>
+      <Card className="min-h-[24rem]">
         <h2 className="text-lg font-semibold">Open and Historical Alerts</h2>
-        <div className="mt-4 space-y-3">
+        <div className="mt-4 max-h-[36rem] space-y-3 overflow-y-auto pr-1">
           {alerts.map((alert) => (
             <div
               key={alert.id}
@@ -82,14 +82,14 @@ export default function AlertsPage() {
               </div>
               <p className="mt-2 text-sm font-medium">{alert.message}</p>
               <p className="mt-1 text-xs text-slate-600">
-                {(alert.locations?.code ?? "LOC")} · {(alert.products?.sku ?? "SKU")} ·{" "}
+                {(alert.locations?.code ?? "LOC")} - {(alert.products?.sku ?? "SKU")} -{" "}
                 {alert.due_date ?? "No due date"}
               </p>
 
               {alert.status !== "ACKED" ? (
                 <Button
                   variant="secondary"
-                  className="mt-3"
+                  className="mt-3 h-10"
                   onClick={() => ackAlert(alert.id)}
                 >
                   Acknowledge

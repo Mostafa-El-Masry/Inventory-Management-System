@@ -62,7 +62,7 @@ export default function LoginPage() {
             type="email"
             required
             autoComplete="email"
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-cyan-500 focus:ring-2"
+            className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none ring-cyan-500 focus:ring-2"
           />
         </div>
 
@@ -76,7 +76,7 @@ export default function LoginPage() {
             type="password"
             required
             autoComplete="current-password"
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none ring-cyan-500 focus:ring-2"
+            className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline-none ring-cyan-500 focus:ring-2"
           />
         </div>
 
@@ -86,7 +86,7 @@ export default function LoginPage() {
           </p>
         ) : null}
 
-        <Button type="submit" disabled={loading} className="w-full">
+        <Button type="submit" disabled={loading} className="h-11 w-full">
           {loading ? "Signing in..." : "Sign in"}
         </Button>
       </form>

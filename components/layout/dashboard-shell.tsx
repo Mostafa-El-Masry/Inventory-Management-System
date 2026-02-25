@@ -14,10 +14,10 @@ export function DashboardShell({
   subheading,
 }: DashboardShellProps) {
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="mx-auto flex w-full max-w-[1600px]">
+    <div className="min-h-dvh bg-slate-50 text-slate-900">
+      <div className="mx-auto flex min-h-dvh w-full max-w-[1700px] flex-col md:flex-row">
         <DashboardNav />
-        <main className="flex-1 p-6 md:p-8">
+        <main className="min-w-0 flex-1 p-4 pb-8 md:p-8">
           <header className="mb-6">
             <h1 className="text-2xl font-bold tracking-tight">{heading}</h1>
             {subheading ? (

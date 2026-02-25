@@ -10,6 +10,7 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const entity = url.searchParams.get("entity");
+  const includeInactive = url.searchParams.get("include_inactive") === "true";
 
   if (!entity || !["products", "stock", "transactions"].includes(entity)) {
     return fail("Invalid export entity. Use products, stock, or transactions.", 422);
@@ -21,10 +22,16 @@ export async function GET(request: Request) {
   let rows: Record<string, unknown>[] = [];
 
   if (entity === "products") {
-    const { data, error } = await context.supabase
+    let query = context.supabase
       .from("products")
       .select("id, sku, barcode, name, unit, is_active, created_at")
       .order("name", { ascending: true });
+
+    if (!includeInactive) {
+      query = query.eq("is_active", true);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       return fail(error.message, 400);

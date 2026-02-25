@@ -5,11 +5,14 @@ import {
 } from "@/lib/validation";
 import { fail, ok, parseBody } from "@/lib/utils/http";
 
-export async function GET() {
+export async function GET(request: Request) {
   const context = await getAuthContext();
   if (context instanceof Response) {
     return context;
   }
+
+  const includeInactive =
+    new URL(request.url).searchParams.get("include_inactive") === "true";
 
   let query = context.supabase
     .from("locations")
@@ -22,6 +25,10 @@ export async function GET() {
     }
 
     query = query.in("id", context.locationIds);
+  }
+
+  if (!includeInactive) {
+    query = query.eq("is_active", true);
   }
 
   const { data, error } = await query;

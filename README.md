@@ -53,7 +53,11 @@ Next.js + Supabase inventory application with:
 ## Core API Endpoints
 
 - `GET/POST/PATCH /api/locations`
+- `POST /api/locations/[id]/archive`
+- `POST /api/locations/[id]/activate`
 - `GET/POST/PATCH /api/products`
+- `POST /api/products/[id]/archive`
+- `POST /api/products/[id]/activate`
 - `GET/POST/PATCH /api/products/[id]/policies`
 - `GET /api/stock`
 - `GET/POST /api/transactions`
@@ -68,6 +72,11 @@ Next.js + Supabase inventory application with:
 - `POST /api/alerts/[id]/ack`
 - `GET /api/reports/dashboard`
 - `GET /api/reports/export?entity=products|stock|transactions`
+- `GET /api/auth/me`
+- `POST /api/admin/users`
+- `POST /api/admin/users/[id]/disable`
+- `POST /api/admin/users/[id]/enable`
+- `POST /api/admin/users/[id]/invite-resend`
 
 ## Quality Checks
 

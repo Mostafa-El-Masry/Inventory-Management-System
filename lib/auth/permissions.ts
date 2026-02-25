@@ -2,6 +2,7 @@ import { User } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
 import { Profile, Role } from "@/lib/types/domain";
+import { AuthCapabilities } from "@/lib/types/api";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export interface AuthContext {
@@ -9,6 +10,22 @@ export interface AuthContext {
   user: User;
   profile: Profile;
   locationIds: string[];
+  capabilities: AuthCapabilities;
+}
+
+export function getAuthCapabilities(role: Role): AuthCapabilities {
+  const isAdmin = role === "admin";
+  const isManager = role === "manager";
+
+  return {
+    canManageUsers: isAdmin,
+    canCreateProductMaster: isAdmin,
+    canEditProductMaster: isAdmin,
+    canArchiveProducts: isAdmin,
+    canManageLocations: isAdmin,
+    canArchiveLocations: isAdmin,
+    canEditProductPolicies: isAdmin || isManager,
+  };
 }
 
 export function hasAnyRole(role: Role, allowed: Role[]) {
@@ -67,12 +84,15 @@ export async function getAuthContext(): Promise<AuthContext | NextResponse> {
 
   const { data: rawProfile, error: profileError } = await supabase
     .from("profiles")
-    .select("id, role, is_active")
+    .select("id, full_name, role, is_active, created_at, updated_at")
     .eq("id", user.id)
     .maybeSingle<{
       id: string;
+      full_name: string | null;
       role: string;
       is_active: boolean;
+      created_at: string | null;
+      updated_at: string | null;
     }>();
 
   if (profileError || !rawProfile) {
@@ -93,11 +113,11 @@ export async function getAuthContext(): Promise<AuthContext | NextResponse> {
 
   const profile: Profile = {
     id: rawProfile.id,
-    full_name: "",
+    full_name: rawProfile.full_name ?? "",
     role: normalizedRole,
     is_active: Boolean(rawProfile.is_active),
-    created_at: "",
-    updated_at: "",
+    created_at: rawProfile.created_at ?? "",
+    updated_at: rawProfile.updated_at ?? "",
   };
 
   if (!profile.is_active) {
@@ -120,5 +140,6 @@ export async function getAuthContext(): Promise<AuthContext | NextResponse> {
     user,
     profile,
     locationIds,
+    capabilities: getAuthCapabilities(profile.role),
   };
 }

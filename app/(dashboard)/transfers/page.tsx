@@ -116,13 +116,13 @@ export default function TransfersPage() {
         <Card className="border-rose-200 bg-rose-50 text-rose-700">{error}</Card>
       ) : null}
 
-      <Card>
+      <Card className="min-h-[18rem]">
         <h2 className="text-lg font-semibold">Create Transfer Request</h2>
         <form onSubmit={createTransfer} className="mt-4 grid gap-3 md:grid-cols-5">
           <select
             name="from_location_id"
             required
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
           >
             <option value="">From location</option>
             {locations.map((location) => (
@@ -134,7 +134,7 @@ export default function TransfersPage() {
           <select
             name="to_location_id"
             required
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
           >
             <option value="">To location</option>
             {locations.map((location) => (
@@ -146,7 +146,7 @@ export default function TransfersPage() {
           <select
             name="product_id"
             required
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
           >
             <option value="">Product</option>
             {products.map((product) => (
@@ -161,24 +161,24 @@ export default function TransfersPage() {
             min={1}
             required
             placeholder="Qty"
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
           />
-          <Button type="submit" disabled={loading}>
+          <Button type="submit" disabled={loading} className="h-11">
             {loading ? "Saving..." : "Create Request"}
           </Button>
           <input
             name="notes"
             placeholder="Notes"
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm md:col-span-5"
+            className="h-11 rounded-lg border border-slate-300 px-3 text-sm md:col-span-5"
           />
         </form>
       </Card>
 
-      <Card>
+      <Card className="min-h-[24rem]">
         <h2 className="text-lg font-semibold">Transfer History</h2>
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-4 max-h-[32rem] overflow-auto">
           <table className="min-w-full text-sm">
-            <thead>
+            <thead className="sticky top-0 bg-white">
               <tr className="text-left text-slate-500">
                 <th className="pb-2 pr-3">Number</th>
                 <th className="pb-2 pr-3">Status</th>

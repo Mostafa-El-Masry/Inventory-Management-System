@@ -87,12 +87,12 @@ export default function InventoryPage() {
         <Card className="border-rose-200 bg-rose-50 text-rose-700">{error}</Card>
       ) : null}
 
-      <Card>
+      <Card className="min-h-36">
         <h2 className="text-lg font-semibold">Filters</h2>
         <form onSubmit={filterStock} className="mt-3 grid gap-3 md:grid-cols-3">
           <select
             name="product_id"
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
           >
             <option value="">All products</option>
             {products.map((product) => (
@@ -104,7 +104,7 @@ export default function InventoryPage() {
 
           <select
             name="location_id"
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
           >
             <option value="">All locations</option>
             {locations.map((location) => (
@@ -114,17 +114,19 @@ export default function InventoryPage() {
             ))}
           </select>
 
-          <Button type="submit">Apply Filter</Button>
+          <Button type="submit" className="h-11">
+            Apply Filter
+          </Button>
         </form>
       </Card>
 
-      <Card>
+      <Card className="min-h-[22rem]">
         <h2 className="text-lg font-semibold">
           Stock Batches {loading ? "(Loading...)" : ""}
         </h2>
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-4 max-h-[32rem] overflow-auto">
           <table className="min-w-full text-sm">
-            <thead>
+            <thead className="sticky top-0 bg-white">
               <tr className="text-left text-slate-500">
                 <th className="pb-2 pr-3">Location</th>
                 <th className="pb-2 pr-3">Product</th>

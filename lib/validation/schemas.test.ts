@@ -4,6 +4,7 @@ import {
   productCreateSchema,
   transactionCreateSchema,
   transferCreateSchema,
+  userCreateSchema,
 } from "@/lib/validation";
 
 describe("validation schemas", () => {
@@ -40,6 +41,30 @@ describe("validation schemas", () => {
       from_location_id: "550e8400-e29b-41d4-a716-446655440000",
       to_location_id: "550e8400-e29b-41d4-a716-446655440001",
       lines: [],
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("validates invite user payload", () => {
+    const parsed = userCreateSchema.safeParse({
+      email: "invited.user@ims.local",
+      full_name: "Invited User",
+      role: "staff",
+      mode: "invite",
+      location_ids: [],
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it("requires password for password-mode provisioning", () => {
+    const parsed = userCreateSchema.safeParse({
+      email: "local.user@ims.local",
+      full_name: "Local User",
+      role: "manager",
+      mode: "password",
+      location_ids: [],
     });
 
     expect(parsed.success).toBe(false);

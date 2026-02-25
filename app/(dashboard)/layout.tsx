@@ -19,10 +19,10 @@ export default async function DashboardLayout({
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="mx-auto flex w-full max-w-[1600px]">
+    <div className="min-h-dvh bg-slate-50 text-slate-900">
+      <div className="mx-auto flex min-h-dvh w-full max-w-[1700px] flex-col md:flex-row">
         <DashboardNav />
-        <main className="min-h-screen flex-1 p-6 md:p-8">{children}</main>
+        <main className="min-w-0 flex-1 p-4 pb-8 md:p-8">{children}</main>
       </div>
     </div>
   );

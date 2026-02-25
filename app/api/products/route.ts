@@ -2,16 +2,25 @@ import { assertRole, getAuthContext } from "@/lib/auth/permissions";
 import { productCreateSchema, productPatchSchema } from "@/lib/validation";
 import { fail, ok, parseBody } from "@/lib/utils/http";
 
-export async function GET() {
+export async function GET(request: Request) {
   const context = await getAuthContext();
   if (context instanceof Response) {
     return context;
   }
 
-  const { data, error } = await context.supabase
+  const includeInactive =
+    new URL(request.url).searchParams.get("include_inactive") === "true";
+
+  let query = context.supabase
     .from("products")
     .select("*")
     .order("name", { ascending: true });
+
+  if (!includeInactive) {
+    query = query.eq("is_active", true);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     return fail(error.message, 400);
@@ -26,7 +35,7 @@ export async function POST(request: Request) {
     return context;
   }
 
-  const roleError = assertRole(context, ["admin", "manager"]);
+  const roleError = assertRole(context, ["admin"]);
   if (roleError) {
     return roleError;
   }
@@ -55,7 +64,7 @@ export async function PATCH(request: Request) {
     return context;
   }
 
-  const roleError = assertRole(context, ["admin", "manager"]);
+  const roleError = assertRole(context, ["admin"]);
   if (roleError) {
     return roleError;
   }

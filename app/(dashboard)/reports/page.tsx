@@ -14,6 +14,7 @@ type Metrics = {
 export default function ReportsPage() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetch("/api/reports/dashboard", { cache: "no-store" })
@@ -21,11 +22,16 @@ export default function ReportsPage() {
         const json = (await res.json()) as Metrics & { error?: string };
         if (!res.ok) {
           setError(json.error ?? "Failed to load report metrics.");
+          setLoading(false);
           return;
         }
         setMetrics(json);
+        setLoading(false);
       })
-      .catch(() => setError("Failed to load report metrics."));
+      .catch(() => {
+        setError("Failed to load report metrics.");
+        setLoading(false);
+      });
   }, []);
 
   return (
@@ -42,21 +48,33 @@ export default function ReportsPage() {
       ) : null}
 
       <section className="grid gap-4 md:grid-cols-3">
-        <Card>
+        <Card className="min-h-32">
           <p className="text-xs uppercase tracking-wider text-slate-500">Total SKUs</p>
-          <p className="mt-2 text-3xl font-bold">{metrics?.totalSkus ?? "-"}</p>
+          {loading ? (
+            <div className="mt-3 h-8 w-16 animate-pulse rounded bg-slate-200" />
+          ) : (
+            <p className="mt-2 text-3xl font-bold">{metrics?.totalSkus ?? "-"}</p>
+          )}
         </Card>
-        <Card>
+        <Card className="min-h-32">
           <p className="text-xs uppercase tracking-wider text-slate-500">Low Stock</p>
-          <p className="mt-2 text-3xl font-bold">{metrics?.lowStockCount ?? "-"}</p>
+          {loading ? (
+            <div className="mt-3 h-8 w-16 animate-pulse rounded bg-slate-200" />
+          ) : (
+            <p className="mt-2 text-3xl font-bold">{metrics?.lowStockCount ?? "-"}</p>
+          )}
         </Card>
-        <Card>
+        <Card className="min-h-32">
           <p className="text-xs uppercase tracking-wider text-slate-500">Expiring Soon</p>
-          <p className="mt-2 text-3xl font-bold">{metrics?.expiringSoonCount ?? "-"}</p>
+          {loading ? (
+            <div className="mt-3 h-8 w-16 animate-pulse rounded bg-slate-200" />
+          ) : (
+            <p className="mt-2 text-3xl font-bold">{metrics?.expiringSoonCount ?? "-"}</p>
+          )}
         </Card>
       </section>
 
-      <Card>
+      <Card className="min-h-36">
         <h2 className="text-lg font-semibold">CSV Exports</h2>
         <div className="mt-4 flex flex-wrap gap-3">
           <a href="/api/reports/export?entity=products">

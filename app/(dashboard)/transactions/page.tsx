@@ -146,13 +146,13 @@ export default function TransactionsPage() {
         <Card className="border-rose-200 bg-rose-50 text-rose-700">{error}</Card>
       ) : null}
 
-      <Card>
+      <Card className="min-h-[18rem]">
         <h2 className="text-lg font-semibold">Create Transaction (single-line quick entry)</h2>
         <form onSubmit={createTransaction} className="mt-4 grid gap-3 md:grid-cols-4">
           <select
             name="type"
             required
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
           >
             {[
               "RECEIPT",
@@ -170,7 +170,7 @@ export default function TransactionsPage() {
 
           <select
             name="source_location_id"
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
           >
             <option value="">Source location (optional)</option>
             {locations.map((location) => (
@@ -182,7 +182,7 @@ export default function TransactionsPage() {
 
           <select
             name="destination_location_id"
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
           >
             <option value="">Destination location (optional)</option>
             {locations.map((location) => (
@@ -195,7 +195,7 @@ export default function TransactionsPage() {
           <select
             name="product_id"
             required
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
           >
             <option value="">Select product</option>
             {products.map((product) => (
@@ -211,17 +211,17 @@ export default function TransactionsPage() {
             min={1}
             type="number"
             placeholder="Quantity"
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
           />
           <input
             name="lot_number"
             placeholder="Lot number"
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
           />
           <input
             name="expiry_date"
             type="date"
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
           />
           <input
             name="unit_cost"
@@ -229,24 +229,24 @@ export default function TransactionsPage() {
             step="0.01"
             min={0}
             placeholder="Unit cost"
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
           />
           <input
             name="notes"
             placeholder="Notes"
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm md:col-span-3"
+            className="h-11 rounded-lg border border-slate-300 px-3 text-sm md:col-span-3"
           />
-          <Button type="submit" disabled={loading}>
+          <Button type="submit" disabled={loading} className="h-11">
             {loading ? "Saving..." : "Create Draft"}
           </Button>
         </form>
       </Card>
 
-      <Card>
+      <Card className="min-h-[24rem]">
         <h2 className="text-lg font-semibold">Transaction History</h2>
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-4 max-h-[32rem] overflow-auto">
           <table className="min-w-full text-sm">
-            <thead>
+            <thead className="sticky top-0 bg-white">
               <tr className="text-left text-slate-500">
                 <th className="pb-2 pr-3">Number</th>
                 <th className="pb-2 pr-3">Type</th>
