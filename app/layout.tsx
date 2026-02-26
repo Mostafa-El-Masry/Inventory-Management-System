@@ -1,14 +1,21 @@
 import type { Metadata } from "next";
-import { IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
+import { IBM_Plex_Mono, Inter, Manrope } from "next/font/google";
 import "./globals.css";
 
-const heading = Space_Grotesk({
+const heading = Manrope({
   variable: "--font-heading",
+  weight: ["500", "600", "700", "800"],
+  subsets: ["latin"],
+});
+
+const body = Inter({
+  variable: "--font-body",
+  weight: ["400", "500", "600", "700"],
   subsets: ["latin"],
 });
 
 const mono = IBM_Plex_Mono({
-  variable: "--font-mono",
+  variable: "--font-code",
   weight: ["400", "500"],
   subsets: ["latin"],
 });
@@ -25,7 +32,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${heading.variable} ${mono.variable} antialiased`}>
+      <body className={`${heading.variable} ${body.variable} ${mono.variable} antialiased`}>
         {children}
       </body>
     </html>

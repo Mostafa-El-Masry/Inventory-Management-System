@@ -5,6 +5,8 @@ import { FormEvent, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 
 type Transfer = {
   id: string;
@@ -106,70 +108,55 @@ export default function TransfersPage() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-bold">Transfers</h1>
-        <p className="text-sm text-slate-600">
-          Manager-approved inter-location transfer lifecycle.
-        </p>
+        <p className="ims-kicker">Transfers</p>
+        <h1 className="ims-title text-[2.1rem]">Transfers</h1>
+        <p className="ims-subtitle">Manager-approved inter-location transfer lifecycle.</p>
       </header>
 
-      {error ? (
-        <Card className="border-rose-200 bg-rose-50 text-rose-700">{error}</Card>
-      ) : null}
+      {error ? <p className="ims-alert-danger">{error}</p> : null}
 
       <Card className="min-h-[18rem]">
         <h2 className="text-lg font-semibold">Create Transfer Request</h2>
         <form onSubmit={createTransfer} className="mt-4 grid gap-3 md:grid-cols-5">
-          <select
-            name="from_location_id"
-            required
-            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
-          >
+          <Select name="from_location_id" required className="h-11">
             <option value="">From location</option>
             {locations.map((location) => (
               <option key={location.id} value={location.id}>
                 {(location.code ?? "LOC")} - {location.name}
               </option>
             ))}
-          </select>
-          <select
-            name="to_location_id"
-            required
-            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
-          >
+          </Select>
+          <Select name="to_location_id" required className="h-11">
             <option value="">To location</option>
             {locations.map((location) => (
               <option key={location.id} value={location.id}>
                 {(location.code ?? "LOC")} - {location.name}
               </option>
             ))}
-          </select>
-          <select
-            name="product_id"
-            required
-            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
-          >
+          </Select>
+          <Select name="product_id" required className="h-11">
             <option value="">Product</option>
             {products.map((product) => (
               <option key={product.id} value={product.id}>
                 {(product.sku ?? "SKU")} - {product.name}
               </option>
             ))}
-          </select>
-          <input
+          </Select>
+          <Input
             name="requested_qty"
             type="number"
             min={1}
             required
             placeholder="Qty"
-            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
+            className="h-11"
           />
-          <Button type="submit" disabled={loading} className="h-11">
+          <Button type="submit" disabled={loading} className="h-11 rounded-2xl">
             {loading ? "Saving..." : "Create Request"}
           </Button>
-          <input
+          <Input
             name="notes"
             placeholder="Notes"
-            className="h-11 rounded-lg border border-slate-300 px-3 text-sm md:col-span-5"
+            className="h-11 md:col-span-5"
           />
         </form>
       </Card>
@@ -177,31 +164,30 @@ export default function TransfersPage() {
       <Card className="min-h-[24rem]">
         <h2 className="text-lg font-semibold">Transfer History</h2>
         <div className="mt-4 max-h-[32rem] overflow-auto">
-          <table className="min-w-full text-sm">
-            <thead className="sticky top-0 bg-white">
-              <tr className="text-left text-slate-500">
-                <th className="pb-2 pr-3">Number</th>
-                <th className="pb-2 pr-3">Status</th>
-                <th className="pb-2 pr-3">From</th>
-                <th className="pb-2 pr-3">To</th>
-                <th className="pb-2 pr-3">Created</th>
-                <th className="pb-2">Actions</th>
+          <table className="ims-table">
+            <thead className="ims-table-head">
+              <tr>
+                <th>Number</th>
+                <th>Status</th>
+                <th>From</th>
+                <th>To</th>
+                <th>Created</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {transfers.map((transfer) => (
-                <tr key={transfer.id} className="border-t border-slate-200">
-                  <td className="py-2 pr-3 font-medium">{transfer.transfer_number}</td>
-                  <td className="py-2 pr-3">{transfer.status}</td>
-                  <td className="py-2 pr-3">{transfer.from_location_id}</td>
-                  <td className="py-2 pr-3">{transfer.to_location_id}</td>
-                  <td className="py-2 pr-3">
-                    {new Date(transfer.created_at).toLocaleString()}
-                  </td>
-                  <td className="py-2">
+                <tr key={transfer.id} className="ims-table-row">
+                  <td className="font-medium">{transfer.transfer_number}</td>
+                  <td>{transfer.status}</td>
+                  <td>{transfer.from_location_id}</td>
+                  <td>{transfer.to_location_id}</td>
+                  <td>{new Date(transfer.created_at).toLocaleString()}</td>
+                  <td>
                     <div className="flex flex-wrap gap-2">
                       <Button
                         variant="secondary"
+                        className="h-9"
                         disabled={transfer.status !== "REQUESTED"}
                         onClick={() => transferAction(transfer.id, "approve")}
                       >
@@ -209,6 +195,7 @@ export default function TransfersPage() {
                       </Button>
                       <Button
                         variant="secondary"
+                        className="h-9"
                         disabled={transfer.status !== "APPROVED"}
                         onClick={() => transferAction(transfer.id, "dispatch")}
                       >
@@ -216,6 +203,7 @@ export default function TransfersPage() {
                       </Button>
                       <Button
                         variant="secondary"
+                        className="h-9"
                         disabled={transfer.status !== "DISPATCHED"}
                         onClick={() => transferAction(transfer.id, "receive")}
                       >
@@ -228,7 +216,7 @@ export default function TransfersPage() {
             </tbody>
           </table>
           {transfers.length === 0 ? (
-            <p className="mt-3 text-sm text-slate-500">No transfers found.</p>
+            <p className="ims-empty mt-3">No transfers found.</p>
           ) : null}
         </div>
       </Card>

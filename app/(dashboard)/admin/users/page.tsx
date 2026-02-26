@@ -5,6 +5,8 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 
 type UserRow = {
   id: string;
@@ -237,72 +239,65 @@ export default function UsersAdminPage() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-bold">Users</h1>
-        <p className="text-sm text-slate-600">
+        <p className="ims-kicker">Administration</p>
+        <h1 className="ims-title text-[2.1rem]">Users</h1>
+        <p className="ims-subtitle">
           Production user lifecycle controls: provisioning, role updates, status, and
           location access.
         </p>
       </header>
 
-      {error ? (
-        <Card className="border-rose-200 bg-rose-50 text-rose-700">{error}</Card>
-      ) : null}
+      {error ? <p className="ims-alert-danger">{error}</p> : null}
 
       <Card className="overflow-hidden">
         <h2 className="text-lg font-semibold">Create User</h2>
         <form onSubmit={createUser} className="mt-4 space-y-3">
           <div className="grid gap-3 lg:grid-cols-4">
-            <input
+            <Input
               name="full_name"
               required
               placeholder="Full name"
-              className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
+              className="h-11"
             />
-            <input
+            <Input
               name="email"
               type="email"
               required
               placeholder="Email"
-              className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
+              className="h-11"
             />
-            <select
-              name="role"
-              defaultValue="staff"
-              className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
-            >
+            <Select name="role" defaultValue="staff" className="h-11">
               <option value="admin">admin</option>
               <option value="manager">manager</option>
               <option value="staff">staff</option>
-            </select>
-            <select
+            </Select>
+            <Select
               value={createMode}
               onChange={(event) => setCreateMode(event.target.value as ProvisionMode)}
-              className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
+              className="h-11"
             >
               <option value="invite">invite by email</option>
               <option value="password">set temp password</option>
-            </select>
+            </Select>
           </div>
 
           {createMode === "password" ? (
-            <input
+            <Input
               name="password"
               type="password"
               minLength={8}
               required
               placeholder="Temporary password"
-              className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"
+              className="h-11 w-full"
             />
           ) : (
-            <p className="text-xs text-slate-500">
+            <p className="ims-empty text-xs">
               Invite mode sends an email link to complete password setup.
             </p>
           )}
 
-          <div className="max-h-44 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-              Initial location access
-            </p>
+          <div className="max-h-44 overflow-y-auto rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-subtle)] p-3">
+            <p className="ims-kicker text-[0.68rem]">Initial location access</p>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               {locations.map((location) => (
                 <label key={location.id} className="flex items-center gap-2 text-sm">
@@ -317,7 +312,11 @@ export default function UsersAdminPage() {
             </div>
           </div>
 
-          <Button type="submit" disabled={saving} className="h-11 w-full sm:w-auto">
+          <Button
+            type="submit"
+            disabled={saving}
+            className="h-11 w-full rounded-2xl sm:w-auto"
+          >
             Create user
           </Button>
         </form>
@@ -331,28 +330,24 @@ export default function UsersAdminPage() {
               <form
                 key={user.id}
                 onSubmit={saveProfile}
-                className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3"
+                className="space-y-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-subtle)] p-3"
               >
                 <input type="hidden" name="id" value={user.id} />
-                <div className="text-xs text-slate-500">
-                  {user.email ?? "No email"} · {new Date(user.created_at).toLocaleString()}
+                <div className="text-xs text-[var(--text-muted)]">
+                  {user.email ?? "No email"} | {new Date(user.created_at).toLocaleString()}
                 </div>
 
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <input
+                  <Input
                     name="full_name"
                     defaultValue={user.full_name}
-                    className="h-10 rounded border border-slate-300 px-2 text-sm"
+                    className="h-10 rounded-xl"
                   />
-                  <select
-                    name="role"
-                    defaultValue={user.role}
-                    className="h-10 rounded border border-slate-300 px-2 text-sm"
-                  >
+                  <Select name="role" defaultValue={user.role} className="h-10 rounded-xl">
                     <option value="admin">admin</option>
                     <option value="manager">manager</option>
                     <option value="staff">staff</option>
-                  </select>
+                  </Select>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
@@ -360,13 +355,14 @@ export default function UsersAdminPage() {
                     <input name="is_active" type="checkbox" defaultChecked={user.is_active} />
                     Active
                   </label>
-                  <Button type="submit" variant="secondary" disabled={saving}>
+                  <Button type="submit" variant="secondary" disabled={saving} className="h-9">
                     Save
                   </Button>
                   {user.is_active ? (
                     <Button
                       type="button"
                       variant="danger"
+                      className="h-9"
                       disabled={saving}
                       onClick={() => {
                         if (
@@ -382,6 +378,7 @@ export default function UsersAdminPage() {
                     <Button
                       type="button"
                       variant="secondary"
+                      className="h-9"
                       disabled={saving}
                       onClick={() => setUserEnabled(user.id, true)}
                     >
@@ -391,6 +388,7 @@ export default function UsersAdminPage() {
                   <Button
                     type="button"
                     variant="ghost"
+                    className="h-9"
                     disabled={saving}
                     onClick={() => resendInvite(user.id)}
                   >
@@ -399,17 +397,15 @@ export default function UsersAdminPage() {
                 </div>
               </form>
             ))}
-            {users.length === 0 ? (
-              <p className="text-sm text-slate-500">No users found.</p>
-            ) : null}
+            {users.length === 0 ? <p className="ims-empty">No users found.</p> : null}
           </div>
         </Card>
 
         <Card className="min-h-[24rem]">
           <h2 className="text-lg font-semibold">Location Access</h2>
           <div className="mt-4 space-y-3">
-            <select
-              className="h-11 w-full rounded border border-slate-300 px-3 text-sm"
+            <Select
+              className="h-11 w-full"
               value={selectedUserId}
               onChange={(event) => setSelectedUserId(event.target.value)}
             >
@@ -419,10 +415,10 @@ export default function UsersAdminPage() {
                   {user.full_name} ({user.role}) {user.is_active ? "" : "[disabled]"}
                 </option>
               ))}
-            </select>
+            </Select>
 
             {selectedUser ? (
-              <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="space-y-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-subtle)] p-3">
                 <p className="text-sm font-medium">
                   Assign locations for {selectedUser.full_name}
                 </p>
@@ -442,12 +438,12 @@ export default function UsersAdminPage() {
                 <Button
                   onClick={saveLocations}
                   disabled={saving || !selectedUser.is_active}
-                  className="h-11"
+                  className="h-11 rounded-2xl"
                 >
                   Save location access
                 </Button>
                 {!selectedUser.is_active ? (
-                  <p className="text-xs text-amber-700">
+                  <p className="ims-alert-warn text-xs">
                     Enable this user first before assigning locations.
                   </p>
                 ) : null}

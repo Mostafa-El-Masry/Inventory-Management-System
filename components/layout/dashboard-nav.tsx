@@ -23,12 +23,12 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <>
-      <div className="mb-6 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2">
-        <p className="text-xs uppercase tracking-wider text-cyan-300">IMS</p>
-        <p className="text-sm font-semibold">Inventory Console</p>
+      <div className="mb-7 rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
+        <p className="text-[0.7rem] uppercase tracking-[0.18em] text-white/65">IMS</p>
+        <p className="text-sm font-semibold text-white">Inventory Console</p>
       </div>
 
-      <nav className="space-y-1">
+      <nav className="space-y-1.5">
         {links.map((link) => {
           const active = pathname === link.href;
           return (
@@ -37,12 +37,18 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
               href={link.href}
               onClick={onNavigate}
               className={cn(
-                "block rounded-md px-3 py-2 text-sm transition",
+                "group relative block rounded-xl border px-3 py-2.5 text-sm font-medium transition",
                 active
-                  ? "bg-slate-700 text-white"
-                  : "text-slate-200 hover:bg-slate-800",
+                  ? "border-[var(--brand-accent-soft)] bg-white text-[var(--text-strong)] shadow-[0_6px_16px_rgba(0,0,0,0.18)]"
+                  : "border-transparent text-white/[0.82] hover:border-white/10 hover:bg-white/[0.06] hover:text-white",
               )}
             >
+              <span
+                className={cn(
+                  "absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full transition",
+                  active ? "bg-[var(--brand-accent)]" : "bg-transparent",
+                )}
+              />
               {link.label}
             </Link>
           );
@@ -52,7 +58,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
       <form action="/api/auth/logout" method="post" className="mt-8">
         <button
           type="submit"
-          className="h-11 w-full rounded-md border border-slate-700 px-3 text-left text-sm hover:bg-slate-800"
+          className="h-11 w-full rounded-xl border border-white/18 bg-transparent px-3 text-left text-sm font-medium text-white/[0.88] transition hover:bg-white/[0.06]"
         >
           Logout
         </button>
@@ -67,7 +73,7 @@ export function DashboardNav() {
   const drawerClass = useMemo(
     () =>
       cn(
-        "fixed inset-y-0 left-0 z-50 w-[17rem] border-r border-slate-200 bg-slate-950 p-4 text-slate-100 transition-transform duration-200 md:hidden",
+        "fixed inset-y-0 left-0 z-50 w-[17rem] border-r border-white/10 bg-[#0f131a] p-4 text-white transition-transform duration-200 md:hidden",
         open ? "translate-x-0" : "-translate-x-full",
       ),
     [open],
@@ -75,14 +81,14 @@ export function DashboardNav() {
 
   return (
     <>
-      <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-slate-950 px-4 text-slate-100 md:hidden">
+      <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-white/10 bg-[#0f131a] px-4 text-white md:hidden">
         <div>
-          <p className="text-xs uppercase tracking-wider text-cyan-300">IMS</p>
+          <p className="text-[0.7rem] uppercase tracking-[0.18em] text-white/70">IMS</p>
           <p className="text-sm font-semibold">Inventory Console</p>
         </div>
         <button
           type="button"
-          className="h-10 rounded-md border border-slate-700 px-3 text-sm"
+          className="h-10 rounded-xl border border-white/20 px-3 text-sm font-medium"
           onClick={() => setOpen((value) => !value)}
           aria-expanded={open}
           aria-label="Toggle navigation menu"
@@ -95,7 +101,7 @@ export function DashboardNav() {
         <button
           type="button"
           aria-label="Close menu overlay"
-          className="fixed inset-0 z-40 bg-slate-900/50 md:hidden"
+          className="fixed inset-0 z-40 bg-black/55 md:hidden"
           onClick={() => setOpen(false)}
         />
       ) : null}
@@ -104,7 +110,7 @@ export function DashboardNav() {
         <NavContent onNavigate={() => setOpen(false)} />
       </aside>
 
-      <aside className="sticky top-0 hidden h-dvh w-[16rem] shrink-0 border-r border-slate-200 bg-slate-950 p-4 text-slate-100 md:block">
+      <aside className="sticky top-0 hidden h-dvh w-[16rem] shrink-0 border-r border-white/10 bg-[#0f131a] p-4 text-white md:block">
         <NavContent />
       </aside>
     </>

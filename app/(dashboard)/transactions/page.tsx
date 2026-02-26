@@ -5,6 +5,8 @@ import { FormEvent, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 
 type Tx = {
   id: string;
@@ -136,24 +138,17 @@ export default function TransactionsPage() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-bold">Transactions</h1>
-        <p className="text-sm text-slate-600">
-          Receive, issue, adjust, return, and cycle count inventory movements.
-        </p>
+        <p className="ims-kicker">Transactions</p>
+        <h1 className="ims-title text-[2.1rem]">Transactions</h1>
+        <p className="ims-subtitle">Receive, issue, adjust, return, and cycle count inventory movements.</p>
       </header>
 
-      {error ? (
-        <Card className="border-rose-200 bg-rose-50 text-rose-700">{error}</Card>
-      ) : null}
+      {error ? <p className="ims-alert-danger">{error}</p> : null}
 
       <Card className="min-h-[18rem]">
         <h2 className="text-lg font-semibold">Create Transaction (single-line quick entry)</h2>
         <form onSubmit={createTransaction} className="mt-4 grid gap-3 md:grid-cols-4">
-          <select
-            name="type"
-            required
-            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
-          >
+          <Select name="type" required className="h-11">
             {[
               "RECEIPT",
               "ISSUE",
@@ -166,77 +161,67 @@ export default function TransactionsPage() {
                 {type}
               </option>
             ))}
-          </select>
+          </Select>
 
-          <select
-            name="source_location_id"
-            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
-          >
+          <Select name="source_location_id" className="h-11">
             <option value="">Source location (optional)</option>
             {locations.map((location) => (
               <option key={location.id} value={location.id}>
                 {(location.code ?? "LOC")} - {location.name}
               </option>
             ))}
-          </select>
+          </Select>
 
-          <select
-            name="destination_location_id"
-            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
-          >
+          <Select name="destination_location_id" className="h-11">
             <option value="">Destination location (optional)</option>
             {locations.map((location) => (
               <option key={location.id} value={location.id}>
                 {(location.code ?? "LOC")} - {location.name}
               </option>
             ))}
-          </select>
+          </Select>
 
-          <select
-            name="product_id"
-            required
-            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
-          >
+          <Select name="product_id" required className="h-11">
             <option value="">Select product</option>
             {products.map((product) => (
               <option key={product.id} value={product.id}>
                 {(product.sku ?? "SKU")} - {product.name}
               </option>
             ))}
-          </select>
+          </Select>
 
-          <input
+          <Input
             name="qty"
             required
             min={1}
             type="number"
             placeholder="Quantity"
-            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
+            className="h-11"
           />
-          <input
+          <Input
             name="lot_number"
             placeholder="Lot number"
-            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
+            className="h-11"
           />
-          <input
+          <Input
             name="expiry_date"
             type="date"
-            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
+            className="h-11"
           />
-          <input
+          <Input
             name="unit_cost"
             type="number"
             step="0.01"
             min={0}
             placeholder="Unit cost"
-            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
+            className="h-11"
           />
-          <input
+          <Input
             name="notes"
             placeholder="Notes"
-            className="h-11 rounded-lg border border-slate-300 px-3 text-sm md:col-span-3"
+            className="h-11 md:col-span-3"
           />
-          <Button type="submit" disabled={loading} className="h-11">
+          <Button type="submit" disabled={loading} className="h-11 rounded-2xl">
             {loading ? "Saving..." : "Create Draft"}
           </Button>
         </form>
@@ -245,29 +230,28 @@ export default function TransactionsPage() {
       <Card className="min-h-[24rem]">
         <h2 className="text-lg font-semibold">Transaction History</h2>
         <div className="mt-4 max-h-[32rem] overflow-auto">
-          <table className="min-w-full text-sm">
-            <thead className="sticky top-0 bg-white">
-              <tr className="text-left text-slate-500">
-                <th className="pb-2 pr-3">Number</th>
-                <th className="pb-2 pr-3">Type</th>
-                <th className="pb-2 pr-3">Status</th>
-                <th className="pb-2 pr-3">Created</th>
-                <th className="pb-2">Actions</th>
+          <table className="ims-table">
+            <thead className="ims-table-head">
+              <tr>
+                <th>Number</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {transactions.map((tx) => (
-                <tr key={tx.id} className="border-t border-slate-200">
-                  <td className="py-2 pr-3 font-medium">{tx.tx_number}</td>
-                  <td className="py-2 pr-3">{tx.type}</td>
-                  <td className="py-2 pr-3">{tx.status}</td>
-                  <td className="py-2 pr-3">
-                    {new Date(tx.created_at).toLocaleString()}
-                  </td>
-                  <td className="py-2">
+                <tr key={tx.id} className="ims-table-row">
+                  <td className="font-medium">{tx.tx_number}</td>
+                  <td>{tx.type}</td>
+                  <td>{tx.status}</td>
+                  <td>{new Date(tx.created_at).toLocaleString()}</td>
+                  <td>
                     <div className="flex flex-wrap gap-2">
                       <Button
                         variant="secondary"
+                        className="h-9"
                         onClick={() => runAction(tx.id, "submit")}
                         disabled={tx.status !== "DRAFT"}
                       >
@@ -275,6 +259,7 @@ export default function TransactionsPage() {
                       </Button>
                       <Button
                         variant="secondary"
+                        className="h-9"
                         onClick={() => runAction(tx.id, "post")}
                         disabled={tx.status !== "SUBMITTED"}
                       >
@@ -282,6 +267,7 @@ export default function TransactionsPage() {
                       </Button>
                       <Button
                         variant="danger"
+                        className="h-9"
                         onClick={() => reverse(tx.id)}
                         disabled={tx.status !== "POSTED"}
                       >
@@ -294,7 +280,7 @@ export default function TransactionsPage() {
             </tbody>
           </table>
           {transactions.length === 0 ? (
-            <p className="mt-3 text-sm text-slate-500">No transactions yet.</p>
+            <p className="ims-empty mt-3">No transactions yet.</p>
           ) : null}
         </div>
       </Card>

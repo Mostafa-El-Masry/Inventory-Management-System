@@ -58,42 +58,38 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <header>
-        <p className="text-xs uppercase tracking-[0.2em] text-cyan-700">Operations</p>
-        <h1 className="text-2xl font-bold">Inventory Dashboard</h1>
-        <p className="text-sm text-slate-600">
-          Live stock health, transfer flow, and recent activity.
-        </p>
+        <p className="ims-kicker">Operations</p>
+        <h1 className="ims-title text-[2.1rem]">Inventory Dashboard</h1>
+        <p className="ims-subtitle">Live stock health, transfer flow, and recent activity.</p>
       </header>
 
-      {error ? (
-        <Card className="border-rose-200 bg-rose-50 text-rose-700">{error}</Card>
-      ) : null}
+      {error ? <p className="ims-alert-danger">{error}</p> : null}
 
       <section className="grid gap-4 sm:grid-cols-3">
         <Card className="min-h-32">
-          <p className="text-xs uppercase tracking-wider text-slate-500">Total SKUs</p>
+          <p className="ims-kicker">Total SKUs</p>
           {loading ? (
-            <div className="mt-3 h-8 w-16 animate-pulse rounded bg-slate-200" />
+            <div className="ims-skeleton mt-3 h-8 w-16" />
           ) : (
             <p className="mt-2 text-3xl font-bold">{data?.totalSkus ?? "-"}</p>
           )}
         </Card>
         <Card className="min-h-32">
-          <p className="text-xs uppercase tracking-wider text-slate-500">Low Stock</p>
+          <p className="ims-kicker">Low Stock</p>
           {loading ? (
-            <div className="mt-3 h-8 w-16 animate-pulse rounded bg-slate-200" />
+            <div className="ims-skeleton mt-3 h-8 w-16" />
           ) : (
-            <p className="mt-2 text-3xl font-bold text-amber-700">
+            <p className="mt-2 text-3xl font-bold text-[var(--status-warn-fg)]">
               {data?.lowStockCount ?? "-"}
             </p>
           )}
         </Card>
         <Card className="min-h-32">
-          <p className="text-xs uppercase tracking-wider text-slate-500">Expiring Soon</p>
+          <p className="ims-kicker">Expiring Soon</p>
           {loading ? (
-            <div className="mt-3 h-8 w-16 animate-pulse rounded bg-slate-200" />
+            <div className="ims-skeleton mt-3 h-8 w-16" />
           ) : (
-            <p className="mt-2 text-3xl font-bold text-rose-700">
+            <p className="mt-2 text-3xl font-bold text-[var(--status-danger-fg)]">
               {data?.expiringSoonCount ?? "-"}
             </p>
           )}
@@ -108,13 +104,13 @@ export default function DashboardPage() {
               ? Array.from({ length: 4 }).map((_, index) => (
                   <div
                     key={index}
-                    className="h-10 animate-pulse rounded-md bg-slate-100"
+                    className="ims-skeleton h-10"
                   />
                 ))
               : transferRows.map(([status, count]) => (
                   <div
                     key={status}
-                    className="flex items-center justify-between rounded-md bg-slate-50 px-3 py-2"
+                    className="flex items-center justify-between rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-subtle)] px-3 py-2"
                   >
                     <span className="text-sm">{status}</span>
                     <Badge>{String(count)}</Badge>
@@ -130,22 +126,22 @@ export default function DashboardPage() {
               ? Array.from({ length: 6 }).map((_, index) => (
                   <div
                     key={index}
-                    className="h-14 animate-pulse rounded-md bg-slate-100"
+                    className="ims-skeleton h-14"
                   />
                 ))
               : (data?.recentTransactions ?? []).map((tx) => (
                   <div
                     key={tx.id}
-                    className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+                    className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-subtle)] px-3 py-2"
                   >
                     <p className="text-sm font-semibold">{tx.tx_number}</p>
-                    <p className="text-xs text-slate-600">
+                    <p className="text-xs text-[var(--text-muted)]">
                       {tx.type} - {tx.status}
                     </p>
                   </div>
                 ))}
             {!loading && data && data.recentTransactions.length === 0 ? (
-              <p className="text-sm text-slate-500">No recent activity.</p>
+              <p className="ims-empty">No recent activity.</p>
             ) : null}
           </div>
         </Card>

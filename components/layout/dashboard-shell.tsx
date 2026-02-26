@@ -14,14 +14,14 @@ export function DashboardShell({
   subheading,
 }: DashboardShellProps) {
   return (
-    <div className="min-h-dvh bg-slate-50 text-slate-900">
-      <div className="mx-auto flex min-h-dvh w-full max-w-[1700px] flex-col md:flex-row">
+    <div className="ims-page">
+      <div className="mx-auto flex min-h-dvh w-full max-w-[1720px] flex-col md:flex-row">
         <DashboardNav />
-        <main className="min-w-0 flex-1 p-4 pb-8 md:p-8">
+        <main className="ims-content">
           <header className="mb-6">
             <h1 className="text-2xl font-bold tracking-tight">{heading}</h1>
             {subheading ? (
-              <p className="mt-1 text-sm text-slate-600">{subheading}</p>
+              <p className="mt-1 text-sm text-[var(--text-muted)]">{subheading}</p>
             ) : null}
           </header>
           {children}

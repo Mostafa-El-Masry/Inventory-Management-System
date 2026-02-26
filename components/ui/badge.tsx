@@ -5,10 +5,13 @@ import { cn } from "@/lib/utils/cn";
 type Tone = "default" | "warn" | "danger" | "success";
 
 const toneClass: Record<Tone, string> = {
-  default: "bg-slate-100 text-slate-800",
-  warn: "bg-amber-100 text-amber-900",
-  danger: "bg-rose-100 text-rose-900",
-  success: "bg-emerald-100 text-emerald-900",
+  default:
+    "border border-[var(--border-subtle)] bg-[var(--bg-subtle)] text-[var(--text-strong)]",
+  warn: "border border-transparent bg-[var(--status-warn-bg)] text-[var(--status-warn-fg)]",
+  danger:
+    "border border-transparent bg-[var(--status-danger-bg)] text-[var(--status-danger-fg)]",
+  success:
+    "border border-transparent bg-[var(--status-success-bg)] text-[var(--status-success-fg)]",
 };
 
 interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
@@ -19,7 +22,7 @@ export function Badge({ className, tone = "default", ...props }: BadgeProps) {
   return (
     <span
       className={cn(
-        "inline-flex rounded-md px-2 py-1 text-xs font-semibold",
+        "inline-flex rounded-lg px-2.5 py-1 text-xs font-semibold",
         toneClass[tone],
         className,
       )}

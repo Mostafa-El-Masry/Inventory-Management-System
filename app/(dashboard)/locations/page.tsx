@@ -5,6 +5,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 type Location = {
   id: string;
@@ -114,48 +115,45 @@ export default function LocationsPage() {
   return (
     <div className="space-y-6">
       <header className="space-y-2">
-        <h1 className="text-2xl font-bold">Locations</h1>
-        <p className="text-sm text-slate-600">
-          Archive-first location lifecycle with timezone management.
-        </p>
+        <p className="ims-kicker">Master Data</p>
+        <h1 className="ims-title text-[2.1rem]">Locations</h1>
+        <p className="ims-subtitle">Archive-first location lifecycle with timezone management.</p>
       </header>
 
-      {error ? (
-        <Card className="border-rose-200 bg-rose-50 text-rose-700">{error}</Card>
-      ) : null}
+      {error ? <p className="ims-alert-danger">{error}</p> : null}
 
       <section className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-1 min-h-[24rem]">
           <h2 className="text-lg font-semibold">Add Location</h2>
           {capabilities === null ? (
-            <p className="mt-4 text-sm text-slate-600">Loading permissions...</p>
+            <p className="ims-empty mt-4">Loading permissions...</p>
           ) : capabilities.canManageLocations ? (
             <form onSubmit={handleCreate} className="mt-4 space-y-3">
-              <input
+              <Input
                 name="code"
                 required
                 placeholder="Code (e.g. NYC-01)"
-                className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"
+                className="h-11"
               />
-              <input
+              <Input
                 name="name"
                 required
                 placeholder="Location name"
-                className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"
+                className="h-11"
               />
-              <input
+              <Input
                 name="timezone"
                 required
                 defaultValue="UTC"
                 placeholder="Timezone (e.g. America/New_York)"
-                className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"
+                className="h-11"
               />
-              <Button type="submit" disabled={loading} className="h-11 w-full">
+              <Button type="submit" disabled={loading} className="h-11 w-full rounded-2xl">
                 {loading ? "Creating..." : "Create Location"}
               </Button>
             </form>
           ) : (
-            <p className="mt-4 text-sm text-slate-600">
+            <p className="ims-empty mt-4">
               Location management is restricted to administrators.
             </p>
           )}
@@ -164,7 +162,7 @@ export default function LocationsPage() {
         <Card className="lg:col-span-2 min-h-[24rem]">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-semibold">Location List</h2>
-            <label className="flex items-center gap-2 text-sm text-slate-600">
+            <label className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
               <input
                 type="checkbox"
                 checked={showInactive}
@@ -175,28 +173,29 @@ export default function LocationsPage() {
           </div>
 
           <div className="mt-4 max-h-[32rem] overflow-auto">
-            <table className="min-w-full text-sm">
-              <thead className="sticky top-0 bg-white">
-                <tr className="text-left text-slate-500">
-                  <th className="pb-2 pr-4">Code</th>
-                  <th className="pb-2 pr-4">Name</th>
-                  <th className="pb-2 pr-4">Timezone</th>
-                  <th className="pb-2 pr-4">Active</th>
-                  <th className="pb-2">Action</th>
+            <table className="ims-table">
+              <thead className="ims-table-head">
+                <tr>
+                  <th>Code</th>
+                  <th>Name</th>
+                  <th>Timezone</th>
+                  <th>Active</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {locations.map((location) => (
-                  <tr key={location.id} className="border-t border-slate-200">
-                    <td className="py-2 pr-4 font-medium">{location.code}</td>
-                    <td className="py-2 pr-4">{location.name}</td>
-                    <td className="py-2 pr-4">{location.timezone}</td>
-                    <td className="py-2 pr-4">{location.is_active ? "Yes" : "No"}</td>
-                    <td className="py-2">
+                  <tr key={location.id} className="ims-table-row">
+                    <td className="font-medium">{location.code}</td>
+                    <td>{location.name}</td>
+                    <td>{location.timezone}</td>
+                    <td>{location.is_active ? "Yes" : "No"}</td>
+                    <td>
                       {capabilities?.canArchiveLocations ? (
                         location.is_active ? (
                           <Button
                             variant="secondary"
+                            className="h-9"
                             disabled={stateLoading}
                             onClick={() => setLocationActive(location.id, false)}
                           >
@@ -205,6 +204,7 @@ export default function LocationsPage() {
                         ) : (
                           <Button
                             variant="secondary"
+                            className="h-9"
                             disabled={stateLoading}
                             onClick={() => setLocationActive(location.id, true)}
                           >
@@ -212,7 +212,7 @@ export default function LocationsPage() {
                           </Button>
                         )
                       ) : (
-                        <span className="text-xs text-slate-400">restricted</span>
+                        <span className="text-xs text-[var(--text-muted)]">restricted</span>
                       )}
                     </td>
                   </tr>
@@ -220,7 +220,7 @@ export default function LocationsPage() {
               </tbody>
             </table>
             {locations.length === 0 ? (
-              <p className="mt-3 text-sm text-slate-500">No locations found.</p>
+              <p className="ims-empty mt-3">No locations found.</p>
             ) : null}
           </div>
         </Card>

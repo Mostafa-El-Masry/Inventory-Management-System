@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Select } from "@/components/ui/select";
 
 type StockRow = {
   id: string;
@@ -77,44 +78,35 @@ export default function InventoryPage() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-bold">Inventory</h1>
-        <p className="text-sm text-slate-600">
-          Batch-level stock with lot, expiry date, and available quantity.
-        </p>
+        <p className="ims-kicker">Inventory</p>
+        <h1 className="ims-title text-[2.1rem]">Inventory Stock</h1>
+        <p className="ims-subtitle">Batch-level stock with lot, expiry date, and available quantity.</p>
       </header>
 
-      {error ? (
-        <Card className="border-rose-200 bg-rose-50 text-rose-700">{error}</Card>
-      ) : null}
+      {error ? <p className="ims-alert-danger">{error}</p> : null}
 
       <Card className="min-h-36">
         <h2 className="text-lg font-semibold">Filters</h2>
         <form onSubmit={filterStock} className="mt-3 grid gap-3 md:grid-cols-3">
-          <select
-            name="product_id"
-            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
-          >
+          <Select name="product_id" className="h-11">
             <option value="">All products</option>
             {products.map((product) => (
               <option key={product.id} value={product.id}>
                 {(product.sku ?? "SKU")} - {product.name}
               </option>
             ))}
-          </select>
+          </Select>
 
-          <select
-            name="location_id"
-            className="h-11 rounded-lg border border-slate-300 px-3 text-sm"
-          >
+          <Select name="location_id" className="h-11">
             <option value="">All locations</option>
             {locations.map((location) => (
               <option key={location.id} value={location.id}>
                 {(location.code ?? "LOC")} - {location.name}
               </option>
             ))}
-          </select>
+          </Select>
 
-          <Button type="submit" className="h-11">
+          <Button type="submit" className="h-11 rounded-2xl">
             Apply Filter
           </Button>
         </form>
@@ -125,32 +117,32 @@ export default function InventoryPage() {
           Stock Batches {loading ? "(Loading...)" : ""}
         </h2>
         <div className="mt-4 max-h-[32rem] overflow-auto">
-          <table className="min-w-full text-sm">
-            <thead className="sticky top-0 bg-white">
-              <tr className="text-left text-slate-500">
-                <th className="pb-2 pr-3">Location</th>
-                <th className="pb-2 pr-3">Product</th>
-                <th className="pb-2 pr-3">Lot</th>
-                <th className="pb-2 pr-3">Expiry</th>
-                <th className="pb-2 pr-3">Qty</th>
-                <th className="pb-2">Unit Cost</th>
+          <table className="ims-table">
+            <thead className="ims-table-head">
+              <tr>
+                <th>Location</th>
+                <th>Product</th>
+                <th>Lot</th>
+                <th>Expiry</th>
+                <th>Qty</th>
+                <th>Unit Cost</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={row.id} className="border-t border-slate-200">
-                  <td className="py-2 pr-3">{row.locations?.name ?? row.location_id}</td>
-                  <td className="py-2 pr-3">{row.products?.name ?? row.product_id}</td>
-                  <td className="py-2 pr-3">{row.lot_number ?? "-"}</td>
-                  <td className="py-2 pr-3">{row.expiry_date ?? "-"}</td>
-                  <td className="py-2 pr-3 font-semibold">{row.qty_on_hand}</td>
-                  <td className="py-2">{row.unit_cost ?? "-"}</td>
+                <tr key={row.id} className="ims-table-row">
+                  <td>{row.locations?.name ?? row.location_id}</td>
+                  <td>{row.products?.name ?? row.product_id}</td>
+                  <td>{row.lot_number ?? "-"}</td>
+                  <td>{row.expiry_date ?? "-"}</td>
+                  <td className="font-semibold">{row.qty_on_hand}</td>
+                  <td>{row.unit_cost ?? "-"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           {rows.length === 0 ? (
-            <p className="mt-3 text-sm text-slate-500">No stock rows found.</p>
+            <p className="ims-empty mt-3">No stock rows found.</p>
           ) : null}
         </div>
       </Card>

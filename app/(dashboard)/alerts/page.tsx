@@ -53,15 +53,12 @@ export default function AlertsPage() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-bold">Alerts</h1>
-        <p className="text-sm text-slate-600">
-          Low stock and expiry warnings with acknowledgment workflow.
-        </p>
+        <p className="ims-kicker">Operations</p>
+        <h1 className="ims-title text-[2.1rem]">Alerts</h1>
+        <p className="ims-subtitle">Low stock and expiry warnings with acknowledgment workflow.</p>
       </header>
 
-      {error ? (
-        <Card className="border-rose-200 bg-rose-50 text-rose-700">{error}</Card>
-      ) : null}
+      {error ? <p className="ims-alert-danger">{error}</p> : null}
 
       <Card className="min-h-[24rem]">
         <h2 className="text-lg font-semibold">Open and Historical Alerts</h2>
@@ -69,7 +66,7 @@ export default function AlertsPage() {
           {alerts.map((alert) => (
             <div
               key={alert.id}
-              className="rounded-lg border border-slate-200 bg-slate-50 p-4"
+              className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-subtle)] p-4"
             >
               <div className="flex flex-wrap items-center gap-2">
                 <Badge tone={alert.severity === "CRITICAL" ? "danger" : "warn"}>
@@ -81,7 +78,7 @@ export default function AlertsPage() {
                 </Badge>
               </div>
               <p className="mt-2 text-sm font-medium">{alert.message}</p>
-              <p className="mt-1 text-xs text-slate-600">
+              <p className="mt-1 text-xs text-[var(--text-muted)]">
                 {(alert.locations?.code ?? "LOC")} - {(alert.products?.sku ?? "SKU")} -{" "}
                 {alert.due_date ?? "No due date"}
               </p>
@@ -89,7 +86,7 @@ export default function AlertsPage() {
               {alert.status !== "ACKED" ? (
                 <Button
                   variant="secondary"
-                  className="mt-3 h-10"
+                  className="mt-3 h-10 rounded-xl"
                   onClick={() => ackAlert(alert.id)}
                 >
                   Acknowledge
@@ -98,7 +95,7 @@ export default function AlertsPage() {
             </div>
           ))}
           {alerts.length === 0 ? (
-            <p className="text-sm text-slate-500">No alerts available.</p>
+            <p className="ims-empty">No alerts available.</p>
           ) : null}
         </div>
       </Card>

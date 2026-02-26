@@ -37,37 +37,34 @@ export default function ReportsPage() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-bold">Reports</h1>
-        <p className="text-sm text-slate-600">
-          Download CSV exports and monitor high-level KPIs.
-        </p>
+        <p className="ims-kicker">Analytics</p>
+        <h1 className="ims-title text-[2.1rem]">Reports</h1>
+        <p className="ims-subtitle">Download CSV exports and monitor high-level KPIs.</p>
       </header>
 
-      {error ? (
-        <Card className="border-rose-200 bg-rose-50 text-rose-700">{error}</Card>
-      ) : null}
+      {error ? <p className="ims-alert-danger">{error}</p> : null}
 
       <section className="grid gap-4 md:grid-cols-3">
         <Card className="min-h-32">
-          <p className="text-xs uppercase tracking-wider text-slate-500">Total SKUs</p>
+          <p className="ims-kicker">Total SKUs</p>
           {loading ? (
-            <div className="mt-3 h-8 w-16 animate-pulse rounded bg-slate-200" />
+            <div className="ims-skeleton mt-3 h-8 w-16" />
           ) : (
             <p className="mt-2 text-3xl font-bold">{metrics?.totalSkus ?? "-"}</p>
           )}
         </Card>
         <Card className="min-h-32">
-          <p className="text-xs uppercase tracking-wider text-slate-500">Low Stock</p>
+          <p className="ims-kicker">Low Stock</p>
           {loading ? (
-            <div className="mt-3 h-8 w-16 animate-pulse rounded bg-slate-200" />
+            <div className="ims-skeleton mt-3 h-8 w-16" />
           ) : (
             <p className="mt-2 text-3xl font-bold">{metrics?.lowStockCount ?? "-"}</p>
           )}
         </Card>
         <Card className="min-h-32">
-          <p className="text-xs uppercase tracking-wider text-slate-500">Expiring Soon</p>
+          <p className="ims-kicker">Expiring Soon</p>
           {loading ? (
-            <div className="mt-3 h-8 w-16 animate-pulse rounded bg-slate-200" />
+            <div className="ims-skeleton mt-3 h-8 w-16" />
           ) : (
             <p className="mt-2 text-3xl font-bold">{metrics?.expiringSoonCount ?? "-"}</p>
           )}
@@ -78,13 +75,17 @@ export default function ReportsPage() {
         <h2 className="text-lg font-semibold">CSV Exports</h2>
         <div className="mt-4 flex flex-wrap gap-3">
           <a href="/api/reports/export?entity=products">
-            <Button>Export Products</Button>
+            <Button className="h-11 rounded-2xl">Export Products</Button>
           </a>
           <a href="/api/reports/export?entity=stock">
-            <Button variant="secondary">Export Stock</Button>
+            <Button variant="outline" className="h-11 rounded-2xl">
+              Export Stock
+            </Button>
           </a>
           <a href="/api/reports/export?entity=transactions">
-            <Button variant="secondary">Export Transactions</Button>
+            <Button variant="outline" className="h-11 rounded-2xl">
+              Export Transactions
+            </Button>
           </a>
         </div>
       </Card>
