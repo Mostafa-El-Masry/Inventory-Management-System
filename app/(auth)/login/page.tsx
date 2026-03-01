@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
-import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -16,6 +15,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [resetError, setResetError] = useState<string | null>(null);
   const [resetMessage, setResetMessage] = useState<string | null>(null);
+  const [resetLink, setResetLink] = useState<string | null>(null);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -53,23 +53,33 @@ export default function LoginPage() {
     setResetLoading(true);
     setResetError(null);
     setResetMessage(null);
+    setResetLink(null);
 
     const formData = new FormData(event.currentTarget);
     const email = String(formData.get("reset_email") ?? "").trim();
-    const redirectTo = `${window.location.origin}/auth/callback?next=/auth/set-password`;
 
-    const { error: resetRequestError } = await createClient().auth.resetPasswordForEmail(
-      email,
-      { redirectTo },
-    );
+    const response = await fetch("/api/auth/reset-password", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email }),
+    });
 
-    if (resetRequestError) {
-      setResetError(resetRequestError.message);
+    const json = (await response.json()) as {
+      error?: string;
+      warning?: string;
+      dev_reset_link?: string;
+    };
+
+    if (!response.ok) {
+      setResetError(json.error ?? "Failed to send recovery email.");
       setResetLoading(false);
       return;
     }
 
-    setResetMessage("Password reset email sent. Check your inbox.");
+    setResetMessage(json.warning ?? "Password reset email sent. Check your inbox.");
+    setResetLink(json.dev_reset_link ?? null);
     setResetLoading(false);
   }
 
@@ -143,6 +153,18 @@ export default function LoginPage() {
 
             {resetError ? <p className="ims-alert-danger">{resetError}</p> : null}
             {resetMessage ? <p className="ims-alert-success">{resetMessage}</p> : null}
+            {resetLink ? (
+              <p className="ims-alert-success">
+                <a
+                  href={resetLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-semibold underline break-all"
+                >
+                  Open password reset link
+                </a>
+              </p>
+            ) : null}
 
             <Button
               type="submit"

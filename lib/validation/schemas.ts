@@ -8,6 +8,10 @@ export const loginSchema = z.object({
   password: z.string().min(8),
 });
 
+export const passwordResetRequestSchema = z.object({
+  email: z.string().email(),
+});
+
 export const locationCreateSchema = z.object({
   code: z.string().min(2).max(32),
   name: z.string().min(2).max(128),
