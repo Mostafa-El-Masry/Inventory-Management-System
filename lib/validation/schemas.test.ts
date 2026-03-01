@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   loginSchema,
   productCreateSchema,
+  setPasswordSchema,
   transactionCreateSchema,
   transferCreateSchema,
   userCreateSchema,
@@ -91,5 +92,14 @@ describe("validation schemas", () => {
     });
 
     expect(parsed.success).toBe(true);
+  });
+
+  it("rejects mismatched set-password confirmation", () => {
+    const parsed = setPasswordSchema.safeParse({
+      password: "StrongPass123!",
+      confirm_password: "StrongPass123?",
+    });
+
+    expect(parsed.success).toBe(false);
   });
 });

@@ -2,6 +2,8 @@ import { assertRole, getAuthContext } from "@/lib/auth/permissions";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { fail, ok } from "@/lib/utils/http";
 
+const AUTH_UNBAN_DURATION = "none";
+
 export async function POST(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -26,6 +28,19 @@ export async function POST(
 
   if (error) {
     return fail(error.message, 400);
+  }
+
+  const { error: unbanError } = await supabaseAdmin.auth.admin.updateUserById(id, {
+    ban_duration: AUTH_UNBAN_DURATION,
+  });
+
+  if (unbanError) {
+    console.error("[AUTH] Failed to unban enabled user", {
+      user_id: id,
+      error: unbanError.message,
+      route: "admin/users/[id]/enable",
+    });
+    return fail("User was enabled, but auth unban failed.", 500);
   }
 
   return ok({ success: true, profile: data });

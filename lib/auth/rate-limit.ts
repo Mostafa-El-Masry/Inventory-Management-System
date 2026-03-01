@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export type AuthRateLimitEndpoint = "login" | "reset-password";
+const RATE_LIMIT_BACKEND_RETRY_AFTER_SECONDS = 60;
 
 type RateLimitConfig = {
   ip: { limit: number; windowSeconds: number };
@@ -10,6 +11,12 @@ type RateLimitConfig = {
 type RpcRateLimitRow = {
   allowed: boolean;
   retry_after_seconds: number | null;
+};
+
+export type RateLimitDecision = {
+  allowed: boolean;
+  retryAfter?: number;
+  temporaryFailure?: boolean;
 };
 
 const LIMITS: Record<AuthRateLimitEndpoint, RateLimitConfig> = {
@@ -24,19 +31,17 @@ const LIMITS: Record<AuthRateLimitEndpoint, RateLimitConfig> = {
 };
 
 function getClientIp(request: Request): string {
-  const forwardedFor = request.headers.get("x-forwarded-for");
-  if (forwardedFor) {
-    const firstIp = forwardedFor.split(",")[0]?.trim();
-    if (firstIp) {
-      return firstIp;
-    }
+  const cfConnectingIp = request.headers.get("cf-connecting-ip")?.trim();
+  if (cfConnectingIp) {
+    return cfConnectingIp;
   }
 
-  return (
-    request.headers.get("cf-connecting-ip")?.trim() ||
-    request.headers.get("x-real-ip")?.trim() ||
-    "unknown"
-  );
+  const realIp = request.headers.get("x-real-ip")?.trim();
+  if (realIp) {
+    return realIp;
+  }
+
+  return "unknown";
 }
 
 function normalizeEmail(email?: string): string | null {
@@ -53,20 +58,41 @@ async function checkBucket(
   bucket: string,
   limit: number,
   windowSeconds: number,
-): Promise<{ allowed: boolean; retryAfter?: number }> {
-  const { data, error } = await supabaseAdmin.rpc("rpc_check_rate_limit", {
-    p_endpoint: endpoint,
-    p_bucket: bucket,
-    p_limit: limit,
-    p_window_seconds: windowSeconds,
-  });
+): Promise<RateLimitDecision> {
+  let data: unknown;
+  let error: { message: string } | null = null;
+
+  try {
+    const result = await supabaseAdmin.rpc("rpc_check_rate_limit", {
+      p_endpoint: endpoint,
+      p_bucket: bucket,
+      p_limit: limit,
+      p_window_seconds: windowSeconds,
+    });
+    data = result.data;
+    error = result.error;
+  } catch (unknownError) {
+    const message =
+      unknownError instanceof Error ? unknownError.message : "unknown rpc error";
+    console.warn(
+      `[AUTH] Rate limiter RPC threw for ${endpoint}/${bucket}: ${message}`,
+    );
+    return {
+      allowed: false,
+      temporaryFailure: true,
+      retryAfter: RATE_LIMIT_BACKEND_RETRY_AFTER_SECONDS,
+    };
+  }
 
   if (error) {
     console.warn(
       `[AUTH] Rate limiter RPC failed for ${endpoint}/${bucket}: ${error.message}`,
     );
-    // Fail open to keep authentication available if the limiter backend is temporarily down.
-    return { allowed: true };
+    return {
+      allowed: false,
+      temporaryFailure: true,
+      retryAfter: RATE_LIMIT_BACKEND_RETRY_AFTER_SECONDS,
+    };
   }
 
   const row = (Array.isArray(data) ? data[0] : data) as RpcRateLimitRow | undefined;
@@ -74,7 +100,11 @@ async function checkBucket(
     console.warn(
       `[AUTH] Rate limiter RPC returned invalid shape for ${endpoint}/${bucket}.`,
     );
-    return { allowed: true };
+    return {
+      allowed: false,
+      temporaryFailure: true,
+      retryAfter: RATE_LIMIT_BACKEND_RETRY_AFTER_SECONDS,
+    };
   }
 
   if (row.allowed) {
@@ -91,9 +121,9 @@ export async function checkRateLimit(
   request: Request,
   endpoint: AuthRateLimitEndpoint,
   email?: string,
-): Promise<{ allowed: boolean; retryAfter?: number }> {
+): Promise<RateLimitDecision> {
   const config = LIMITS[endpoint];
-  const results: Array<{ allowed: boolean; retryAfter?: number }> = [];
+  const results: RateLimitDecision[] = [];
 
   const ipBucket = `ip:${getClientIp(request)}`;
   results.push(
@@ -111,6 +141,18 @@ export async function checkRateLimit(
         config.email.windowSeconds,
       ),
     );
+  }
+
+  const unavailableResults = results.filter((result) => result.temporaryFailure);
+  if (unavailableResults.length > 0) {
+    return {
+      allowed: false,
+      temporaryFailure: true,
+      retryAfter: Math.max(
+        ...unavailableResults.map((result) => result.retryAfter ?? 0),
+        RATE_LIMIT_BACKEND_RETRY_AFTER_SECONDS,
+      ),
+    };
   }
 
   const deniedResults = results.filter((result) => !result.allowed);

@@ -9,6 +9,8 @@ type AuthListUser = {
   email?: string;
 };
 
+const AUTH_BAN_DURATION = "876000h";
+
 function normalizeAdminErrorMessage(message: string) {
   const lower = message.toLowerCase();
   if (lower.includes("duplicate key") || lower.includes("already")) {
@@ -90,6 +92,23 @@ async function ensureLastAdminSafety(userId: string, nextRole?: string, nextActi
   }
 
   return { target } as const;
+}
+
+async function syncAuthBanState(userId: string, isActive: boolean) {
+  const banDuration = isActive ? "none" : AUTH_BAN_DURATION;
+  const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+    ban_duration: banDuration,
+  });
+
+  if (error) {
+    return {
+      error: `Failed to ${isActive ? "unban" : "ban"} user authentication state.`,
+      details: error.message,
+      status: 500,
+    } as const;
+  }
+
+  return { error: null, details: null, status: 200 } as const;
 }
 
 export async function GET() {
@@ -310,6 +329,19 @@ export async function PATCH(request: Request) {
 
     if (revokeError) {
       return fail(revokeError.message, 400);
+    }
+  }
+
+  if (typeof updates.is_active === "boolean") {
+    const banSync = await syncAuthBanState(id, updates.is_active);
+    if (banSync.error) {
+      console.error("[AUTH] Failed to synchronize user ban state during PATCH", {
+        user_id: id,
+        target_active: updates.is_active,
+        error: banSync.details,
+        route: "admin/users PATCH",
+      });
+      return fail(banSync.error, banSync.status);
     }
   }
 

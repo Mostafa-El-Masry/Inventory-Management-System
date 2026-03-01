@@ -34,6 +34,21 @@ export const passwordResetRequestSchema = z.object({
   email: z.string().email(),
 });
 
+export const setPasswordSchema = z
+  .object({
+    password: passwordSchema,
+    confirm_password: z.string().min(1).max(128),
+  })
+  .superRefine((value, ctx) => {
+    if (value.password !== value.confirm_password) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["confirm_password"],
+        message: "Passwords do not match.",
+      });
+    }
+  });
+
 export const locationCreateSchema = z.object({
   code: z.string().min(2).max(32),
   name: z.string().min(2).max(128),

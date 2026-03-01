@@ -24,6 +24,21 @@ export async function POST(request: Request) {
   const email = payload.data.email.trim().toLowerCase();
 
   const rateLimit = await checkRateLimit(request, "login", email);
+  if (rateLimit.temporaryFailure) {
+    const retryAfter = rateLimit.retryAfter || 60;
+    return NextResponse.json(
+      {
+        error: "Authentication service is temporarily unavailable. Please try again shortly.",
+      },
+      {
+        status: 503,
+        headers: {
+          "Retry-After": retryAfter.toString(),
+        },
+      },
+    );
+  }
+
   if (!rateLimit.allowed) {
     const retryAfter = rateLimit.retryAfter || 900;
     return NextResponse.json(

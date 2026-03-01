@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { PasswordInput } from "@/components/ui/password-input";
 import { createClient } from "@/lib/supabase/client";
 
-// Password validation requirements
 const PASSWORD_REQUIREMENTS = {
   minLength: 12,
   requireUppercase: true,
@@ -31,7 +30,10 @@ function validatePassword(password: string): { valid: boolean; errors: string[] 
   if (PASSWORD_REQUIREMENTS.requireNumber && !/[0-9]/.test(password)) {
     errors.push("Must contain at least one number");
   }
-  if (PASSWORD_REQUIREMENTS.requireSymbol && !/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+  if (
+    PASSWORD_REQUIREMENTS.requireSymbol &&
+    !/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)
+  ) {
     errors.push("Must contain at least one special character (!@#$% etc)");
   }
 
@@ -46,7 +48,10 @@ export default function SetPasswordPage() {
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [passwordStrength, setPasswordStrength] = useState<{valid: boolean; errors: string[]} | null>(null);
+  const [passwordStrength, setPasswordStrength] = useState<{
+    valid: boolean;
+    errors: string[];
+  } | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -56,7 +61,6 @@ export default function SetPasswordPage() {
         const sessionResult = await createClient().auth.getSession();
         if (!mounted) return;
 
-        // Verify we have a valid recovery/invite session
         if (sessionResult.error || !sessionResult.data.session) {
           router.replace("/login?error=invalid_or_expired_link");
           return;
@@ -90,7 +94,6 @@ export default function SetPasswordPage() {
     const password = String(formData.get("password") ?? "");
     const confirmPassword = String(formData.get("confirm_password") ?? "");
 
-    // Validate password strength
     const validation = validatePassword(password);
     if (!validation.valid) {
       setError(validation.errors.join(". ") + ".");
@@ -104,18 +107,24 @@ export default function SetPasswordPage() {
       return;
     }
 
-    const supabase = createClient();
-    const { error: updateError } = await supabase.auth.updateUser({ password });
+    const response = await fetch("/api/auth/set-password", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        password,
+        confirm_password: confirmPassword,
+      }),
+    });
 
-    if (updateError) {
-      setError(updateError.message);
+    const json = (await response.json()) as { error?: string; success?: boolean };
+
+    if (!response.ok) {
+      setError(json.error ?? "Failed to update password.");
       setLoading(false);
       return;
     }
-
-    // After successful password update, sign out to clear recovery session
-    // User must log in with their new password
-    await supabase.auth.signOut();
 
     router.push("/login?success=password_reset");
     router.refresh();
@@ -151,18 +160,18 @@ export default function SetPasswordPage() {
             onChange={(e) => handlePasswordChange(e.currentTarget.value)}
             className="h-11"
           />
-          {passwordStrength && !passwordStrength.valid && (
+          {passwordStrength && !passwordStrength.valid ? (
             <div className="mt-2 space-y-1">
-              {passwordStrength.errors.map((error, idx) => (
+              {passwordStrength.errors.map((strengthError, idx) => (
                 <p key={idx} className="text-sm text-red-600">
-                  • {error}
+                  - {strengthError}
                 </p>
               ))}
             </div>
-          )}
-          {passwordStrength && passwordStrength.valid && (
-            <p className="mt-2 text-sm text-green-600">✓ Password meets requirements</p>
-          )}
+          ) : null}
+          {passwordStrength && passwordStrength.valid ? (
+            <p className="mt-2 text-sm text-green-600">Password meets requirements.</p>
+          ) : null}
         </div>
 
         <div>
@@ -193,11 +202,11 @@ export default function SetPasswordPage() {
       <div className="mt-4 rounded-lg border border-yellow-200 bg-yellow-50 p-3">
         <p className="text-sm font-semibold text-yellow-900">Password Requirements:</p>
         <ul className="mt-2 space-y-1 text-sm text-yellow-800">
-          <li>✓ At least 12 characters</li>
-          <li>✓ Contains uppercase letter (A-Z)</li>
-          <li>✓ Contains lowercase letter (a-z)</li>
-          <li>✓ Contains number (0-9)</li>
-          <li>✓ Contains special character (!@#$% etc)</li>
+          <li>At least 12 characters</li>
+          <li>Contains uppercase letter (A-Z)</li>
+          <li>Contains lowercase letter (a-z)</li>
+          <li>Contains number (0-9)</li>
+          <li>Contains special character (!@#$% etc)</li>
         </ul>
       </div>
     </div>

@@ -27,11 +27,12 @@ Next.js + Supabase inventory application with:
    npm install
    ```
 2. Ensure `.env` has:
+   - `NODE_ENV` (`development`, `test`, or `production`)
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `SUPABASE_SERVICE_ROLE_KEY`
    - `APP_ORIGIN_ALLOWLIST` (comma-separated trusted app origins, e.g. `http://localhost:3000`)
-   - `AUTH_DEV_RESET_FALLBACK_ENABLED` (`true` or `false`, defaults to `false`)
+   - `AUTH_DEV_RESET_FALLBACK_ENABLED` (`true` or `false`)
 3. Start Supabase locally and apply SQL:
    ```bash
    supabase start
@@ -75,6 +76,7 @@ Next.js + Supabase inventory application with:
 - `GET /api/reports/dashboard`
 - `GET /api/reports/export?entity=products|stock|transactions`
 - `GET /api/auth/me`
+- `POST /api/auth/set-password`
 - `POST /api/admin/users`
 - `POST /api/admin/users/[id]/disable`
 - `POST /api/admin/users/[id]/enable`
@@ -87,3 +89,8 @@ npm run lint
 npm test
 npm run build
 ```
+
+## Deployment Checklist
+
+- Set `APP_ORIGIN_ALLOWLIST` in every environment (including CI/CD build environment).
+- Set `AUTH_DEV_RESET_FALLBACK_ENABLED=false` in production.

@@ -2,6 +2,8 @@ import { assertRole, getAuthContext } from "@/lib/auth/permissions";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { fail, ok } from "@/lib/utils/http";
 
+const AUTH_BAN_DURATION = "876000h";
+
 export async function POST(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -71,6 +73,19 @@ export async function POST(
 
   if (revokeError) {
     return fail(revokeError.message, 400);
+  }
+
+  const { error: banError } = await supabaseAdmin.auth.admin.updateUserById(id, {
+    ban_duration: AUTH_BAN_DURATION,
+  });
+
+  if (banError) {
+    console.error("[AUTH] Failed to ban disabled user", {
+      user_id: id,
+      error: banError.message,
+      route: "admin/users/[id]/disable",
+    });
+    return fail("User was disabled, but auth ban failed.", 500);
   }
 
   return ok({ success: true, profile });

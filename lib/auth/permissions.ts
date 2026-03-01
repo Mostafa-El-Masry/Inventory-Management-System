@@ -121,6 +121,10 @@ export async function getAuthContext(): Promise<AuthContext | NextResponse> {
   };
 
   if (!profile.is_active) {
+    const { error: signOutError } = await supabase.auth.signOut();
+    if (signOutError) {
+      console.warn(`[AUTH] Failed to sign out inactive user ${user.id}: ${signOutError.message}`);
+    }
     return NextResponse.json({ error: "User account is inactive." }, { status: 403 });
   }
 
