@@ -7,11 +7,46 @@ import { Button } from "@/components/ui/button";
 import { PasswordInput } from "@/components/ui/password-input";
 import { createClient } from "@/lib/supabase/client";
 
+// Password validation requirements
+const PASSWORD_REQUIREMENTS = {
+  minLength: 12,
+  requireUppercase: true,
+  requireLowercase: true,
+  requireNumber: true,
+  requireSymbol: true,
+};
+
+function validatePassword(password: string): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+
+  if (password.length < PASSWORD_REQUIREMENTS.minLength) {
+    errors.push(`At least ${PASSWORD_REQUIREMENTS.minLength} characters required`);
+  }
+  if (PASSWORD_REQUIREMENTS.requireUppercase && !/[A-Z]/.test(password)) {
+    errors.push("Must contain at least one uppercase letter");
+  }
+  if (PASSWORD_REQUIREMENTS.requireLowercase && !/[a-z]/.test(password)) {
+    errors.push("Must contain at least one lowercase letter");
+  }
+  if (PASSWORD_REQUIREMENTS.requireNumber && !/[0-9]/.test(password)) {
+    errors.push("Must contain at least one number");
+  }
+  if (PASSWORD_REQUIREMENTS.requireSymbol && !/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
+    errors.push("Must contain at least one special character (!@#$% etc)");
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
 export default function SetPasswordPage() {
   const router = useRouter();
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [passwordStrength, setPasswordStrength] = useState<{valid: boolean; errors: string[]} | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -21,6 +56,7 @@ export default function SetPasswordPage() {
         const sessionResult = await createClient().auth.getSession();
         if (!mounted) return;
 
+        // Verify we have a valid recovery/invite session
         if (sessionResult.error || !sessionResult.data.session) {
           router.replace("/login?error=invalid_or_expired_link");
           return;
@@ -41,6 +77,10 @@ export default function SetPasswordPage() {
     };
   }, [router]);
 
+  function handlePasswordChange(password: string) {
+    setPasswordStrength(validatePassword(password));
+  }
+
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
@@ -50,8 +90,10 @@ export default function SetPasswordPage() {
     const password = String(formData.get("password") ?? "");
     const confirmPassword = String(formData.get("confirm_password") ?? "");
 
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
+    // Validate password strength
+    const validation = validatePassword(password);
+    if (!validation.valid) {
+      setError(validation.errors.join(". ") + ".");
       setLoading(false);
       return;
     }
@@ -71,7 +113,11 @@ export default function SetPasswordPage() {
       return;
     }
 
-    router.push("/dashboard");
+    // After successful password update, sign out to clear recovery session
+    // User must log in with their new password
+    await supabase.auth.signOut();
+
+    router.push("/login?success=password_reset");
     router.refresh();
   }
 
@@ -101,9 +147,22 @@ export default function SetPasswordPage() {
             name="password"
             autoComplete="new-password"
             required
-            minLength={8}
+            minLength={12}
+            onChange={(e) => handlePasswordChange(e.currentTarget.value)}
             className="h-11"
           />
+          {passwordStrength && !passwordStrength.valid && (
+            <div className="mt-2 space-y-1">
+              {passwordStrength.errors.map((error, idx) => (
+                <p key={idx} className="text-sm text-red-600">
+                  • {error}
+                </p>
+              ))}
+            </div>
+          )}
+          {passwordStrength && passwordStrength.valid && (
+            <p className="mt-2 text-sm text-green-600">✓ Password meets requirements</p>
+          )}
         </div>
 
         <div>
@@ -115,17 +174,32 @@ export default function SetPasswordPage() {
             name="confirm_password"
             autoComplete="new-password"
             required
-            minLength={8}
+            minLength={12}
             className="h-11"
           />
         </div>
 
         {error ? <p className="ims-alert-danger">{error}</p> : null}
 
-        <Button type="submit" disabled={loading} className="h-11 w-full rounded-2xl">
+        <Button
+          type="submit"
+          disabled={loading || !passwordStrength?.valid}
+          className="h-11 w-full rounded-2xl"
+        >
           {loading ? "Saving..." : "Save password"}
         </Button>
       </form>
+
+      <div className="mt-4 rounded-lg border border-yellow-200 bg-yellow-50 p-3">
+        <p className="text-sm font-semibold text-yellow-900">Password Requirements:</p>
+        <ul className="mt-2 space-y-1 text-sm text-yellow-800">
+          <li>✓ At least 12 characters</li>
+          <li>✓ Contains uppercase letter (A-Z)</li>
+          <li>✓ Contains lowercase letter (a-z)</li>
+          <li>✓ Contains number (0-9)</li>
+          <li>✓ Contains special character (!@#$% etc)</li>
+        </ul>
+      </div>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { assertRole, getAuthContext } from "@/lib/auth/permissions";
+import { resolveTrustedOrigin } from "@/lib/auth/trusted-origin";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { userCreateSchema, userPatchSchema } from "@/lib/validation";
 import { fail, ok, parseBody } from "@/lib/utils/http";
@@ -146,7 +147,7 @@ export async function POST(request: Request) {
     return payload.error;
   }
 
-  const origin = new URL(request.url).origin;
+  const { origin } = resolveTrustedOrigin(request);
   const redirectTo = `${origin}/auth/callback?next=/auth/set-password`;
 
   if (payload.data.location_ids.length > 0) {

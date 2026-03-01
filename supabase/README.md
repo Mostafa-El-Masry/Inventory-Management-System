@@ -13,6 +13,8 @@ This folder contains the full database implementation for the Inventory Manageme
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `SUPABASE_SERVICE_ROLE_KEY`
+   - `APP_ORIGIN_ALLOWLIST`
+   - `AUTH_DEV_RESET_FALLBACK_ENABLED`
 
 ## Run Locally
 

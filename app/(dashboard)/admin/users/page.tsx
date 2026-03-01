@@ -282,14 +282,19 @@ export default function UsersAdminPage() {
           </div>
 
           {createMode === "password" ? (
-            <Input
-              name="password"
-              type="password"
-              minLength={8}
-              required
-              placeholder="Temporary password"
-              className="h-11 w-full"
-            />
+            <div className="space-y-2">
+              <Input
+                name="password"
+                type="password"
+                minLength={12}
+                required
+                placeholder="Temporary password"
+                className="h-11 w-full"
+              />
+              <p className="ims-empty text-xs">
+                Must be 12+ chars with uppercase, lowercase, number, and symbol.
+              </p>
+            </div>
           ) : (
             <p className="ims-empty text-xs">
               Invite mode sends an email link to complete password setup.

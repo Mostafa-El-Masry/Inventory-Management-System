@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  loginSchema,
   productCreateSchema,
   transactionCreateSchema,
   transferCreateSchema,
@@ -68,5 +69,27 @@ describe("validation schemas", () => {
     });
 
     expect(parsed.success).toBe(false);
+  });
+
+  it("rejects weak password for password-mode provisioning", () => {
+    const parsed = userCreateSchema.safeParse({
+      email: "weak.password@ims.local",
+      full_name: "Weak Password",
+      role: "staff",
+      mode: "password",
+      password: "weakpass123",
+      location_ids: [],
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("accepts short login password payloads", () => {
+    const parsed = loginSchema.safeParse({
+      email: "user@ims.local",
+      password: "short1!",
+    });
+
+    expect(parsed.success).toBe(true);
   });
 });

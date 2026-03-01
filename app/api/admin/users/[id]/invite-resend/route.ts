@@ -1,4 +1,5 @@
 import { assertRole, getAuthContext } from "@/lib/auth/permissions";
+import { resolveTrustedOrigin } from "@/lib/auth/trusted-origin";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { fail, ok } from "@/lib/utils/http";
 
@@ -24,7 +25,7 @@ export async function POST(
   }
 
   const { id } = await params;
-  const origin = new URL(request.url).origin;
+  const { origin } = resolveTrustedOrigin(request);
   const redirectTo = `${origin}/auth/callback?next=/auth/set-password`;
 
   const [profileResult, userResult] = await Promise.all([

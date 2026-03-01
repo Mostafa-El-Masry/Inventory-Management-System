@@ -15,7 +15,6 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [resetError, setResetError] = useState<string | null>(null);
   const [resetMessage, setResetMessage] = useState<string | null>(null);
-  const [resetLink, setResetLink] = useState<string | null>(null);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -36,7 +35,13 @@ export default function LoginPage() {
       body: JSON.stringify(payload),
     });
 
-    const json = (await response.json()) as { error?: string };
+    const json = (await response.json()) as { error?: string; success?: boolean };
+
+    if (response.status === 429) {
+      setError("Too many login attempts. Please try again in 15 minutes.");
+      setLoading(false);
+      return;
+    }
 
     if (!response.ok) {
       setError(json.error ?? "Failed to login.");
@@ -53,7 +58,6 @@ export default function LoginPage() {
     setResetLoading(true);
     setResetError(null);
     setResetMessage(null);
-    setResetLink(null);
 
     const formData = new FormData(event.currentTarget);
     const email = String(formData.get("reset_email") ?? "").trim();
@@ -68,9 +72,15 @@ export default function LoginPage() {
 
     const json = (await response.json()) as {
       error?: string;
+      success?: boolean;
       warning?: string;
-      dev_reset_link?: string;
     };
+
+    if (response.status === 429) {
+      setResetError("Too many reset attempts. Please try again later.");
+      setResetLoading(false);
+      return;
+    }
 
     if (!response.ok) {
       setResetError(json.error ?? "Failed to send recovery email.");
@@ -78,8 +88,11 @@ export default function LoginPage() {
       return;
     }
 
-    setResetMessage(json.warning ?? "Password reset email sent. Check your inbox.");
-    setResetLink(json.dev_reset_link ?? null);
+    // Success - always show user-friendly message (genuine or not to prevent email enumeration)
+    setResetMessage(
+      json.warning ??
+        "If an account with this email exists, you'll receive a password reset link shortly. Check your inbox and spam folder.",
+    );
     setResetLoading(false);
   }
 
@@ -153,18 +166,6 @@ export default function LoginPage() {
 
             {resetError ? <p className="ims-alert-danger">{resetError}</p> : null}
             {resetMessage ? <p className="ims-alert-success">{resetMessage}</p> : null}
-            {resetLink ? (
-              <p className="ims-alert-success">
-                <a
-                  href={resetLink}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-semibold underline break-all"
-                >
-                  Open password reset link
-                </a>
-              </p>
-            ) : null}
 
             <Button
               type="submit"

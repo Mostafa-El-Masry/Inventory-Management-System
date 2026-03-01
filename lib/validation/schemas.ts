@@ -5,8 +5,30 @@ const isoDate = z.string().date();
 
 export const loginSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(8),
+  password: z.string().min(1).max(128),
 });
+
+// Enhanced password validation: min 12 chars, requires uppercase, lowercase, number, and symbol
+export const passwordSchema = z
+  .string()
+  .min(12, "Password must be at least 12 characters")
+  .max(128, "Password must not exceed 128 characters")
+  .refine(
+    (pwd) => /[A-Z]/.test(pwd),
+    "Password must contain at least one uppercase letter",
+  )
+  .refine(
+    (pwd) => /[a-z]/.test(pwd),
+    "Password must contain at least one lowercase letter",
+  )
+  .refine(
+    (pwd) => /[0-9]/.test(pwd),
+    "Password must contain at least one number",
+  )
+  .refine(
+    (pwd) => /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pwd),
+    "Password must contain at least one special character",
+  );
 
 export const passwordResetRequestSchema = z.object({
   email: z.string().email(),
@@ -107,7 +129,7 @@ export const userCreateSchema = z
     full_name: z.string().min(1).max(120),
     role: z.enum(["admin", "manager", "staff"]),
     mode: z.enum(["invite", "password"]),
-    password: z.string().min(8).max(128).optional(),
+    password: passwordSchema.optional(),
     location_ids: z.array(uuid).default([]),
   })
   .superRefine((value, ctx) => {

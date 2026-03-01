@@ -30,6 +30,8 @@ Next.js + Supabase inventory application with:
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `SUPABASE_SERVICE_ROLE_KEY`
+   - `APP_ORIGIN_ALLOWLIST` (comma-separated trusted app origins, e.g. `http://localhost:3000`)
+   - `AUTH_DEV_RESET_FALLBACK_ENABLED` (`true` or `false`, defaults to `false`)
 3. Start Supabase locally and apply SQL:
    ```bash
    supabase start
