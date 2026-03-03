@@ -1,4 +1,5 @@
 import { getAuthContext, assertRole } from "@/lib/auth/permissions";
+import { deriveNamePrefix, nextPrefixedCode } from "@/lib/locations/code";
 import {
   locationCreateSchema,
   locationPatchSchema,
@@ -55,17 +56,46 @@ export async function POST(request: Request) {
     return payload.error;
   }
 
-  const { data, error } = await context.supabase
-    .from("locations")
-    .insert(payload.data)
-    .select("*")
-    .single();
+  const { name, timezone, is_active } = payload.data;
+  const prefix = deriveNamePrefix(name, "LOC");
+  const maxAttempts = 5;
 
-  if (error) {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const { data: existingRows, error: listError } = await context.supabase
+      .from("locations")
+      .select("code")
+      .like("code", `${prefix}-%`);
+
+    if (listError) {
+      return fail(listError.message, 400);
+    }
+
+    const existingCodes = (existingRows ?? []).map((row: { code: string }) => row.code);
+    const code = nextPrefixedCode(prefix, existingCodes);
+
+    const { data, error } = await context.supabase
+      .from("locations")
+      .insert({
+        code,
+        name,
+        timezone,
+        is_active,
+      })
+      .select("*")
+      .single();
+
+    if (!error) {
+      return ok(data, 201);
+    }
+
+    if (error.code === "23505") {
+      continue;
+    }
+
     return fail(error.message, 400);
   }
 
-  return ok(data, 201);
+  return fail("Failed to generate a unique location code.", 409);
 }
 
 export async function PATCH(request: Request) {

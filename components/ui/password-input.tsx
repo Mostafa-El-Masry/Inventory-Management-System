@@ -38,11 +38,15 @@ export function PasswordInput({
 
   return (
     <div className={cn("relative", wrapperClassName)}>
-      <Input {...props} type={visible ? "text" : "password"} className={cn("pr-11", className)} />
+      <Input
+        {...props}
+        type={visible ? "text" : "password"}
+        className={cn("pe-11", className)}
+      />
       <button
         type="button"
         onClick={() => setVisible((value) => !value)}
-        className="absolute inset-y-0 right-0 inline-flex w-11 items-center justify-center rounded-r-xl text-[var(--text-muted)] transition hover:text-[var(--text-strong)]"
+        className="absolute inset-y-0 end-0 inline-flex w-11 items-center justify-center rounded-e-[var(--radius-md)] text-[var(--text-muted)] transition hover:text-[var(--text-strong)]"
         aria-label={visible ? "Hide password" : "Show password"}
       >
         <span className="h-4.5 w-4.5">{visible ? <EyeOffIcon /> : <EyeIcon />}</span>

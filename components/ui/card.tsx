@@ -6,11 +6,11 @@ type Tone = "default" | "subtle" | "elevated";
 
 const toneClass: Record<Tone, string> = {
   default:
-    "border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-[0_1px_2px_rgba(15,23,42,0.06)]",
+    "border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow-sm)]",
   subtle:
-    "border-[var(--border-subtle)] bg-[var(--bg-subtle)] shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
+    "border-[var(--line)] bg-[var(--surface-muted)] shadow-[var(--shadow-sm)]",
   elevated:
-    "border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-[0_12px_28px_rgba(16,17,20,0.08)]",
+    "border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow-lg)]",
 };
 
 interface CardProps extends HTMLAttributes<HTMLDivElement> {
@@ -21,7 +21,7 @@ export function Card({ className, tone = "default", ...props }: CardProps) {
   return (
     <div
       className={cn(
-        "rounded-2xl border p-5",
+        "rounded-[var(--radius-xl)] border p-[var(--space-5)]",
         toneClass[tone],
         className,
       )}

@@ -4,6 +4,10 @@ begin
   if to_regclass('public.auth_rate_limits') is null then
     raise exception 'public.auth_rate_limits is missing. Run migration 011 before 013.';
   end if;
+
+  if to_regprocedure('public.rpc_check_rate_limit(text, text, integer, integer)') is null then
+    raise exception 'public.rpc_check_rate_limit(...) is missing. Run migration 011 before 013.';
+  end if;
 end $$;
 
 create or replace function public.rpc_cleanup_auth_rate_limits()

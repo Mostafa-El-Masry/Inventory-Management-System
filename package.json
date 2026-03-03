@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "eslint && npm run lint:units",
+    "lint:units": "node ./scripts/check-no-px-literals.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },

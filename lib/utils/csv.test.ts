@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { toCsv } from "@/lib/utils/csv";
+import { parseCsv, toCsv } from "@/lib/utils/csv";
 
 describe("toCsv", () => {
   it("returns empty string for empty rows", () => {
@@ -22,5 +22,27 @@ describe("toCsv", () => {
     const csv = toCsv([{ note: 'hello, "world"' }]);
 
     expect(csv).toBe('note\n"hello, ""world"""');
+  });
+});
+
+describe("parseCsv", () => {
+  it("parses simple csv rows", () => {
+    expect(parseCsv("name,unit\nParacetamol,box")).toEqual([
+      ["name", "unit"],
+      ["Paracetamol", "box"],
+    ]);
+  });
+
+  it("parses quoted commas and escaped quotes", () => {
+    expect(parseCsv('name,description\n"Vitamin, C","hello ""world"""')).toEqual([
+      ["name", "description"],
+      ["Vitamin, C", 'hello "world"'],
+    ]);
+  });
+
+  it("throws on malformed quoted csv", () => {
+    expect(() => parseCsv('name\n"broken')).toThrow(
+      "Invalid CSV format: unterminated quoted field.",
+    );
   });
 });

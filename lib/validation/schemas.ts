@@ -50,7 +50,7 @@ export const setPasswordSchema = z
   });
 
 export const locationCreateSchema = z.object({
-  code: z.string().min(2).max(32),
+  code: z.string().min(2).max(32).optional(),
   name: z.string().min(2).max(128),
   timezone: z.string().min(3).max(64).default("UTC"),
   is_active: z.boolean().default(true),
@@ -61,23 +61,42 @@ export const locationPatchSchema = locationCreateSchema.partial().extend({
 });
 
 export const productCreateSchema = z.object({
-  sku: z.string().min(2).max(64),
+  sku: z.string().min(2).max(64).optional(),
   barcode: z.string().max(128).nullable().optional(),
   name: z.string().min(2).max(160),
   description: z.string().max(500).nullable().optional(),
   unit: z.string().min(1).max(24).default("unit"),
   is_active: z.boolean().default(true),
+  category_id: uuid,
+  subcategory_id: uuid,
 });
 
-export const productPatchSchema = productCreateSchema.partial().extend({
-  id: uuid,
+export const productPatchSchema = z
+  .object({
+    barcode: z.string().max(128).nullable().optional(),
+    name: z.string().min(2).max(160).optional(),
+    description: z.string().max(500).nullable().optional(),
+    unit: z.string().min(1).max(24).optional(),
+    is_active: z.boolean().optional(),
+  })
+  .extend({
+    id: uuid,
+  })
+  .strict();
+
+export const productImportSchema = z.object({
+  csv: z.string().min(1).max(5_000_000),
 });
 
-export const productPolicySchema = z.object({
-  location_id: uuid,
-  min_qty: z.number().int().nonnegative(),
-  max_qty: z.number().int().nonnegative(),
-  reorder_qty: z.number().int().nonnegative(),
+export const productCategoryCreateSchema = z.object({
+  name: z.string().min(2).max(120),
+  is_active: z.boolean().default(true),
+});
+
+export const productSubcategoryCreateSchema = z.object({
+  category_id: uuid,
+  name: z.string().min(2).max(120),
+  is_active: z.boolean().default(true),
 });
 
 export const transactionLineSchema = z.object({

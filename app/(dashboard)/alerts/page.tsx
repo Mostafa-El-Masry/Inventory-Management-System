@@ -66,7 +66,7 @@ export default function AlertsPage() {
           {alerts.map((alert) => (
             <div
               key={alert.id}
-              className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-subtle)] p-4"
+              className="rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface-muted)] p-[var(--space-4)]"
             >
               <div className="flex flex-wrap items-center gap-2">
                 <Badge tone={alert.severity === "CRITICAL" ? "danger" : "warn"}>

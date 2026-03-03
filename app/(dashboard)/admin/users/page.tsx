@@ -24,14 +24,35 @@ type LocationRow = {
 };
 
 type ProvisionMode = "invite" | "password";
+type UserRole = UserRow["role"];
+
+type UserCreateConfig = {
+  role: UserRole;
+  mode: ProvisionMode;
+  password: string;
+  location_ids: string[];
+};
+
+const DEFAULT_USER_CREATE_CONFIG: UserCreateConfig = {
+  role: "staff",
+  mode: "invite",
+  password: "",
+  location_ids: [],
+};
 
 export default function UsersAdminPage() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [locations, setLocations] = useState<LocationRow[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([]);
-  const [createMode, setCreateMode] = useState<ProvisionMode>("invite");
-  const [createLocationIds, setCreateLocationIds] = useState<string[]>([]);
+  const [newUser, setNewUser] = useState({
+    full_name: "",
+    email: "",
+  });
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [advancedConfig, setAdvancedConfig] = useState<UserCreateConfig>(
+    DEFAULT_USER_CREATE_CONFIG,
+  );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -91,22 +112,27 @@ export default function UsersAdminPage() {
     }
   }, [selectedUserId, loadUserLocations]);
 
-  async function createUser(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  const canSubmitBase =
+    newUser.full_name.trim().length > 0 && newUser.email.trim().length > 0;
+  const canSubmitAdvanced =
+    canSubmitBase &&
+    (advancedConfig.mode === "invite" || advancedConfig.password.length >= 12);
+
+  async function createUserWithConfig(config: UserCreateConfig) {
+    if (!canSubmitBase) {
+      return;
+    }
+
     setSaving(true);
     setError(null);
 
-    const formData = new FormData(event.currentTarget);
     const payload = {
-      email: String(formData.get("email") ?? ""),
-      full_name: String(formData.get("full_name") ?? ""),
-      role: String(formData.get("role") ?? "staff"),
-      mode: createMode,
-      password:
-        createMode === "password"
-          ? String(formData.get("password") ?? "")
-          : undefined,
-      location_ids: createLocationIds,
+      email: newUser.email.trim(),
+      full_name: newUser.full_name.trim(),
+      role: config.role,
+      mode: config.mode,
+      password: config.mode === "password" ? config.password : undefined,
+      location_ids: config.location_ids,
     };
 
     const response = await fetch("/api/admin/users", {
@@ -121,14 +147,27 @@ export default function UsersAdminPage() {
       return;
     }
 
-    event.currentTarget.reset();
-    setCreateLocationIds([]);
+    setNewUser({
+      full_name: "",
+      email: "",
+    });
+    setAdvancedConfig(DEFAULT_USER_CREATE_CONFIG);
+    setAdvancedOpen(false);
+
     await loadUsers();
     if (json.id) {
       setSelectedUserId(json.id);
       await loadUserLocations(json.id);
     }
     setSaving(false);
+  }
+
+  async function createUserNow() {
+    await createUserWithConfig(DEFAULT_USER_CREATE_CONFIG);
+  }
+
+  async function createUserAdvanced() {
+    await createUserWithConfig(advancedConfig);
   }
 
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
@@ -228,12 +267,32 @@ export default function UsersAdminPage() {
     );
   }
 
-  function toggleCreateLocation(locationId: string) {
-    setCreateLocationIds((current) =>
-      current.includes(locationId)
-        ? current.filter((id) => id !== locationId)
-        : [...current, locationId],
-    );
+  function toggleAdvancedLocation(locationId: string) {
+    setAdvancedConfig((current) => ({
+      ...current,
+      location_ids: current.location_ids.includes(locationId)
+        ? current.location_ids.filter((id) => id !== locationId)
+        : [...current.location_ids, locationId],
+    }));
+  }
+
+  function openAdvancedDrawer() {
+    setAdvancedConfig(DEFAULT_USER_CREATE_CONFIG);
+    setAdvancedOpen(true);
+  }
+
+  function closeAdvancedDrawer() {
+    if (!saving) {
+      setAdvancedOpen(false);
+    }
+  }
+
+  function setAdvancedMode(mode: ProvisionMode) {
+    setAdvancedConfig((current) => ({
+      ...current,
+      mode,
+      password: mode === "password" ? current.password : "",
+    }));
   }
 
   return (
@@ -249,93 +308,59 @@ export default function UsersAdminPage() {
 
       {error ? <p className="ims-alert-danger">{error}</p> : null}
 
-      <Card className="overflow-hidden">
-        <h2 className="text-lg font-semibold">Create User</h2>
-        <form onSubmit={createUser} className="mt-4 space-y-3">
-          <div className="grid gap-3 lg:grid-cols-4">
-            <Input
-              name="full_name"
-              required
-              placeholder="Full name"
-              className="h-11"
-            />
-            <Input
-              name="email"
-              type="email"
-              required
-              placeholder="Email"
-              className="h-11"
-            />
-            <Select name="role" defaultValue="staff" className="h-11">
-              <option value="admin">admin</option>
-              <option value="manager">manager</option>
-              <option value="staff">staff</option>
-            </Select>
-            <Select
-              value={createMode}
-              onChange={(event) => setCreateMode(event.target.value as ProvisionMode)}
-              className="h-11"
-            >
-              <option value="invite">invite by email</option>
-              <option value="password">set temp password</option>
-            </Select>
-          </div>
-
-          {createMode === "password" ? (
-            <div className="space-y-2">
-              <Input
-                name="password"
-                type="password"
-                minLength={12}
-                required
-                placeholder="Temporary password"
-                className="h-11 w-full"
-              />
-              <p className="ims-empty text-xs">
-                Must be 12+ chars with uppercase, lowercase, number, and symbol.
-              </p>
-            </div>
-          ) : (
-            <p className="ims-empty text-xs">
-              Invite mode sends an email link to complete password setup.
-            </p>
-          )}
-
-          <div className="max-h-44 overflow-y-auto rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-subtle)] p-3">
-            <p className="ims-kicker text-[0.68rem]">Initial location access</p>
-            <div className="mt-2 grid gap-2 sm:grid-cols-2">
-              {locations.map((location) => (
-                <label key={location.id} className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={createLocationIds.includes(location.id)}
-                    onChange={() => toggleCreateLocation(location.id)}
-                  />
-                  {location.code} - {location.name}
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <Button
-            type="submit"
-            disabled={saving}
-            className="h-11 w-full rounded-2xl sm:w-auto"
-          >
-            Create user
-          </Button>
-        </form>
-      </Card>
-
       <section className="grid gap-4 xl:grid-cols-2">
         <Card className="min-h-[24rem]">
           <h2 className="text-lg font-semibold">User Profiles</h2>
+
+          <div className="mt-4 rounded-xl border border-[var(--line)] bg-[var(--surface-muted)] p-3">
+            <p className="ims-kicker text-[0.68rem]">Quick Create</p>
+            <div className="mt-2 grid gap-2 lg:grid-cols-[1fr_1fr_auto_auto]">
+              <Input
+                value={newUser.full_name}
+                onChange={(event) =>
+                  setNewUser((current) => ({ ...current, full_name: event.target.value }))
+                }
+                placeholder="Full name"
+                className="h-10 rounded-xl"
+              />
+              <Input
+                type="email"
+                value={newUser.email}
+                onChange={(event) =>
+                  setNewUser((current) => ({ ...current, email: event.target.value }))
+                }
+                placeholder="Email"
+                className="h-10 rounded-xl"
+              />
+              <Button
+                type="button"
+                className="h-10 rounded-xl"
+                disabled={saving || !canSubmitBase}
+                onClick={createUserNow}
+              >
+                {saving ? "Creating..." : "Create now"}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                className="h-10 rounded-xl"
+                disabled={saving}
+                onClick={openAdvancedDrawer}
+              >
+                Advanced
+              </Button>
+            </div>
+            <p className="ims-empty mt-2 text-xs">
+              Create now uses invite mode, staff role, and no location access.
+            </p>
+          </div>
+
           <div className="mt-4 max-h-[34rem] space-y-3 overflow-y-auto pr-1">
             {users.map((user) => (
               <form
                 key={user.id}
                 onSubmit={saveProfile}
-                className="space-y-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-subtle)] p-3"
+                className="space-y-2 rounded-xl border border-[var(--line)] bg-[var(--surface-muted)] p-3"
               >
                 <input type="hidden" name="id" value={user.id} />
                 <div className="text-xs text-[var(--text-muted)]">
@@ -423,7 +448,7 @@ export default function UsersAdminPage() {
             </Select>
 
             {selectedUser ? (
-              <div className="space-y-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-subtle)] p-3">
+              <div className="space-y-2 rounded-xl border border-[var(--line)] bg-[var(--surface-muted)] p-3">
                 <p className="text-sm font-medium">
                   Assign locations for {selectedUser.full_name}
                 </p>
@@ -457,6 +482,123 @@ export default function UsersAdminPage() {
           </div>
         </Card>
       </section>
+
+      {advancedOpen ? (
+        <div className="fixed inset-0 z-50">
+          <button
+            type="button"
+            aria-label="Close advanced panel"
+            className="absolute inset-0 bg-black/40"
+            onClick={closeAdvancedDrawer}
+          />
+          <aside
+            aria-label="Create user advanced options"
+            className="absolute right-0 top-0 h-full w-full max-w-md overflow-y-auto border-l border-[var(--line)] bg-[var(--surface)] p-5 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold">Advanced Create User</h2>
+                <p className="ims-subtitle text-sm">
+                  Adjust role, mode, password, and initial location access before creating.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                className="h-10 rounded-xl"
+                disabled={saving}
+                onClick={closeAdvancedDrawer}
+              >
+                Close
+              </Button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <Select
+                value={advancedConfig.role}
+                onChange={(event) => setAdvancedConfig((current) => ({
+                  ...current,
+                  role: event.target.value as UserRole,
+                }))}
+                className="h-11"
+              >
+                <option value="admin">admin</option>
+                <option value="manager">manager</option>
+                <option value="staff">staff</option>
+              </Select>
+
+              <Select
+                value={advancedConfig.mode}
+                onChange={(event) => setAdvancedMode(event.target.value as ProvisionMode)}
+                className="h-11"
+              >
+                <option value="invite">invite by email</option>
+                <option value="password">set temp password</option>
+              </Select>
+
+              {advancedConfig.mode === "password" ? (
+                <Input
+                  type="password"
+                  value={advancedConfig.password}
+                  onChange={(event) => setAdvancedConfig((current) => ({
+                    ...current,
+                    password: event.target.value,
+                  }))}
+                  minLength={12}
+                  placeholder="Temporary password"
+                  className="h-11 w-full"
+                />
+              ) : null}
+
+              <p className="ims-empty text-xs">
+                {advancedConfig.mode === "password"
+                  ? "Password mode requires 12+ chars with uppercase, lowercase, number, and symbol."
+                  : "Invite mode sends an email link to complete password setup."}
+              </p>
+
+              <div className="max-h-52 overflow-y-auto rounded-xl border border-[var(--line)] bg-[var(--surface-muted)] p-3">
+                <p className="ims-kicker text-[0.68rem]">Initial location access</p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  {locations.map((location) => (
+                    <label key={location.id} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={advancedConfig.location_ids.includes(location.id)}
+                        onChange={() => toggleAdvancedLocation(location.id)}
+                      />
+                      {location.code} - {location.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                className="h-10 rounded-xl"
+                disabled={saving}
+                onClick={() => {
+                  setAdvancedConfig(DEFAULT_USER_CREATE_CONFIG);
+                  closeAdvancedDrawer();
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className="h-10 rounded-xl"
+                disabled={saving || !canSubmitAdvanced}
+                onClick={createUserAdvanced}
+              >
+                {saving ? "Creating..." : "Create user"}
+              </Button>
+            </div>
+          </aside>
+        </div>
+      ) : null}
     </div>
   );
 }
+

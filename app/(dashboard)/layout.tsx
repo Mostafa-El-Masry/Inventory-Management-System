@@ -16,7 +16,7 @@ export default async function DashboardLayout({
 
   return (
     <div className="ims-page">
-      <div className="mx-auto flex min-h-dvh w-full max-w-[1720px] flex-col md:flex-row">
+      <div className="mx-auto flex min-h-dvh w-full max-w-[107.5rem] flex-col md:flex-row">
         <DashboardNav />
         <main className="ims-content">{children}</main>
       </div>

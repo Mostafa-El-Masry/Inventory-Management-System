@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 
 type StockRow = {
@@ -32,6 +33,7 @@ export default function InventoryPage() {
   const [locations, setLocations] = useState<Lookup[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [asOfDate, setAsOfDate] = useState("");
 
   async function loadStock(query = "") {
     setLoading(true);
@@ -69,8 +71,11 @@ export default function InventoryPage() {
     const params = new URLSearchParams();
     const productId = String(formData.get("product_id") ?? "");
     const locationId = String(formData.get("location_id") ?? "");
+    const asOfDateValue = String(formData.get("as_of_date") ?? "");
     if (productId) params.set("product_id", productId);
     if (locationId) params.set("location_id", locationId);
+    if (asOfDateValue) params.set("as_of_date", asOfDateValue);
+    setAsOfDate(asOfDateValue);
     const query = params.toString() ? `?${params.toString()}` : "";
     await loadStock(query);
   }
@@ -80,14 +85,16 @@ export default function InventoryPage() {
       <header>
         <p className="ims-kicker">Inventory</p>
         <h1 className="ims-title text-[2.1rem]">Inventory Stock</h1>
-        <p className="ims-subtitle">Batch-level stock with lot, expiry date, and available quantity.</p>
+        <p className="ims-subtitle">
+          Batch-level stock with lot, expiry date, and available quantity.
+        </p>
       </header>
 
       {error ? <p className="ims-alert-danger">{error}</p> : null}
 
       <Card className="min-h-36">
         <h2 className="text-lg font-semibold">Filters</h2>
-        <form onSubmit={filterStock} className="mt-3 grid gap-3 md:grid-cols-3">
+        <form onSubmit={filterStock} className="mt-3 grid gap-3 md:grid-cols-4">
           <Select name="product_id" className="h-11">
             <option value="">All products</option>
             {products.map((product) => (
@@ -106,10 +113,23 @@ export default function InventoryPage() {
             ))}
           </Select>
 
+          <Input
+            name="as_of_date"
+            type="date"
+            className="h-11"
+            value={asOfDate}
+            onChange={(event) => setAsOfDate(event.target.value)}
+          />
+
           <Button type="submit" className="h-11 rounded-2xl">
             Apply Filter
           </Button>
         </form>
+        <p className="mt-3 text-sm text-[var(--text-muted)]">
+          {asOfDate
+            ? `Showing stock snapshot as of ${asOfDate}.`
+            : "Leave date empty to show current stock."}
+        </p>
       </Card>
 
       <Card className="min-h-[22rem]">

@@ -138,7 +138,7 @@ export default function LoginPage() {
         </Button>
       </form>
 
-      <div className="mt-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-subtle)] p-4">
+      <div className="mt-4 rounded-2xl border border-[var(--line)] bg-[var(--surface-muted)] p-4">
         <button
           type="button"
           onClick={() => setResetOpen((value) => !value)}
@@ -181,3 +181,4 @@ export default function LoginPage() {
     </div>
   );
 }
+

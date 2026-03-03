@@ -10,15 +10,15 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variantClass: Record<Variant, string> = {
   primary:
-    "border border-transparent bg-[var(--brand-accent)] text-white hover:bg-[var(--brand-accent-hover)] focus-visible:ring-[var(--brand-accent)]",
+    "border border-transparent bg-[var(--brand-primary)] text-white hover:bg-[var(--brand-primary-hover)] focus-visible:ring-[var(--brand-primary)]",
   secondary:
-    "border border-[var(--border-subtle)] bg-[var(--bg-subtle)] text-[var(--text-strong)] hover:bg-[var(--bg-surface)] focus-visible:ring-[var(--text-muted)]",
+    "border border-[var(--line)] bg-[var(--surface-muted)] text-[var(--text-strong)] hover:bg-[var(--surface)] focus-visible:ring-[var(--brand-primary)]",
   danger:
     "border border-transparent bg-[var(--status-danger-fg)] text-white hover:brightness-95 focus-visible:ring-[var(--status-danger-fg)]",
   outline:
-    "border border-[var(--brand-accent)] bg-transparent text-[var(--brand-accent)] hover:bg-[var(--brand-accent-soft)] focus-visible:ring-[var(--brand-accent)]",
+    "border border-[var(--brand-primary)] bg-transparent text-[var(--brand-primary)] hover:bg-[var(--brand-primary-soft)] focus-visible:ring-[var(--brand-primary)]",
   ghost:
-    "border border-transparent bg-transparent text-[var(--text-muted)] hover:bg-[var(--bg-subtle)] hover:text-[var(--text-strong)] focus-visible:ring-[var(--text-muted)]",
+    "border border-transparent bg-transparent text-[var(--text-muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text-strong)] focus-visible:ring-[var(--brand-primary)]",
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
@@ -27,7 +27,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       ref={ref}
       type={type}
       className={cn(
-        "inline-flex h-10 items-center justify-center rounded-xl px-4 text-sm font-semibold transition outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-55",
+        "inline-flex h-10 items-center justify-center rounded-[var(--radius-lg)] px-[var(--space-4)] text-sm font-semibold transition outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-55",
         variantClass[variant],
         className,
       )}

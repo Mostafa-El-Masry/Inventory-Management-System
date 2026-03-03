@@ -6,7 +6,7 @@ type Tone = "default" | "warn" | "danger" | "success";
 
 const toneClass: Record<Tone, string> = {
   default:
-    "border border-[var(--border-subtle)] bg-[var(--bg-subtle)] text-[var(--text-strong)]",
+    "border border-[var(--line)] bg-[var(--surface-muted)] text-[var(--text-strong)]",
   warn: "border border-transparent bg-[var(--status-warn-bg)] text-[var(--status-warn-fg)]",
   danger:
     "border border-transparent bg-[var(--status-danger-bg)] text-[var(--status-danger-fg)]",
@@ -22,7 +22,7 @@ export function Badge({ className, tone = "default", ...props }: BadgeProps) {
   return (
     <span
       className={cn(
-        "inline-flex rounded-lg px-2.5 py-1 text-xs font-semibold",
+        "inline-flex rounded-[var(--radius-sm)] px-[var(--space-3)] py-[var(--space-1)] text-xs font-semibold",
         toneClass[tone],
         className,
       )}

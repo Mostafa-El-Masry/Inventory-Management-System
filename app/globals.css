@@ -1,25 +1,53 @@
 @import "tailwindcss";
 
 :root {
-  --bg-canvas: #f5f5f6;
-  --bg-surface: #ffffff;
-  --bg-subtle: #f0f1f3;
-  --text-strong: #101114;
-  --text-muted: #5b616e;
-  --border-subtle: #d9dde3;
-  --brand-accent: #ff2a1f;
-  --brand-accent-hover: #e92319;
-  --brand-accent-soft: #ffe8e6;
-  --status-danger-bg: #ffe9eb;
-  --status-danger-fg: #8d1021;
-  --status-warn-bg: #fff4df;
-  --status-warn-fg: #8a4d00;
-  --status-success-bg: #e7f8ef;
-  --status-success-fg: #0e6240;
+  --canvas: #f2f6fb;
+  --surface: #ffffff;
+  --surface-muted: #eef4fb;
+  --surface-soft: #f8fbff;
+  --text-strong: #1a2c40;
+  --text-muted: #6f7f95;
+  --line: #d4e1ef;
+  --brand-primary: #56afe2;
+  --brand-primary-hover: #459fce;
+  --brand-primary-soft: #e5f4fc;
+  --status-danger-bg: #ffe9ec;
+  --status-danger-fg: #8f2130;
+  --status-warn-bg: #fff3df;
+  --status-warn-fg: #966110;
+  --status-success-bg: #e6f8ee;
+  --status-success-fg: #206847;
+
+  --space-1: clamp(0.35rem, 0.32rem + 0.18vw, 0.5rem);
+  --space-2: clamp(0.55rem, 0.5rem + 0.24vw, 0.75rem);
+  --space-3: clamp(0.75rem, 0.68rem + 0.28vw, 1rem);
+  --space-4: clamp(0.95rem, 0.86rem + 0.34vw, 1.2rem);
+  --space-5: clamp(1.2rem, 1.08rem + 0.42vw, 1.5rem);
+  --space-6: clamp(1.45rem, 1.3rem + 0.54vw, 1.9rem);
+  --space-7: clamp(1.8rem, 1.6rem + 0.74vw, 2.35rem);
+  --space-8: clamp(2.25rem, 2rem + 0.95vw, 3rem);
+
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.5rem;
+  --line-1: 0.0625rem;
+  --ring-width: 0.1875rem;
+  --shadow-sm: 0 0.0625rem 0.15rem color-mix(in srgb, #102841 14%, transparent);
+  --shadow-md: 0 0.35rem 1rem color-mix(in srgb, #102841 14%, transparent);
+  --shadow-lg: 0 0.75rem 1.7rem color-mix(in srgb, #102841 12%, transparent);
+
+  --bg-canvas: var(--canvas);
+  --bg-surface: var(--surface);
+  --bg-subtle: var(--surface-muted);
+  --border-subtle: var(--line);
+  --brand-accent: var(--brand-primary);
+  --brand-accent-hover: var(--brand-primary-hover);
+  --brand-accent-soft: var(--brand-primary-soft);
 }
 
 @theme inline {
-  --color-background: var(--bg-canvas);
+  --color-background: var(--canvas);
   --color-foreground: var(--text-strong);
   --font-sans: var(--font-body);
   --font-mono: var(--font-code);
@@ -27,17 +55,21 @@
 
 body {
   min-height: 100dvh;
-  background: var(--bg-canvas);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--canvas) 93%, #fff 7%) 0%,
+    var(--canvas) 100%
+  );
   color: var(--text-strong);
   font-family: var(--font-body), sans-serif;
 }
 
 * {
-  border-color: var(--border-subtle);
+  border-color: var(--line);
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--brand-accent) 25%, transparent);
+  background: color-mix(in srgb, var(--brand-primary) 27%, transparent);
 }
 
 input,
@@ -58,58 +90,58 @@ h6 {
 
 .ims-page {
   min-height: 100dvh;
-  background: var(--bg-canvas);
+  background: transparent;
   color: var(--text-strong);
 }
 
 .ims-content {
   min-width: 0;
   flex: 1 1 auto;
-  padding: 1rem 1rem 2rem;
+  padding: var(--space-4) var(--space-4) var(--space-7);
 }
 
-@media (min-width: 768px) {
+@media (min-width: 48rem) {
   .ims-content {
-    padding: 2rem;
+    padding: var(--space-7) var(--space-7) var(--space-8);
   }
 }
 
 .ims-section {
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-surface);
-  border-radius: 1rem;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  border: var(--line-1) solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
 }
 
 .ims-kicker {
   margin: 0;
   text-transform: uppercase;
   letter-spacing: 0.16em;
-  font-size: 0.75rem;
+  font-size: clamp(0.69rem, 0.66rem + 0.13vw, 0.77rem);
   font-weight: 700;
-  color: color-mix(in srgb, var(--text-muted) 80%, var(--text-strong) 20%);
+  color: color-mix(in srgb, var(--text-muted) 82%, var(--text-strong) 18%);
 }
 
 .ims-title {
-  margin-top: 0.5rem;
-  font-size: clamp(1.75rem, 3.6vw, 2.25rem);
-  line-height: 1.1;
+  margin-top: var(--space-2);
+  font-size: clamp(1.75rem, 1.48rem + 1.1vw, 2.35rem);
+  line-height: 1.08;
   letter-spacing: -0.02em;
   font-weight: 700;
   color: var(--text-strong);
 }
 
 .ims-subtitle {
-  margin-top: 0.45rem;
-  font-size: 0.95rem;
-  line-height: 1.5;
+  margin-top: var(--space-2);
+  font-size: clamp(0.9rem, 0.87rem + 0.2vw, 1rem);
+  line-height: 1.55;
   color: var(--text-muted);
 }
 
 .ims-field-label {
   display: block;
-  margin-bottom: 0.35rem;
-  font-size: 0.83rem;
+  margin-bottom: var(--space-1);
+  font-size: clamp(0.8rem, 0.78rem + 0.12vw, 0.88rem);
   font-weight: 500;
   color: var(--text-muted);
 }
@@ -118,57 +150,57 @@ h6 {
 .ims-select,
 .ims-textarea {
   width: 100%;
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-surface);
+  border: var(--line-1) solid var(--line);
+  background: var(--surface);
   color: var(--text-strong);
-  border-radius: 0.75rem;
-  transition: border-color 120ms ease, box-shadow 120ms ease;
+  border-radius: var(--radius-md);
+  transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
 }
 
 .ims-input,
 .ims-select {
-  height: 2.75rem;
-  padding: 0 0.8rem;
-  font-size: 0.9rem;
+  min-height: clamp(2.55rem, 2.4rem + 0.5vw, 2.85rem);
+  padding: 0 var(--space-3);
+  font-size: clamp(0.88rem, 0.85rem + 0.16vw, 0.95rem);
 }
 
 .ims-textarea {
-  min-height: 5.5rem;
-  padding: 0.7rem 0.8rem;
-  font-size: 0.9rem;
+  min-height: clamp(6rem, 5.5rem + 1.8vw, 7rem);
+  padding: var(--space-3);
+  font-size: clamp(0.88rem, 0.85rem + 0.16vw, 0.95rem);
   resize: vertical;
 }
 
 .ims-input::placeholder,
 .ims-textarea::placeholder {
-  color: color-mix(in srgb, var(--text-muted) 70%, #fff 30%);
+  color: color-mix(in srgb, var(--text-muted) 68%, #fff 32%);
 }
 
 .ims-input:focus-visible,
 .ims-select:focus-visible,
 .ims-textarea:focus-visible {
   outline: none;
-  border-color: color-mix(in srgb, var(--brand-accent) 55%, var(--border-subtle) 45%);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--brand-primary) 52%, var(--line) 48%);
+  box-shadow: 0 0 0 var(--ring-width) color-mix(in srgb, var(--brand-primary) 22%, transparent);
 }
 
 .ims-table {
   min-width: 100%;
   border-collapse: collapse;
-  font-size: 0.9rem;
+  font-size: clamp(0.85rem, 0.82rem + 0.16vw, 0.93rem);
 }
 
 .ims-table-head {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: color-mix(in srgb, var(--bg-surface) 92%, var(--bg-subtle) 8%);
+  background: color-mix(in srgb, var(--surface) 85%, var(--surface-muted) 15%);
 }
 
 .ims-table-head th {
-  padding: 0.75rem 0.75rem 0.65rem 0;
+  padding: var(--space-3) var(--space-3) var(--space-2) 0;
   text-align: left;
-  font-size: 0.73rem;
+  font-size: clamp(0.69rem, 0.67rem + 0.1vw, 0.75rem);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -176,18 +208,18 @@ h6 {
 }
 
 .ims-table-row td {
-  border-top: 1px solid color-mix(in srgb, var(--border-subtle) 92%, #fff 8%);
-  padding: 0.65rem 0.75rem 0.65rem 0;
+  border-top: var(--line-1) solid color-mix(in srgb, var(--line) 93%, #fff 7%);
+  padding: var(--space-2) var(--space-3) var(--space-2) 0;
   color: var(--text-strong);
 }
 
 .ims-skeleton {
-  border-radius: 0.55rem;
+  border-radius: var(--radius-sm);
   background: linear-gradient(
     90deg,
-    color-mix(in srgb, var(--bg-subtle) 80%, #fff 20%) 25%,
-    color-mix(in srgb, var(--bg-subtle) 45%, #fff 55%) 37%,
-    color-mix(in srgb, var(--bg-subtle) 80%, #fff 20%) 63%
+    color-mix(in srgb, var(--surface-muted) 75%, #fff 25%) 25%,
+    color-mix(in srgb, var(--surface-muted) 42%, #fff 58%) 37%,
+    color-mix(in srgb, var(--surface-muted) 75%, #fff 25%) 63%
   );
   background-size: 400% 100%;
   animation: ims-shimmer 1.4s ease infinite;
@@ -205,31 +237,31 @@ h6 {
 .ims-alert-danger,
 .ims-alert-warn,
 .ims-alert-success {
-  border-radius: 0.85rem;
-  padding: 0.8rem 1rem;
-  font-size: 0.9rem;
-  border: 1px solid;
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  font-size: clamp(0.86rem, 0.84rem + 0.14vw, 0.93rem);
+  border: var(--line-1) solid;
 }
 
 .ims-alert-danger {
   background: var(--status-danger-bg);
   color: var(--status-danger-fg);
-  border-color: color-mix(in srgb, var(--status-danger-fg) 20%, #fff 80%);
+  border-color: color-mix(in srgb, var(--status-danger-fg) 18%, #fff 82%);
 }
 
 .ims-alert-warn {
   background: var(--status-warn-bg);
   color: var(--status-warn-fg);
-  border-color: color-mix(in srgb, var(--status-warn-fg) 18%, #fff 82%);
+  border-color: color-mix(in srgb, var(--status-warn-fg) 17%, #fff 83%);
 }
 
 .ims-alert-success {
   background: var(--status-success-bg);
   color: var(--status-success-fg);
-  border-color: color-mix(in srgb, var(--status-success-fg) 18%, #fff 82%);
+  border-color: color-mix(in srgb, var(--status-success-fg) 16%, #fff 84%);
 }
 
 .ims-empty {
   color: var(--text-muted);
-  font-size: 0.9rem;
+  font-size: clamp(0.86rem, 0.84rem + 0.14vw, 0.93rem);
 }

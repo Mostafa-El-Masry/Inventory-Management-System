@@ -1,4 +1,10 @@
 import { getAuthContext } from "@/lib/auth/permissions";
+import {
+  buildBatchStockAsOfDate,
+  parseAsOfDate,
+  summarizeStockForExport,
+} from "@/lib/stock/snapshot";
+import type { BatchMetadataRow, LedgerMovementRow } from "@/lib/stock/snapshot";
 import { toCsv } from "@/lib/utils/csv";
 import { fail } from "@/lib/utils/http";
 
@@ -44,21 +50,71 @@ export async function GET(request: Request) {
     if (noLocationAccess) {
       rows = [];
     } else {
-      let query = context.supabase
-        .from("v_stock_snapshot")
-        .select("*")
-        .order("location_name", { ascending: true });
-
-      if (!isAdmin) {
-        query = query.in("location_id", context.locationIds);
+      const asOfDate = url.searchParams.get("as_of_date");
+      const parsedAsOfDate = parseAsOfDate(asOfDate);
+      if (parsedAsOfDate.error) {
+        return fail(parsedAsOfDate.error, 422);
       }
 
-      const { data, error } = await query;
-      if (error) {
-        return fail(error.message, 400);
-      }
+      if (parsedAsOfDate.cutoffExclusiveIso) {
+        let ledgerQuery = context.supabase
+          .from("stock_ledger")
+          .select("batch_id, product_id, location_id, direction, qty")
+          .lt("occurred_at", parsedAsOfDate.cutoffExclusiveIso);
 
-      rows = (data ?? []) as Record<string, unknown>[];
+        if (!isAdmin) {
+          ledgerQuery = ledgerQuery.in("location_id", context.locationIds);
+        }
+
+        const { data: ledgerData, error: ledgerError } = await ledgerQuery;
+        if (ledgerError) {
+          return fail(ledgerError.message, 400);
+        }
+
+        const ledgerRows = (ledgerData ?? []) as LedgerMovementRow[];
+        if (ledgerRows.length === 0) {
+          rows = [];
+        } else {
+          const batchIds = Array.from(new Set(ledgerRows.map((row) => row.batch_id)));
+          let batchQuery = context.supabase
+            .from("inventory_batches")
+            .select(
+              "id, product_id, location_id, lot_number, expiry_date, received_at, unit_cost, products(name, sku), locations(name, code)",
+            )
+            .in("id", batchIds);
+
+          if (!isAdmin) {
+            batchQuery = batchQuery.in("location_id", context.locationIds);
+          }
+
+          const { data: batchData, error: batchError } = await batchQuery;
+          if (batchError) {
+            return fail(batchError.message, 400);
+          }
+
+          const snapshotRows = buildBatchStockAsOfDate(
+            ledgerRows,
+            (batchData ?? []) as BatchMetadataRow[],
+          );
+          rows = summarizeStockForExport(snapshotRows) as Record<string, unknown>[];
+        }
+      } else {
+        let query = context.supabase
+          .from("v_stock_snapshot")
+          .select("*")
+          .order("location_name", { ascending: true });
+
+        if (!isAdmin) {
+          query = query.in("location_id", context.locationIds);
+        }
+
+        const { data, error } = await query;
+        if (error) {
+          return fail(error.message, 400);
+        }
+
+        rows = (data ?? []) as Record<string, unknown>[];
+      }
     }
   }
 

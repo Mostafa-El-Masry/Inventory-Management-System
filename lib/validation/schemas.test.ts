@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   loginSchema,
+  locationCreateSchema,
   productCreateSchema,
+  productImportSchema,
   setPasswordSchema,
   transactionCreateSchema,
   transferCreateSchema,
@@ -18,6 +20,8 @@ describe("validation schemas", () => {
       barcode: null,
       description: null,
       is_active: true,
+      category_id: "550e8400-e29b-41d4-a716-446655440010",
+      subcategory_id: "550e8400-e29b-41d4-a716-446655440011",
     });
 
     expect(parsed.success).toBe(true);
@@ -89,6 +93,49 @@ describe("validation schemas", () => {
     const parsed = loginSchema.safeParse({
       email: "user@ims.local",
       password: "short1!",
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it("accepts product payload without sku", () => {
+    const parsed = productCreateSchema.safeParse({
+      name: "Sample Product",
+      unit: "box",
+      barcode: null,
+      description: null,
+      is_active: true,
+      category_id: "550e8400-e29b-41d4-a716-446655440010",
+      subcategory_id: "550e8400-e29b-41d4-a716-446655440011",
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it("accepts product import payload with csv text", () => {
+    const parsed = productImportSchema.safeParse({
+      csv: "name,unit\nParacetamol,box\n",
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it("accepts location payload without code", () => {
+    const parsed = locationCreateSchema.safeParse({
+      name: "Sabah Al Salem",
+      timezone: "Asia/Kuwait",
+      is_active: true,
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it("accepts location payload with code for compatibility", () => {
+    const parsed = locationCreateSchema.safeParse({
+      code: "SAB-01",
+      name: "Sabah Al Salem",
+      timezone: "Asia/Kuwait",
+      is_active: true,
     });
 
     expect(parsed.success).toBe(true);

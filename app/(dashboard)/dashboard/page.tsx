@@ -110,7 +110,7 @@ export default function DashboardPage() {
               : transferRows.map(([status, count]) => (
                   <div
                     key={status}
-                    className="flex items-center justify-between rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-subtle)] px-3 py-2"
+                    className="flex items-center justify-between rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface-muted)] px-[var(--space-3)] py-[var(--space-2)]"
                   >
                     <span className="text-sm">{status}</span>
                     <Badge>{String(count)}</Badge>
@@ -132,7 +132,7 @@ export default function DashboardPage() {
               : (data?.recentTransactions ?? []).map((tx) => (
                   <div
                     key={tx.id}
-                    className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-subtle)] px-3 py-2"
+                    className="rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface-muted)] px-[var(--space-3)] py-[var(--space-2)]"
                   >
                     <p className="text-sm font-semibold">{tx.tx_number}</p>
                     <p className="text-xs text-[var(--text-muted)]">

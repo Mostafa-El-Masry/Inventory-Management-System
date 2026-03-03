@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,8 +29,13 @@ export default function LocationsPage() {
     null,
   );
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [createLoading, setCreateLoading] = useState(false);
   const [stateLoading, setStateLoading] = useState(false);
+  const [newLocation, setNewLocation] = useState({
+    name: "",
+    timezone: "Asia/Kuwait",
+    is_active: true,
+  });
 
   const loadLocations = useCallback(async () => {
     const response = await fetch(
@@ -64,16 +69,21 @@ export default function LocationsPage() {
     loadLocations().catch(() => setError("Failed to load locations."));
   }, [loadLocations]);
 
-  async function handleCreate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setLoading(true);
+  const canManageLocations = capabilities?.canManageLocations ?? false;
+  const canCreate =
+    newLocation.name.trim().length >= 2 && newLocation.timezone.trim().length >= 3;
+
+  async function handleCreate() {
+    if (!canManageLocations || !canCreate) {
+      return;
+    }
+
+    setCreateLoading(true);
     setError(null);
-    const formData = new FormData(event.currentTarget);
     const payload = {
-      code: String(formData.get("code") ?? ""),
-      name: String(formData.get("name") ?? ""),
-      timezone: String(formData.get("timezone") ?? "UTC"),
-      is_active: true,
+      name: newLocation.name.trim(),
+      timezone: newLocation.timezone.trim(),
+      is_active: newLocation.is_active,
     };
 
     const response = await fetch("/api/locations", {
@@ -85,13 +95,17 @@ export default function LocationsPage() {
     const json = (await response.json()) as { error?: string };
     if (!response.ok) {
       setError(json.error ?? "Failed to create location.");
-      setLoading(false);
+      setCreateLoading(false);
       return;
     }
 
-    event.currentTarget.reset();
+    setNewLocation({
+      name: "",
+      timezone: "Asia/Kuwait",
+      is_active: true,
+    });
     await loadLocations();
-    setLoading(false);
+    setCreateLoading(false);
   }
 
   async function setLocationActive(locationId: string, active: boolean) {
@@ -122,44 +136,8 @@ export default function LocationsPage() {
 
       {error ? <p className="ims-alert-danger">{error}</p> : null}
 
-      <section className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-1 min-h-[24rem]">
-          <h2 className="text-lg font-semibold">Add Location</h2>
-          {capabilities === null ? (
-            <p className="ims-empty mt-4">Loading permissions...</p>
-          ) : capabilities.canManageLocations ? (
-            <form onSubmit={handleCreate} className="mt-4 space-y-3">
-              <Input
-                name="code"
-                required
-                placeholder="Code (e.g. NYC-01)"
-                className="h-11"
-              />
-              <Input
-                name="name"
-                required
-                placeholder="Location name"
-                className="h-11"
-              />
-              <Input
-                name="timezone"
-                required
-                defaultValue="UTC"
-                placeholder="Timezone (e.g. America/New_York)"
-                className="h-11"
-              />
-              <Button type="submit" disabled={loading} className="h-11 w-full rounded-2xl">
-                {loading ? "Creating..." : "Create Location"}
-              </Button>
-            </form>
-          ) : (
-            <p className="ims-empty mt-4">
-              Location management is restricted to administrators.
-            </p>
-          )}
-        </Card>
-
-        <Card className="lg:col-span-2 min-h-[24rem]">
+      <section>
+        <Card className="min-h-[24rem]">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-semibold">Location List</h2>
             <label className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
@@ -217,10 +195,68 @@ export default function LocationsPage() {
                     </td>
                   </tr>
                 ))}
+                {canManageLocations ? (
+                  <tr className="ims-table-row">
+                    <td className="font-medium text-[var(--text-muted)]">Auto</td>
+                    <td>
+                      <Input
+                        value={newLocation.name}
+                        onChange={(event) =>
+                          setNewLocation((current) => ({
+                            ...current,
+                            name: event.target.value,
+                          }))
+                        }
+                        placeholder="Location name"
+                        className="h-9"
+                      />
+                    </td>
+                    <td>
+                      <Input
+                        value={newLocation.timezone}
+                        onChange={(event) =>
+                          setNewLocation((current) => ({
+                            ...current,
+                            timezone: event.target.value,
+                          }))
+                        }
+                        placeholder="Timezone"
+                        className="h-9"
+                      />
+                    </td>
+                    <td>
+                      <label className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={newLocation.is_active}
+                          onChange={(event) =>
+                            setNewLocation((current) => ({
+                              ...current,
+                              is_active: event.target.checked,
+                            }))
+                          }
+                        />
+                        {newLocation.is_active ? "Yes" : "No"}
+                      </label>
+                    </td>
+                    <td>
+                      <Button
+                        className="h-9"
+                        disabled={!canCreate || createLoading}
+                        onClick={() => handleCreate()}
+                      >
+                        {createLoading ? "Creating..." : "Create"}
+                      </Button>
+                    </td>
+                  </tr>
+                ) : null}
               </tbody>
             </table>
             {locations.length === 0 ? (
               <p className="ims-empty mt-3">No locations found.</p>
+            ) : null}
+            {capabilities === null ? (
+              <p className="ims-empty mt-3">Loading permissions...</p>
             ) : null}
           </div>
         </Card>

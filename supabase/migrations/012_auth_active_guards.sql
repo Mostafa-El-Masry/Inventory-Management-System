@@ -5,6 +5,10 @@ begin
     raise exception 'public.profiles is missing. Run migrations 001-011 before 012.';
   end if;
 
+  if to_regclass('public.user_location_access') is null then
+    raise exception 'public.user_location_access is missing. Run migration 003 (core tables) before 012.';
+  end if;
+
   if to_regtype('public.role_type') is null then
     raise exception 'public.role_type is missing. Run migration 002 before 012.';
   end if;
