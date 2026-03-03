@@ -213,6 +213,30 @@ h6 {
   color: var(--text-strong);
 }
 
+@media (max-width: 63.999rem) {
+  .ims-table-products {
+    font-size: clamp(0.78rem, 0.75rem + 0.14vw, 0.84rem);
+  }
+
+  .ims-table-products .ims-table-head th {
+    padding: var(--space-2) var(--space-2) var(--space-1) 0;
+    font-size: clamp(0.62rem, 0.6rem + 0.08vw, 0.68rem);
+    letter-spacing: 0.03em;
+  }
+
+  .ims-table-products .ims-table-row td {
+    padding: var(--space-1) var(--space-2) var(--space-1) 0;
+  }
+
+  .ims-table-products .ims-product-name-text {
+    display: block;
+    max-width: 12rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
 .ims-skeleton {
   border-radius: var(--radius-sm);
   background: linear-gradient(

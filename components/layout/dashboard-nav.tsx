@@ -6,13 +6,11 @@ import { useMemo, useState } from "react";
 
 import { cn } from "@/lib/utils/cn";
 
-const links = [
+const links: Array<{ href: string; label: string; prefixMatch?: boolean }> = [
   { href: "/dashboard", label: "Dashboard" },
-  { href: "/locations", label: "Locations" },
-  { href: "/products", label: "Products" },
+  { href: "/master", label: "Master", prefixMatch: true },
   { href: "/inventory", label: "Inventory" },
-  { href: "/transactions", label: "Transactions" },
-  { href: "/transfers", label: "Transfers" },
+  { href: "/transactions", label: "Transactions", prefixMatch: true },
   { href: "/alerts", label: "Alerts" },
   { href: "/reports", label: "Reports" },
   { href: "/admin/users", label: "Users" },
@@ -30,7 +28,9 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
 
       <nav className="space-y-[var(--space-2)]">
         {links.map((link) => {
-          const active = pathname === link.href;
+          const active = link.prefixMatch
+            ? pathname === link.href || pathname.startsWith(`${link.href}/`)
+            : pathname === link.href;
           return (
             <Link
               key={link.href}

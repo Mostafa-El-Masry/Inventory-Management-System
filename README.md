@@ -61,6 +61,14 @@ Next.js + Supabase inventory application with:
 - `GET/POST/PATCH /api/products`
 - `POST /api/products/[id]/archive`
 - `POST /api/products/[id]/activate`
+- `GET/POST /api/product-categories`
+- `POST /api/product-categories/[id]/archive`
+- `POST /api/product-categories/[id]/activate`
+- `POST /api/product-categories/[id]/hard-delete`
+- `GET/POST /api/product-subcategories`
+- `POST /api/product-subcategories/[id]/archive`
+- `POST /api/product-subcategories/[id]/activate`
+- `POST /api/product-subcategories/[id]/hard-delete`
 - `GET/POST/PATCH /api/products/[id]/policies`
 - `GET /api/stock`
 - `GET/POST /api/transactions`

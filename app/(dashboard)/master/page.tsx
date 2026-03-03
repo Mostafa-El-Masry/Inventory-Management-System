@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
-export default function ProductsLegacyRedirectPage() {
+export default function MasterIndexPage() {
   redirect("/master/products");
 }
