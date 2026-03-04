@@ -21,7 +21,7 @@ const mono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Inventory Management System",
+  title: "ICE",
   description: "Multi-location inventory with expiry, transactions, and transfer workflows.",
 };
 

@@ -5,8 +5,24 @@ import {
   summarizeStockForExport,
 } from "@/lib/stock/snapshot";
 import type { BatchMetadataRow, LedgerMovementRow } from "@/lib/stock/snapshot";
+import { buildItemCostEvolution } from "@/lib/reports/item-cost-evolution";
+import { buildItemStatement } from "@/lib/reports/item-statement";
+import { buildStockSummary } from "@/lib/reports/stock-summary";
+import { buildSupplierReport } from "@/lib/reports/supplier-reports";
 import { toCsv } from "@/lib/utils/csv";
 import { fail } from "@/lib/utils/http";
+
+function getCurrentMonthDateRange() {
+  const now = new Date();
+  const year = now.getUTCFullYear();
+  const month = now.getUTCMonth();
+  const start = new Date(Date.UTC(year, month, 1));
+  const end = new Date(Date.UTC(year, month, now.getUTCDate()));
+  return {
+    fromDate: start.toISOString().slice(0, 10),
+    toDate: end.toISOString().slice(0, 10),
+  };
+}
 
 export async function GET(request: Request) {
   const context = await getAuthContext();
@@ -18,8 +34,22 @@ export async function GET(request: Request) {
   const entity = url.searchParams.get("entity");
   const includeInactive = url.searchParams.get("include_inactive") === "true";
 
-  if (!entity || !["products", "stock", "transactions"].includes(entity)) {
-    return fail("Invalid export entity. Use products, stock, or transactions.", 422);
+  if (
+    !entity ||
+    ![
+      "products",
+      "stock",
+      "transactions",
+      "stock-summary",
+      "item-statement",
+      "item-cost-evolution",
+      "supplier",
+    ].includes(entity)
+  ) {
+    return fail(
+      "Invalid export entity. Use products, stock, transactions, stock-summary, item-statement, item-cost-evolution, or supplier.",
+      422,
+    );
   }
 
   const isAdmin = context.profile.role === "admin";
@@ -144,6 +174,116 @@ export async function GET(request: Request) {
 
       rows = (data ?? []) as Record<string, unknown>[];
     }
+  }
+
+  if (entity === "stock-summary") {
+    const locationId = url.searchParams.get("location_id");
+    const asOfDate = url.searchParams.get("as_of_date");
+    const view = url.searchParams.get("view") === "totals" ? "totals" : "details";
+
+    const result = await buildStockSummary(context, {
+      asOfDate,
+      locationId,
+    });
+    if ("error" in result) {
+      return fail(result.error, 422);
+    }
+
+    rows = (view === "totals" ? result.totals : result.details) as Record<string, unknown>[];
+  }
+
+  if (entity === "item-statement") {
+    const productId = url.searchParams.get("product_id");
+    const fromDate = url.searchParams.get("from_date");
+    const toDate = url.searchParams.get("to_date");
+    const locationId = url.searchParams.get("location_id");
+
+    if (!productId) {
+      return fail("product_id is required for item-statement export.", 422);
+    }
+    if (!fromDate || !toDate) {
+      return fail("from_date and to_date are required for item-statement export.", 422);
+    }
+
+    const result = await buildItemStatement(context, {
+      productId,
+      fromDate,
+      toDate,
+      locationId,
+    });
+    if ("error" in result) {
+      return fail(result.error, 422);
+    }
+
+    rows = [
+      {
+        row_type: "OPENING",
+        occurred_at: `${fromDate}T00:00:00.000Z`,
+        tx_number: null,
+        transaction_type: "OPENING",
+        transaction_status: null,
+        location_id: locationId ?? null,
+        location_code: null,
+        location_name: null,
+        direction: null,
+        qty: null,
+        signed_qty: null,
+        running_qty: result.opening_qty,
+        unit_cost: null,
+        reason_code: null,
+      },
+      ...result.rows,
+    ] as Record<string, unknown>[];
+  }
+
+  if (entity === "item-cost-evolution") {
+    const productId = url.searchParams.get("product_id");
+    const fromDate = url.searchParams.get("from_date");
+    const toDate = url.searchParams.get("to_date");
+    const locationId = url.searchParams.get("location_id");
+
+    if (!productId) {
+      return fail("product_id is required for item-cost-evolution export.", 422);
+    }
+    if (!fromDate || !toDate) {
+      return fail(
+        "from_date and to_date are required for item-cost-evolution export.",
+        422,
+      );
+    }
+
+    const result = await buildItemCostEvolution(context, {
+      productId,
+      fromDate,
+      toDate,
+      locationId,
+    });
+    if ("error" in result) {
+      return fail(result.error, 422);
+    }
+
+    rows = result.rows as Record<string, unknown>[];
+  }
+
+  if (entity === "supplier") {
+    const fallbackRange = getCurrentMonthDateRange();
+    const fromDate = url.searchParams.get("from_date") ?? fallbackRange.fromDate;
+    const toDate = url.searchParams.get("to_date") ?? fallbackRange.toDate;
+    const supplierId = url.searchParams.get("supplier_id");
+    const rawStatus = url.searchParams.get("status_filter");
+    const statusFilter = rawStatus === "OPEN" || rawStatus === "VOID" ? rawStatus : null;
+
+    const result = await buildSupplierReport(context, {
+      fromDate,
+      toDate,
+      supplierId,
+      statusFilter,
+    });
+    if ("error" in result) {
+      return fail(result.error, 422);
+    }
+
+    rows = result.rows as Record<string, unknown>[];
   }
 
   const csv = toCsv(rows);

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { cn } from "@/lib/utils/cn";
 
@@ -14,16 +14,23 @@ const links: Array<{ href: string; label: string; prefixMatch?: boolean }> = [
   { href: "/alerts", label: "Alerts" },
   { href: "/reports", label: "Reports" },
   { href: "/admin/users", label: "Users" },
+  { href: "/admin/settings", label: "Settings" },
 ];
 
-function NavContent({ onNavigate }: { onNavigate?: () => void }) {
+function NavContent({
+  onNavigate,
+  companyName,
+}: {
+  onNavigate?: () => void;
+  companyName: string;
+}) {
   const pathname = usePathname();
 
   return (
     <>
       <div className="mb-[var(--space-6)] rounded-[var(--radius-xl)] border border-[var(--line)] bg-[var(--surface-soft)] px-[var(--space-4)] py-[var(--space-4)]">
-        <p className="text-[0.7rem] uppercase tracking-[0.16em] text-[var(--text-muted)]">IMS</p>
-        <p className="text-sm font-semibold text-[var(--text-strong)]">Inventory Console</p>
+        <p className="text-[0.7rem] uppercase tracking-[0.16em] text-[var(--text-muted)]">ICE</p>
+        <p className="text-sm font-semibold text-[var(--text-strong)]">{companyName}</p>
       </div>
 
       <nav className="space-y-[var(--space-2)]">
@@ -69,6 +76,29 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
 
 export function DashboardNav() {
   const [open, setOpen] = useState(false);
+  const [companyName, setCompanyName] = useState("ICE");
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadCompanyName() {
+      const response = await fetch("/api/settings", { cache: "no-store" });
+      const json = (await response.json()) as { company_name?: string };
+      if (!response.ok || !mounted) {
+        return;
+      }
+
+      const nextName = String(json.company_name ?? "").trim();
+      if (nextName) {
+        setCompanyName(nextName);
+      }
+    }
+
+    loadCompanyName().catch(() => undefined);
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const drawerClass = useMemo(
     () =>
@@ -83,8 +113,8 @@ export function DashboardNav() {
     <>
       <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-[var(--line)] bg-[var(--surface)] px-[var(--space-4)] text-[var(--text-strong)] md:hidden">
         <div>
-          <p className="text-[0.7rem] uppercase tracking-[0.16em] text-[var(--text-muted)]">IMS</p>
-          <p className="text-sm font-semibold">Inventory Console</p>
+          <p className="text-[0.7rem] uppercase tracking-[0.16em] text-[var(--text-muted)]">ICE</p>
+          <p className="text-sm font-semibold">{companyName}</p>
         </div>
         <button
           type="button"
@@ -107,11 +137,11 @@ export function DashboardNav() {
       ) : null}
 
       <aside className={drawerClass}>
-        <NavContent onNavigate={() => setOpen(false)} />
+        <NavContent onNavigate={() => setOpen(false)} companyName={companyName} />
       </aside>
 
       <aside className="sticky top-0 hidden h-dvh w-[17rem] shrink-0 border-e border-[var(--line)] bg-[var(--surface)] p-[var(--space-4)] text-[var(--text-strong)] md:block">
-        <NavContent />
+        <NavContent companyName={companyName} />
       </aside>
     </>
   );

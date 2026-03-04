@@ -124,8 +124,33 @@ export const transactionCreateSchema = z.object({
   destination_location_id: uuid.nullable().optional(),
   reference_type: z.string().max(64).nullable().optional(),
   reference_id: uuid.nullable().optional(),
+  supplier_id: uuid.nullable().optional(),
+  supplier_invoice_number: z.string().max(120).nullable().optional(),
+  supplier_invoice_date: isoDate.nullable().optional(),
   notes: z.string().max(1000).nullable().optional(),
   lines: z.array(transactionLineSchema).min(1),
+}).superRefine((value, ctx) => {
+  const needsSupplier = value.type === "RECEIPT" || value.type === "RETURN_OUT";
+  if (!needsSupplier) {
+    return;
+  }
+
+  if (!value.supplier_id) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["supplier_id"],
+      message: "Supplier is required for purchase and purchase return.",
+    });
+  }
+
+  const invoiceNumber = value.supplier_invoice_number?.trim() ?? "";
+  if (invoiceNumber.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["supplier_invoice_number"],
+      message: "Supplier invoice number is required for purchase and purchase return.",
+    });
+  }
 });
 
 export const transferCreateSchema = z.object({
@@ -144,6 +169,25 @@ export const transferCreateSchema = z.object({
 
 export const reverseTransactionSchema = z.object({
   reason: z.string().min(5).max(250),
+});
+
+export const supplierCreateSchema = z.object({
+  code: z.string().min(2).max(32).optional(),
+  name: z.string().min(2).max(160),
+  phone: z.string().max(40).nullable().optional(),
+  email: z.string().email().max(160).nullable().optional(),
+  is_active: z.boolean().default(true),
+});
+
+export const supplierPaymentCreateSchema = z.object({
+  supplier_document_id: uuid,
+  payment_date: isoDate,
+  amount: z.number().positive(),
+  note: z.string().max(250).nullable().optional(),
+});
+
+export const systemSettingsUpdateSchema = z.object({
+  company_name: z.string().trim().min(2).max(160),
 });
 
 export const alertAckSchema = z.object({

@@ -7,6 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { BarcodePrintDialog } from "../_components/barcode-print-dialog";
+import {
+  BarcodeLabel,
+  buildBarcodeLabelsFromLines,
+  printBarcodeLabels,
+} from "../_components/barcode-print";
 
 type Transfer = {
   id: string;
@@ -30,6 +36,7 @@ type Lookup = {
   name: string;
   code?: string;
   sku?: string;
+  barcode?: string | null;
 };
 
 type Section = "material-request" | "material-transfer" | "direct-transfer";
@@ -59,6 +66,9 @@ export default function TransfersPage() {
     notes: "",
   });
   const [error, setError] = useState<string | null>(null);
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [printLabels, setPrintLabels] = useState<BarcodeLabel[]>([]);
+  const [printTitle, setPrintTitle] = useState("Transfer Barcodes");
 
   async function loadTransfers() {
     const response = await fetch("/api/transfers?limit=200", { cache: "no-store" });
@@ -338,6 +348,23 @@ export default function TransfersPage() {
     setEditLoading(false);
   }
 
+  function openPrintForTransfer(transfer: Transfer, titlePrefix: string) {
+    const lines = transfer.transfer_lines ?? [];
+    const prepared = buildBarcodeLabelsFromLines(
+      lines.map((line) => ({ productId: line.product_id })),
+      productById,
+    );
+    if ("error" in prepared) {
+      setError(prepared.error);
+      return;
+    }
+
+    setError(null);
+    setPrintLabels(prepared.labels);
+    setPrintTitle(`${titlePrefix} - ${transfer.transfer_number}`);
+    setPrintDialogOpen(true);
+  }
+
   return (
     <div className="space-y-6">
       <header>
@@ -431,6 +458,7 @@ export default function TransfersPage() {
                     <th>Product</th>
                     <th>Qty</th>
                     <th>Created</th>
+                    <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -444,6 +472,17 @@ export default function TransfersPage() {
                         <td>{line ? formatLookup(productById.get(line.product_id), "SKU") : "--"}</td>
                         <td>{line?.requested_qty ?? "--"}</td>
                         <td>{new Date(transfer.created_at).toLocaleString()}</td>
+                        <td>
+                          <Button
+                            variant="secondary"
+                            className="h-9"
+                            onClick={() =>
+                              openPrintForTransfer(transfer, "Material Request Barcode")
+                            }
+                          >
+                            Print Barcode
+                          </Button>
+                        </td>
                       </tr>
                     );
                   })}
@@ -585,6 +624,15 @@ export default function TransfersPage() {
                                 <Button
                                   variant="secondary"
                                   className="h-9"
+                                  onClick={() =>
+                                    openPrintForTransfer(transfer, "Material Transfer Barcode")
+                                  }
+                                >
+                                  Print Barcode
+                                </Button>
+                                <Button
+                                  variant="secondary"
+                                  className="h-9"
                                   disabled={actionLoading}
                                   onClick={() => approveTransfer(transfer.id)}
                                 >
@@ -613,6 +661,15 @@ export default function TransfersPage() {
                                 <Button
                                   variant="secondary"
                                   className="h-9"
+                                  onClick={() =>
+                                    openPrintForTransfer(transfer, "Material Transfer Barcode")
+                                  }
+                                >
+                                  Print Barcode
+                                </Button>
+                                <Button
+                                  variant="secondary"
+                                  className="h-9"
                                   disabled={actionLoading}
                                   onClick={() => transferMaterial(transfer)}
                                 >
@@ -629,13 +686,35 @@ export default function TransfersPage() {
                               </>
                             ) : null}
                             {transfer.status === "DISPATCHED" ? (
+                              <>
+                                <Button
+                                  variant="secondary"
+                                  className="h-9"
+                                  onClick={() =>
+                                    openPrintForTransfer(transfer, "Material Transfer Barcode")
+                                  }
+                                >
+                                  Print Barcode
+                                </Button>
+                                <Button
+                                  variant="secondary"
+                                  className="h-9"
+                                  disabled={actionLoading}
+                                  onClick={() => transferMaterial(transfer)}
+                                >
+                                  Receive
+                                </Button>
+                              </>
+                            ) : null}
+                            {transfer.status === "COMPLETED" ? (
                               <Button
                                 variant="secondary"
                                 className="h-9"
-                                disabled={actionLoading}
-                                onClick={() => transferMaterial(transfer)}
+                                onClick={() =>
+                                  openPrintForTransfer(transfer, "Material Transfer Barcode")
+                                }
                               >
-                                Receive
+                                Print Barcode
                               </Button>
                             ) : null}
                           </div>
@@ -709,6 +788,7 @@ export default function TransfersPage() {
                     <th>To</th>
                     <th>Created</th>
                     <th>Notes</th>
+                    <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -720,6 +800,15 @@ export default function TransfersPage() {
                       <td>{formatLookup(locationById.get(transfer.to_location_id), "LOC")}</td>
                       <td>{new Date(transfer.created_at).toLocaleString()}</td>
                       <td>{(transfer.notes ?? "").replace(DIRECT_NOTE_PREFIX, "").trim() || "--"}</td>
+                      <td>
+                        <Button
+                          variant="secondary"
+                          className="h-9"
+                          onClick={() => openPrintForTransfer(transfer, "Direct Transfer Barcode")}
+                        >
+                          Print Barcode
+                        </Button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -731,6 +820,23 @@ export default function TransfersPage() {
           </Card>
         </>
       ) : null}
+
+      <BarcodePrintDialog
+        open={printDialogOpen}
+        onClose={() => setPrintDialogOpen(false)}
+        onConfirm={({ format, quantity }) => {
+          const result = printBarcodeLabels(printLabels, {
+            format,
+            quantity,
+            title: printTitle,
+          });
+          if ("error" in result) {
+            setError(result.error);
+            return;
+          }
+          setPrintDialogOpen(false);
+        }}
+      />
     </div>
   );
 }

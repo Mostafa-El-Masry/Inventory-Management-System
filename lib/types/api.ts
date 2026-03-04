@@ -19,6 +19,9 @@ export interface AuthCapabilities {
   canArchiveProducts: boolean;
   canManageLocations: boolean;
   canArchiveLocations: boolean;
+  canManageSuppliers: boolean;
+  canManageSystemSettings: boolean;
+  canRecordSupplierPayments: boolean;
 }
 
 export interface AuthMeResponse {

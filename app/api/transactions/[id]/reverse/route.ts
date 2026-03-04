@@ -31,5 +31,14 @@ export async function POST(
     return fail(error.message, 400);
   }
 
+  const { error: supplierDocumentError } = await context.supabase
+    .from("supplier_documents")
+    .update({ status: "VOID" })
+    .eq("source_transaction_id", id);
+
+  if (supplierDocumentError) {
+    return fail(supplierDocumentError.message, 400);
+  }
+
   return ok({ success: true, result: data });
 }

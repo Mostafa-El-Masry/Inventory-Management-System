@@ -133,7 +133,7 @@ export default function SetPasswordPage() {
   if (!ready) {
     return (
       <div className="space-y-3">
-        <p className="ims-kicker">IMS</p>
+        <p className="ims-kicker">ICE</p>
         <h1 className="ims-title text-[1.75rem]">Setting up account</h1>
         <p className="ims-subtitle">Validating your invite link...</p>
       </div>
@@ -142,7 +142,7 @@ export default function SetPasswordPage() {
 
   return (
     <div>
-      <p className="ims-kicker">IMS</p>
+      <p className="ims-kicker">ICE</p>
       <h1 className="ims-title mt-2 text-[1.95rem]">Set your account password</h1>
       <p className="ims-subtitle">Create a secure password to complete your account setup.</p>
 

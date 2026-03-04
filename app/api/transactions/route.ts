@@ -67,6 +67,29 @@ export async function POST(request: Request) {
     return payload.error;
   }
 
+  const normalizedSupplierInvoiceNumber =
+    payload.data.supplier_invoice_number?.trim() || null;
+
+  if (payload.data.supplier_id) {
+    const { data: supplier, error: supplierError } = await context.supabase
+      .from("suppliers")
+      .select("id, is_active")
+      .eq("id", payload.data.supplier_id)
+      .maybeSingle();
+
+    if (supplierError) {
+      return fail(supplierError.message, 400);
+    }
+
+    if (!supplier) {
+      return fail("Supplier not found.", 404);
+    }
+
+    if (!supplier.is_active) {
+      return fail("Supplier is archived and cannot be used for new transactions.", 409);
+    }
+  }
+
   const sourceError = assertLocationAccess(
     context,
     payload.data.source_location_id ?? null,
@@ -91,6 +114,9 @@ export async function POST(request: Request) {
     destination_location_id: payload.data.destination_location_id ?? null,
     reference_type: payload.data.reference_type ?? null,
     reference_id: payload.data.reference_id ?? null,
+    supplier_id: payload.data.supplier_id ?? null,
+    supplier_invoice_number: normalizedSupplierInvoiceNumber,
+    supplier_invoice_date: payload.data.supplier_invoice_date ?? null,
     notes: payload.data.notes ?? null,
     created_by: context.user.id,
   };

@@ -15,6 +15,7 @@ export interface AuthContext {
 
 export function getAuthCapabilities(role: Role): AuthCapabilities {
   const isAdmin = role === "admin";
+  const isManager = role === "manager";
 
   return {
     canManageUsers: isAdmin,
@@ -23,6 +24,9 @@ export function getAuthCapabilities(role: Role): AuthCapabilities {
     canArchiveProducts: isAdmin,
     canManageLocations: isAdmin,
     canArchiveLocations: isAdmin,
+    canManageSuppliers: isAdmin,
+    canManageSystemSettings: isAdmin,
+    canRecordSupplierPayments: isAdmin || isManager,
   };
 }
 

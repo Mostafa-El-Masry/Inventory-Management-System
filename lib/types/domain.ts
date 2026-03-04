@@ -30,6 +30,9 @@ export type AlertType = "LOW_STOCK" | "EXPIRY";
 
 export type AlertSeverity = "INFO" | "WARN" | "CRITICAL";
 
+export type SupplierDocumentType = "INVOICE" | "CREDIT_NOTE";
+export type SupplierDocumentStatus = "OPEN" | "VOID";
+
 export interface Profile {
   id: string;
   full_name: string;
@@ -72,6 +75,33 @@ export interface ProductLocationPolicy {
   min_qty: number;
   max_qty: number;
   reorder_qty: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Supplier {
+  id: string;
+  code: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SupplierDocument {
+  id: string;
+  supplier_id: string;
+  location_id: string;
+  source_transaction_id: string | null;
+  document_type: SupplierDocumentType;
+  document_number: string;
+  document_date: string;
+  currency: string;
+  gross_amount: number;
+  status: SupplierDocumentStatus;
+  created_by: string;
   created_at: string;
   updated_at: string;
 }

@@ -98,7 +98,7 @@ export default function LoginPage() {
 
   return (
     <div>
-      <p className="ims-kicker">IMS</p>
+      <p className="ims-kicker">ICE</p>
       <h1 className="ims-title mt-2 text-[2rem]">Sign in to Inventory Management</h1>
       <p className="ims-subtitle">Use your company credentials to access operations.</p>
 

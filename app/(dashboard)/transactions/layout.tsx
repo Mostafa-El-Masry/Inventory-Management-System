@@ -7,7 +7,10 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils/cn";
 
 const tabs = [
-  { href: "/transactions/transactions", label: "Transactions" },
+  { href: "/transactions/purchase", label: "Purchase" },
+  { href: "/transactions/purchase-return", label: "Purchase Return" },
+  { href: "/transactions/opening-stock", label: "Opening Stock" },
+  { href: "/transactions/stock-adjustment", label: "Stock Adjustment" },
   { href: "/transactions/transfers", label: "Transfers" },
 ];
 

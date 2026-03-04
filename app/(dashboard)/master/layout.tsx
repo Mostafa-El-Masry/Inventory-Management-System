@@ -11,6 +11,7 @@ const tabs = [
   { href: "/master/categories", label: "Categories" },
   { href: "/master/subcategories", label: "Subcategories" },
   { href: "/master/locations", label: "Locations" },
+  { href: "/master/suppliers", label: "Suppliers" },
 ];
 
 export default function MasterLayout({ children }: { children: ReactNode }) {
