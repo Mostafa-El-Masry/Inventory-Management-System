@@ -6,6 +6,23 @@ import { z } from "zod";
 const { loadEnvConfig } = nextEnv;
 loadEnvConfig(process.cwd());
 
+function resolveAppOriginAllowlistInput() {
+  const configured = process.env.APP_ORIGIN_ALLOWLIST?.trim();
+  if (configured) {
+    return configured;
+  }
+
+  const vercelUrl = process.env.VERCEL_URL?.trim();
+  if (vercelUrl) {
+    const normalized = vercelUrl.replace(/^https?:\/\//i, "").trim();
+    if (normalized.length > 0) {
+      return `https://${normalized}`;
+    }
+  }
+
+  return "";
+}
+
 const EXAMPLES = {
   NEXT_PUBLIC_SUPABASE_URL: "https://your-project-ref.supabase.co",
   NEXT_PUBLIC_SUPABASE_ANON_KEY: "your-anon-key",
@@ -103,7 +120,7 @@ const parsed = envSchema.safeParse({
   NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
   NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
-  APP_ORIGIN_ALLOWLIST: process.env.APP_ORIGIN_ALLOWLIST ?? "",
+  APP_ORIGIN_ALLOWLIST: resolveAppOriginAllowlistInput(),
   AUTH_DEV_RESET_FALLBACK_ENABLED: process.env.AUTH_DEV_RESET_FALLBACK_ENABLED,
 });
 

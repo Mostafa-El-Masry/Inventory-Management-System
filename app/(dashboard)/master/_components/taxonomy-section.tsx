@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
+import { MasterCsvSync } from "@/components/master/master-csv-sync";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -464,6 +465,19 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
 
       {error ? <p className="ims-alert-danger">{error}</p> : null}
       {message ? <p className="ims-alert-success">{message}</p> : null}
+
+      <MasterCsvSync
+        entity={isCategoriesSection ? "categories" : "subcategories"}
+        canManage={canManageTaxonomy}
+        helperText={
+          isCategoriesSection
+            ? "Keys by category code (2 digits)."
+            : "Keys by category_code + subcategory code (2 + 3 digits)."
+        }
+        onImported={async () => {
+          await loadTaxonomy();
+        }}
+      />
 
       {isCategoriesSection ? (
         <section>

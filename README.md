@@ -61,6 +61,9 @@ Next.js + Supabase inventory application with:
 - `GET/POST/PATCH /api/products`
 - `POST /api/products/[id]/archive`
 - `POST /api/products/[id]/activate`
+- `GET /api/master/export?entity=locations|products|categories|subcategories|suppliers&include_inactive=true|false`
+- `GET /api/master/import/template?entity=locations|products|categories|subcategories|suppliers`
+- `POST /api/master/import?entity=locations|products|categories|subcategories|suppliers`
 - `GET/POST /api/product-categories`
 - `POST /api/product-categories/[id]/archive`
 - `POST /api/product-categories/[id]/activate`
@@ -100,6 +103,34 @@ npm run build
 
 `npm run build` now runs strict environment validation before Next.js build output. If env values are malformed or missing, the build exits early with explicit variable-level errors.
 
+## Master CSV Export/Reimport
+
+- Reimport is admin-only and non-destructive. Missing rows in file are not deleted.
+- Reimport mode is strict key-based upsert:
+  - `locations`: key `code`
+  - `suppliers`: key `code`
+  - `categories`: key `code` (2 digits)
+  - `subcategories`: key `category_code + code` (2 + 3 digits)
+  - `products`: key `sku`
+- Product reimport requires valid existing taxonomy references (`category_code`, `subcategory_code`).
+- Existing `/api/products/import` remains create-only bulk import.
+
+CSV headers by entity:
+
+- `locations`: `code,name,timezone,is_active`
+- `suppliers`: `code,name,phone,email,is_active`
+- `categories`: `code,name,is_active`
+- `subcategories`: `category_code,code,name,is_active`
+- `products`: `sku,name,barcode,unit,is_active,description,category_code,subcategory_code`
+
+Recommended full restore order:
+
+1. Categories
+2. Subcategories
+3. Locations
+4. Suppliers
+5. Products
+
 ## Deployment Checklist
 
 - Set all required env vars in every environment (Production, Preview, Development):
@@ -110,3 +141,4 @@ npm run build
   - `AUTH_DEV_RESET_FALLBACK_ENABLED=false`
 - Ensure each `APP_ORIGIN_ALLOWLIST` entry is an exact `http/https` origin (no wildcards, no paths/query/hash).
 - Set `AUTH_DEV_RESET_FALLBACK_ENABLED=false` in production.
+   - If `APP_ORIGIN_ALLOWLIST` is omitted on Vercel, the app falls back to `https://${VERCEL_URL}`.

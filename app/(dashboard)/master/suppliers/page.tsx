@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
+import { MasterCsvSync } from "@/components/master/master-csv-sync";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -173,6 +174,15 @@ export default function MasterSuppliersPage() {
 
       {error ? <p className="ims-alert-danger">{error}</p> : null}
       {message ? <p className="ims-alert-success">{message}</p> : null}
+
+      <MasterCsvSync
+        entity="suppliers"
+        canManage={canManageSuppliers}
+        helperText="Keys by supplier code. Reimport updates matching codes and inserts missing ones."
+        onImported={async () => {
+          await loadSuppliers();
+        }}
+      />
 
       <Card className="min-h-[24rem]">
         <div className="flex flex-wrap items-center justify-between gap-2">

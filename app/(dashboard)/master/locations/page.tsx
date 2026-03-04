@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
+import { MasterCsvSync } from "@/components/master/master-csv-sync";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -129,6 +130,15 @@ export default function LocationsPage() {
       </header>
 
       {error ? <p className="ims-alert-danger">{error}</p> : null}
+
+      <MasterCsvSync
+        entity="locations"
+        canManage={canManageLocations}
+        helperText="Keys by location code. Rows missing from file are left unchanged."
+        onImported={async () => {
+          await loadLocations();
+        }}
+      />
 
       <section>
         <Card className="min-h-[24rem]">

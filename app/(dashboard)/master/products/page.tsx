@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
+import { MasterCsvSync } from "@/components/master/master-csv-sync";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -952,6 +953,16 @@ export default function ProductsPage() {
       {error ? <p className="ims-alert-danger">{error}</p> : null}
       {importMessage ? <p className="ims-alert-success">{importMessage}</p> : null}
       {taxonomyMessage ? <p className="ims-alert-success">{taxonomyMessage}</p> : null}
+
+      <MasterCsvSync
+        entity="products"
+        canManage={canCreateProductMaster}
+        helperText="Reimport is strict SKU upsert. Category/subcategory codes must already exist."
+        onImported={async () => {
+          await loadProducts();
+          await loadTaxonomy();
+        }}
+      />
 
       {canCreateProductMaster ? (
         <Card className="min-h-[12rem]">
