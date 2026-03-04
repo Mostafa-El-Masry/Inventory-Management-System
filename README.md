@@ -31,7 +31,7 @@ Next.js + Supabase inventory application with:
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
    - `SUPABASE_SERVICE_ROLE_KEY`
-   - `APP_ORIGIN_ALLOWLIST` (comma-separated trusted app origins, e.g. `http://localhost:3000`)
+   - `APP_ORIGIN_ALLOWLIST` (comma-separated exact trusted origins with protocol, e.g. `http://localhost:3000,https://your-project.vercel.app`)
    - `AUTH_DEV_RESET_FALLBACK_ENABLED` (`true` or `false`)
 3. Start Supabase locally and apply SQL:
    ```bash
@@ -98,7 +98,15 @@ npm test
 npm run build
 ```
 
+`npm run build` now runs strict environment validation before Next.js build output. If env values are malformed or missing, the build exits early with explicit variable-level errors.
+
 ## Deployment Checklist
 
-- Set `APP_ORIGIN_ALLOWLIST` in every environment (including CI/CD build environment).
+- Set all required env vars in every environment (Production, Preview, Development):
+  - `NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co`
+  - `NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon-key>`
+  - `SUPABASE_SERVICE_ROLE_KEY=<service-role-key>`
+  - `APP_ORIGIN_ALLOWLIST=https://<project>.vercel.app,https://<custom-domain>`
+  - `AUTH_DEV_RESET_FALLBACK_ENABLED=false`
+- Ensure each `APP_ORIGIN_ALLOWLIST` entry is an exact `http/https` origin (no wildcards, no paths/query/hash).
 - Set `AUTH_DEV_RESET_FALLBACK_ENABLED=false` in production.

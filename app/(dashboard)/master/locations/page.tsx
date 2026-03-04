@@ -1,11 +1,12 @@
 "use client";
-/* eslint-disable react-hooks/set-state-in-effect */
 
 import { useCallback, useEffect, useState } from "react";
 
+import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { fetchJson } from "@/lib/utils/fetch-json";
 
 type Location = {
   id: string;
@@ -15,19 +16,10 @@ type Location = {
   is_active: boolean;
 };
 
-type AuthMe = {
-  capabilities: {
-    canManageLocations: boolean;
-    canArchiveLocations: boolean;
-  };
-};
-
 export default function LocationsPage() {
+  const { capabilities } = useDashboardSession();
   const [locations, setLocations] = useState<Location[]>([]);
   const [showInactive, setShowInactive] = useState(false);
-  const [capabilities, setCapabilities] = useState<AuthMe["capabilities"] | null>(
-    null,
-  );
   const [error, setError] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
   const [stateLoading, setStateLoading] = useState(false);
@@ -37,39 +29,33 @@ export default function LocationsPage() {
     is_active: true,
   });
 
-  const loadLocations = useCallback(async () => {
-    const response = await fetch(
+  const loadLocations = useCallback(async (signal?: AbortSignal) => {
+    const result = await fetchJson<{ items?: Location[] }>(
       `/api/locations?include_inactive=${showInactive ? "true" : "false"}`,
-      { cache: "no-store" },
+      {
+        cache: "no-store",
+        signal,
+        fallbackError: "Failed to load locations.",
+      },
     );
-    const json = (await response.json()) as { items?: Location[]; error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to load locations.");
+    if (!result.ok) {
+      if (result.error !== "Request aborted.") {
+        setError(result.error);
+      }
       return;
     }
+
     setError(null);
-    setLocations(json.items ?? []);
+    setLocations(result.data.items ?? []);
   }, [showInactive]);
 
-  const loadAuth = useCallback(async () => {
-    const response = await fetch("/api/auth/me", { cache: "no-store" });
-    const json = (await response.json()) as AuthMe & { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to load permissions.");
-      return;
-    }
-    setCapabilities(json.capabilities);
-  }, []);
-
   useEffect(() => {
-    loadAuth().catch(() => setError("Failed to load permissions."));
-  }, [loadAuth]);
-
-  useEffect(() => {
-    loadLocations().catch(() => setError("Failed to load locations."));
+    const controller = new AbortController();
+    loadLocations(controller.signal).catch(() => setError("Failed to load locations."));
+    return () => controller.abort();
   }, [loadLocations]);
 
-  const canManageLocations = capabilities?.canManageLocations ?? false;
+  const canManageLocations = capabilities.canManageLocations;
   const canCreate =
     newLocation.name.trim().length >= 2 && newLocation.timezone.trim().length >= 3;
 
@@ -80,50 +66,58 @@ export default function LocationsPage() {
 
     setCreateLoading(true);
     setError(null);
-    const payload = {
-      name: newLocation.name.trim(),
-      timezone: newLocation.timezone.trim(),
-      is_active: newLocation.is_active,
-    };
+    try {
+      const payload = {
+        name: newLocation.name.trim(),
+        timezone: newLocation.timezone.trim(),
+        is_active: newLocation.is_active,
+      };
 
-    const response = await fetch("/api/locations", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+      const result = await fetchJson<{ error?: string }>("/api/locations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        fallbackError: "Failed to create location.",
+      });
 
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to create location.");
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      setNewLocation({
+        name: "",
+        timezone: "Asia/Kuwait",
+        is_active: true,
+      });
+      await loadLocations();
+    } finally {
       setCreateLoading(false);
-      return;
     }
-
-    setNewLocation({
-      name: "",
-      timezone: "Asia/Kuwait",
-      is_active: true,
-    });
-    await loadLocations();
-    setCreateLoading(false);
   }
 
   async function setLocationActive(locationId: string, active: boolean) {
     setStateLoading(true);
     setError(null);
-    const endpoint = active ? "activate" : "archive";
-    const response = await fetch(`/api/locations/${locationId}/${endpoint}`, {
-      method: "POST",
-    });
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? `Failed to ${endpoint} location.`);
-      setStateLoading(false);
-      return;
-    }
+    try {
+      const endpoint = active ? "activate" : "archive";
+      const result = await fetchJson<{ error?: string }>(
+        `/api/locations/${locationId}/${endpoint}`,
+        {
+          method: "POST",
+          fallbackError: `Failed to ${endpoint} location.`,
+        },
+      );
 
-    await loadLocations();
-    setStateLoading(false);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      await loadLocations();
+    } finally {
+      setStateLoading(false);
+    }
   }
 
   return (
@@ -254,9 +248,6 @@ export default function LocationsPage() {
             </table>
             {locations.length === 0 ? (
               <p className="ims-empty mt-3">No locations found.</p>
-            ) : null}
-            {capabilities === null ? (
-              <p className="ims-empty mt-3">Loading permissions...</p>
             ) : null}
           </div>
         </Card>

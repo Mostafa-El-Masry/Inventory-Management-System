@@ -1,5 +1,4 @@
 ﻿"use client";
-/* eslint-disable react-hooks/set-state-in-effect */
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
@@ -7,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { fetchJson } from "@/lib/utils/fetch-json";
 import { BarcodePrintDialog } from "../_components/barcode-print-dialog";
 import {
   BarcodeLabel,
@@ -70,31 +70,59 @@ export default function TransfersPage() {
   const [printLabels, setPrintLabels] = useState<BarcodeLabel[]>([]);
   const [printTitle, setPrintTitle] = useState("Transfer Barcodes");
 
-  async function loadTransfers() {
-    const response = await fetch("/api/transfers?limit=200", { cache: "no-store" });
-    const json = (await response.json()) as { items?: Transfer[]; error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to load transfers.");
+  async function loadTransfers(signal?: AbortSignal) {
+    const result = await fetchJson<{ items?: Transfer[]; error?: string }>(
+      "/api/transfers?limit=200",
+      {
+        cache: "no-store",
+        signal,
+        fallbackError: "Failed to load transfers.",
+      },
+    );
+    if (!result.ok) {
+      if (result.error !== "Request aborted.") {
+        setError(result.error);
+      }
       return;
     }
-    setTransfers(json.items ?? []);
+    setTransfers(result.data.items ?? []);
   }
 
-  async function loadLookups() {
-    const [locationsRes, productsRes] = await Promise.all([
-      fetch("/api/locations"),
-      fetch("/api/products"),
+  async function loadLookups(signal?: AbortSignal) {
+    const [locationsResult, productsResult] = await Promise.all([
+      fetchJson<{ items?: Lookup[]; error?: string }>("/api/locations", {
+        signal,
+        fallbackError: "Failed to load locations.",
+      }),
+      fetchJson<{ items?: Lookup[]; error?: string }>("/api/products", {
+        signal,
+        fallbackError: "Failed to load products.",
+      }),
     ]);
-    const locationsJson = (await locationsRes.json()) as { items?: Lookup[] };
-    const productsJson = (await productsRes.json()) as { items?: Lookup[] };
-    setLocations(locationsJson.items ?? []);
-    setProducts(productsJson.items ?? []);
+
+    if (!locationsResult.ok) {
+      if (locationsResult.error !== "Request aborted.") {
+        setError(locationsResult.error);
+      }
+      return;
+    }
+    if (!productsResult.ok) {
+      if (productsResult.error !== "Request aborted.") {
+        setError(productsResult.error);
+      }
+      return;
+    }
+
+    setLocations(locationsResult.data.items ?? []);
+    setProducts(productsResult.data.items ?? []);
   }
 
   useEffect(() => {
-    Promise.all([loadTransfers(), loadLookups()]).catch(() =>
+    const controller = new AbortController();
+    Promise.all([loadTransfers(controller.signal), loadLookups(controller.signal)]).catch(() =>
       setError("Failed to load transfer data."),
     );
+    return () => controller.abort();
   }, []);
 
   const locationById = useMemo(() => {
@@ -153,23 +181,25 @@ export default function TransfersPage() {
       ],
     };
 
-    const response = await fetch("/api/transfers", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    try {
+      const result = await fetchJson<{ error?: string }>("/api/transfers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        fallbackError: "Failed to create material request.",
+      });
 
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to create material request.");
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      (event.currentTarget as HTMLFormElement).reset();
+      setMessage("Material request created.");
+      await loadTransfers();
+    } finally {
       setRequestLoading(false);
-      return;
     }
-
-    (event.currentTarget as HTMLFormElement).reset();
-    setMessage("Material request created.");
-    await loadTransfers();
-    setRequestLoading(false);
   }
 
   async function createDirectTransfer(event: FormEvent<HTMLFormElement>) {
@@ -191,39 +221,46 @@ export default function TransfersPage() {
       ],
     };
 
-    const response = await fetch("/api/transfers/direct", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    try {
+      const result = await fetchJson<{ error?: string }>("/api/transfers/direct", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        fallbackError: "Failed to create direct transfer.",
+      });
 
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to create direct transfer.");
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      (event.currentTarget as HTMLFormElement).reset();
+      setMessage("Direct transfer completed.");
+      await loadTransfers();
+    } finally {
       setDirectLoading(false);
-      return;
     }
-
-    (event.currentTarget as HTMLFormElement).reset();
-    setMessage("Direct transfer completed.");
-    await loadTransfers();
-    setDirectLoading(false);
   }
 
   async function approveTransfer(id: string) {
     setActionLoading(true);
     setError(null);
     setMessage(null);
-    const response = await fetch(`/api/transfers/${id}/approve`, { method: "POST" });
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to approve transfer.");
+    try {
+      const result = await fetchJson<{ error?: string }>(`/api/transfers/${id}/approve`, {
+        method: "POST",
+        fallbackError: "Failed to approve transfer.",
+      });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      setMessage("Material request approved.");
+      await loadTransfers();
+    } finally {
       setActionLoading(false);
-      return;
     }
-    setMessage("Material request approved.");
-    await loadTransfers();
-    setActionLoading(false);
   }
 
   async function rejectTransfer(transfer: Transfer) {
@@ -232,20 +269,23 @@ export default function TransfersPage() {
     setActionLoading(true);
     setError(null);
     setMessage(null);
-    const response = await fetch(`/api/transfers/${transfer.id}/reject`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ note: reason.trim() || undefined }),
-    });
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to reject transfer.");
+    try {
+      const result = await fetchJson<{ error?: string }>(`/api/transfers/${transfer.id}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note: reason.trim() || undefined }),
+        fallbackError: "Failed to reject transfer.",
+      });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      setMessage(`Transfer ${transfer.transfer_number} rejected.`);
+      await loadTransfers();
+    } finally {
       setActionLoading(false);
-      return;
     }
-    setMessage(`Transfer ${transfer.transfer_number} rejected.`);
-    await loadTransfers();
-    setActionLoading(false);
   }
 
   async function transferMaterial(transfer: Transfer) {
@@ -253,35 +293,39 @@ export default function TransfersPage() {
     setError(null);
     setMessage(null);
 
-    if (transfer.status === "APPROVED") {
-      const dispatchResponse = await fetch(`/api/transfers/${transfer.id}/dispatch`, {
-        method: "POST",
-      });
-      const dispatchJson = (await dispatchResponse.json()) as { error?: string };
-      if (!dispatchResponse.ok) {
-        setError(dispatchJson.error ?? "Failed to dispatch transfer.");
-        setActionLoading(false);
+    try {
+      if (transfer.status === "APPROVED") {
+        const dispatchResult = await fetchJson<{ error?: string }>(
+          `/api/transfers/${transfer.id}/dispatch`,
+          {
+            method: "POST",
+            fallbackError: "Failed to dispatch transfer.",
+          },
+        );
+        if (!dispatchResult.ok) {
+          setError(dispatchResult.error);
+          return;
+        }
+      }
+
+      const receiveResult = await fetchJson<{ error?: string }>(
+        `/api/transfers/${transfer.id}/receive`,
+        {
+          method: "POST",
+          fallbackError: "Dispatch succeeded but receive failed. You can retry from this row.",
+        },
+      );
+      if (!receiveResult.ok) {
+        setError(receiveResult.error);
+        await loadTransfers();
         return;
       }
-    }
 
-    const receiveResponse = await fetch(`/api/transfers/${transfer.id}/receive`, {
-      method: "POST",
-    });
-    const receiveJson = (await receiveResponse.json()) as { error?: string };
-    if (!receiveResponse.ok) {
-      setError(
-        receiveJson.error ??
-          "Dispatch succeeded but receive failed. You can retry from this row.",
-      );
+      setMessage(`Transfer ${transfer.transfer_number} completed.`);
       await loadTransfers();
+    } finally {
       setActionLoading(false);
-      return;
     }
-
-    setMessage(`Transfer ${transfer.transfer_number} completed.`);
-    await loadTransfers();
-    setActionLoading(false);
   }
 
   function startEditTransfer(transfer: Transfer) {
@@ -323,29 +367,34 @@ export default function TransfersPage() {
       ],
     };
 
-    const response = await fetch(`/api/transfers/${editingTransferId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to edit transfer.");
-      setEditLoading(false);
-      return;
-    }
+    try {
+      const result = await fetchJson<{ error?: string }>(
+        `/api/transfers/${editingTransferId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          fallbackError: "Failed to edit transfer.",
+        },
+      );
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
 
-    setEditingTransferId(null);
-    setEditForm({
-      from_location_id: "",
-      to_location_id: "",
-      product_id: "",
-      requested_qty: "",
-      notes: "",
-    });
-    setMessage("Material request updated.");
-    await loadTransfers();
-    setEditLoading(false);
+      setEditingTransferId(null);
+      setEditForm({
+        from_location_id: "",
+        to_location_id: "",
+        product_id: "",
+        requested_qty: "",
+        notes: "",
+      });
+      setMessage("Material request updated.");
+      await loadTransfers();
+    } finally {
+      setEditLoading(false);
+    }
   }
 
   function openPrintForTransfer(transfer: Transfer, titlePrefix: string) {
@@ -824,8 +873,8 @@ export default function TransfersPage() {
       <BarcodePrintDialog
         open={printDialogOpen}
         onClose={() => setPrintDialogOpen(false)}
-        onConfirm={({ format, quantity }) => {
-          const result = printBarcodeLabels(printLabels, {
+        onConfirm={async ({ format, quantity }) => {
+          const result = await printBarcodeLabels(printLabels, {
             format,
             quantity,
             title: printTitle,

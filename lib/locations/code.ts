@@ -49,11 +49,3 @@ export function nextPrefixedCode(prefix: string, existingCodes: string[]) {
   const nextSuffix = maxSuffix + 1;
   return `${normalizedPrefix}-${String(nextSuffix).padStart(2, "0")}`;
 }
-
-export function deriveLocationPrefix(name: string) {
-  return deriveNamePrefix(name, "LOC");
-}
-
-export function nextLocationCode(prefix: string, existingCodes: string[]) {
-  return nextPrefixedCode(prefix, existingCodes);
-}

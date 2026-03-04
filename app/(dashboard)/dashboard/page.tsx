@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { fetchJson } from "@/lib/utils/fetch-json";
 
 type DashboardPayload = {
   totalSkus: number;
@@ -25,28 +26,37 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let active = true;
-    fetch("/api/reports/dashboard", { cache: "no-store" })
-      .then(async (res) => {
-        const json = (await res.json()) as DashboardPayload & { error?: string };
-        if (!active) return;
-        if (!res.ok) {
-          setError(json.error ?? "Failed to load dashboard.");
-          setLoading(false);
+    const controller = new AbortController();
+
+    async function loadDashboard() {
+      setLoading(true);
+      try {
+        const result = await fetchJson<DashboardPayload & { error?: string }>(
+          "/api/reports/dashboard",
+          {
+            cache: "no-store",
+            signal: controller.signal,
+            fallbackError: "Failed to load dashboard.",
+          },
+        );
+        if (!result.ok) {
+          if (result.error !== "Request aborted.") {
+            setError(result.error);
+          }
           return;
         }
-        setData(json);
+
+        setError(null);
+        setData(result.data);
+      } finally {
         setLoading(false);
-      })
-      .catch(() => {
-        if (active) {
-          setError("Failed to load dashboard.");
-          setLoading(false);
-        }
-      });
+      }
+    }
+
+    loadDashboard().catch(() => setError("Failed to load dashboard."));
 
     return () => {
-      active = false;
+      controller.abort();
     };
   }, []);
 

@@ -1,7 +1,5 @@
 "use client";
 
-import JsBarcode from "jsbarcode";
-
 export type BarcodePrintFormat = "a4" | "thermal";
 
 export type BarcodeLabel = {
@@ -30,6 +28,22 @@ type ProductLookup = {
 type BuildBarcodeLabelsResult = { labels: BarcodeLabel[] } | { error: string };
 type PrintBarcodeLabelsResult = { ok: true } | { error: string };
 
+type JsBarcodeOptions = {
+  format: string;
+  displayValue: boolean;
+  margin: number;
+  width: number;
+  height: number;
+  fontSize: number;
+  textMargin: number;
+  background: string;
+  lineColor: string;
+};
+
+type JsBarcodeFunction = (target: SVGElement, text: string, options: JsBarcodeOptions) => void;
+
+let jsBarcodeModulePromise: Promise<unknown> | null = null;
+
 function escapeHtml(value: string) {
   return value
     .replaceAll("&", "&amp;")
@@ -39,9 +53,22 @@ function escapeHtml(value: string) {
     .replaceAll("'", "&#39;");
 }
 
-function renderBarcodeSvg(barcodeValue: string) {
+async function renderBarcodeSvg(barcodeValue: string) {
+  if (!jsBarcodeModulePromise) {
+    jsBarcodeModulePromise = import("jsbarcode");
+  }
+  const jsBarcodeModule = await jsBarcodeModulePromise;
+  const jsBarcodeCandidate =
+    typeof jsBarcodeModule === "function"
+      ? jsBarcodeModule
+      : (jsBarcodeModule as { default?: unknown }).default;
+  if (typeof jsBarcodeCandidate !== "function") {
+    throw new Error("Failed to load barcode generator.");
+  }
+  const jsBarcode = jsBarcodeCandidate as JsBarcodeFunction;
+
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  JsBarcode(svg, barcodeValue, {
+  jsBarcode(svg, barcodeValue, {
     format: "CODE128",
     displayValue: true,
     margin: 0,
@@ -99,11 +126,11 @@ function getLayoutCss(format: BarcodePrintFormat) {
   `;
 }
 
-function renderLabelBlock(label: BarcodeLabel) {
+async function renderLabelBlock(label: BarcodeLabel) {
   const product = escapeHtml(label.productName);
   const sku = escapeHtml(label.sku ?? "-");
   const barcode = label.barcode.trim();
-  const svgMarkup = renderBarcodeSvg(barcode);
+  const svgMarkup = await renderBarcodeSvg(barcode);
 
   return `
     <article class="label">
@@ -161,10 +188,10 @@ export function buildBarcodeLabelsFromLines(
   return { labels } as const;
 }
 
-export function printBarcodeLabels(
+export async function printBarcodeLabels(
   labels: BarcodeLabel[],
   options: PrintOptions,
-): PrintBarcodeLabelsResult {
+): Promise<PrintBarcodeLabelsResult> {
   if (!Number.isInteger(options.quantity) || options.quantity < 1) {
     return { error: "Label quantity must be an integer greater than or equal to 1." };
   }
@@ -186,7 +213,14 @@ export function printBarcodeLabels(
   }
 
   const title = escapeHtml(options.title ?? "Barcode Labels");
-  const labelsMarkup = expandedLabels.map((label) => renderLabelBlock(label)).join("");
+  let labelsMarkup: string;
+  try {
+    labelsMarkup = (await Promise.all(expandedLabels.map((label) => renderLabelBlock(label)))).join(
+      "",
+    );
+  } catch {
+    return { error: "Failed to render barcode labels." };
+  }
   const layoutCss = getLayoutCss(options.format);
 
   popup.document.open();

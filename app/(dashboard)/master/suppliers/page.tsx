@@ -1,11 +1,12 @@
 "use client";
-/* eslint-disable react-hooks/set-state-in-effect */
 
 import { useCallback, useEffect, useState } from "react";
 
+import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { fetchJson } from "@/lib/utils/fetch-json";
 
 type Supplier = {
   id: string;
@@ -16,18 +17,10 @@ type Supplier = {
   is_active: boolean;
 };
 
-type AuthMe = {
-  capabilities: {
-    canManageSuppliers: boolean;
-  };
-};
-
 export default function MasterSuppliersPage() {
+  const { capabilities } = useDashboardSession();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [showInactive, setShowInactive] = useState(false);
-  const [capabilities, setCapabilities] = useState<AuthMe["capabilities"] | null>(
-    null,
-  );
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
@@ -39,39 +32,32 @@ export default function MasterSuppliersPage() {
     is_active: true,
   });
 
-  const loadSuppliers = useCallback(async () => {
-    const response = await fetch(
+  const loadSuppliers = useCallback(async (signal?: AbortSignal) => {
+    const result = await fetchJson<{ items?: Supplier[] }>(
       `/api/suppliers?include_inactive=${showInactive ? "true" : "false"}`,
-      { cache: "no-store" },
+      {
+        cache: "no-store",
+        signal,
+        fallbackError: "Failed to load suppliers.",
+      },
     );
-    const json = (await response.json()) as { items?: Supplier[]; error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to load suppliers.");
+    if (!result.ok) {
+      if (result.error !== "Request aborted.") {
+        setError(result.error);
+      }
       return;
     }
     setError(null);
-    setSuppliers(json.items ?? []);
+    setSuppliers(result.data.items ?? []);
   }, [showInactive]);
 
-  const loadAuth = useCallback(async () => {
-    const response = await fetch("/api/auth/me", { cache: "no-store" });
-    const json = (await response.json()) as AuthMe & { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to load permissions.");
-      return;
-    }
-    setCapabilities(json.capabilities);
-  }, []);
-
   useEffect(() => {
-    loadAuth().catch(() => setError("Failed to load permissions."));
-  }, [loadAuth]);
-
-  useEffect(() => {
-    loadSuppliers().catch(() => setError("Failed to load suppliers."));
+    const controller = new AbortController();
+    loadSuppliers(controller.signal).catch(() => setError("Failed to load suppliers."));
+    return () => controller.abort();
   }, [loadSuppliers]);
 
-  const canManageSuppliers = capabilities?.canManageSuppliers ?? false;
+  const canManageSuppliers = capabilities.canManageSuppliers;
   const canCreate = newSupplier.name.trim().length >= 2;
 
   async function createSupplier() {
@@ -83,32 +69,34 @@ export default function MasterSuppliersPage() {
     setError(null);
     setMessage(null);
 
-    const response = await fetch("/api/suppliers", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: newSupplier.name.trim(),
-        phone: newSupplier.phone.trim() || null,
-        email: newSupplier.email.trim() || null,
-        is_active: newSupplier.is_active,
-      }),
-    });
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to create supplier.");
-      setCreateLoading(false);
-      return;
-    }
+    try {
+      const result = await fetchJson<{ error?: string }>("/api/suppliers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newSupplier.name.trim(),
+          phone: newSupplier.phone.trim() || null,
+          email: newSupplier.email.trim() || null,
+          is_active: newSupplier.is_active,
+        }),
+        fallbackError: "Failed to create supplier.",
+      });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
 
-    setNewSupplier({
-      name: "",
-      phone: "",
-      email: "",
-      is_active: true,
-    });
-    setMessage("Supplier created.");
-    await loadSuppliers();
-    setCreateLoading(false);
+      setNewSupplier({
+        name: "",
+        phone: "",
+        email: "",
+        is_active: true,
+      });
+      setMessage("Supplier created.");
+      await loadSuppliers();
+    } finally {
+      setCreateLoading(false);
+    }
   }
 
   async function setSupplierActive(supplierId: string, active: boolean) {
@@ -119,20 +107,25 @@ export default function MasterSuppliersPage() {
     setStateLoading(true);
     setError(null);
     setMessage(null);
-    const endpoint = active ? "activate" : "archive";
-    const response = await fetch(`/api/suppliers/${supplierId}/${endpoint}`, {
-      method: "POST",
-    });
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? `Failed to ${endpoint} supplier.`);
-      setStateLoading(false);
-      return;
-    }
+    try {
+      const endpoint = active ? "activate" : "archive";
+      const result = await fetchJson<{ error?: string }>(
+        `/api/suppliers/${supplierId}/${endpoint}`,
+        {
+          method: "POST",
+          fallbackError: `Failed to ${endpoint} supplier.`,
+        },
+      );
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
 
-    setMessage(active ? "Supplier activated." : "Supplier archived.");
-    await loadSuppliers();
-    setStateLoading(false);
+      setMessage(active ? "Supplier activated." : "Supplier archived.");
+      await loadSuppliers();
+    } finally {
+      setStateLoading(false);
+    }
   }
 
   async function hardDeleteSupplier(supplier: Supplier) {
@@ -150,19 +143,24 @@ export default function MasterSuppliersPage() {
     setStateLoading(true);
     setError(null);
     setMessage(null);
-    const response = await fetch(`/api/suppliers/${supplier.id}/hard-delete`, {
-      method: "POST",
-    });
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to hard delete supplier.");
-      setStateLoading(false);
-      return;
-    }
+    try {
+      const result = await fetchJson<{ error?: string }>(
+        `/api/suppliers/${supplier.id}/hard-delete`,
+        {
+          method: "POST",
+          fallbackError: "Failed to hard delete supplier.",
+        },
+      );
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
 
-    setMessage("Supplier hard deleted.");
-    await loadSuppliers();
-    setStateLoading(false);
+      setMessage("Supplier hard deleted.");
+      await loadSuppliers();
+    } finally {
+      setStateLoading(false);
+    }
   }
 
   return (

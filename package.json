@@ -4,19 +4,21 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node ./scripts/validate-env.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint && npm run lint:units",
     "lint:units": "node ./scripts/check-no-px-literals.mjs",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "workload:generate": "node ./scripts/generate-workload.mjs",
+    "workload:check": "node ./scripts/check-reports.mjs",
+    "workload:run": "npm run workload:generate && npm run workload:check"
   },
   "dependencies": {
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.97.0",
     "clsx": "^2.1.1",
-    "date-fns": "^4.1.0",
-    "date-fns-tz": "^3.2.0",
     "jsbarcode": "^3.12.3",
     "next": "16.1.6",
     "react": "19.2.3",
@@ -25,6 +27,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@next/env": "^16.1.6",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

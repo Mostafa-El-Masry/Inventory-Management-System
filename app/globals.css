@@ -147,8 +147,7 @@ h6 {
 }
 
 .ims-input,
-.ims-select,
-.ims-textarea {
+.ims-select {
   width: 100%;
   border: var(--line-1) solid var(--line);
   background: var(--surface);
@@ -164,21 +163,12 @@ h6 {
   font-size: clamp(0.88rem, 0.85rem + 0.16vw, 0.95rem);
 }
 
-.ims-textarea {
-  min-height: clamp(6rem, 5.5rem + 1.8vw, 7rem);
-  padding: var(--space-3);
-  font-size: clamp(0.88rem, 0.85rem + 0.16vw, 0.95rem);
-  resize: vertical;
-}
-
-.ims-input::placeholder,
-.ims-textarea::placeholder {
+.ims-input::placeholder {
   color: color-mix(in srgb, var(--text-muted) 68%, #fff 32%);
 }
 
 .ims-input:focus-visible,
-.ims-select:focus-visible,
-.ims-textarea:focus-visible {
+.ims-select:focus-visible {
   outline: none;
   border-color: color-mix(in srgb, var(--brand-primary) 52%, var(--line) 48%);
   box-shadow: 0 0 0 var(--ring-width) color-mix(in srgb, var(--brand-primary) 22%, transparent);

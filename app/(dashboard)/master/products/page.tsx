@@ -1,12 +1,13 @@
 "use client";
-/* eslint-disable react-hooks/set-state-in-effect */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { fetchJson } from "@/lib/utils/fetch-json";
 import {
   PRODUCT_IMPORT_MAX_ROWS,
   PRODUCT_MAX_COUNT,
@@ -165,24 +166,12 @@ type ProductSubcategory = {
   is_active: boolean;
 };
 
-type AuthMe = {
-  user_id: string;
-  capabilities: {
-    canCreateProductMaster: boolean;
-    canEditProductMaster: boolean;
-    canArchiveProducts: boolean;
-  };
-};
-
 export default function ProductsPage() {
+  const { capabilities, userId: authUserId } = useDashboardSession();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [subcategories, setSubcategories] = useState<ProductSubcategory[]>([]);
   const [showInactive, setShowInactive] = useState(false);
-  const [capabilities, setCapabilities] = useState<AuthMe["capabilities"] | null>(
-    null,
-  );
-  const [authUserId, setAuthUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
   const [stateLoading, setStateLoading] = useState(false);
@@ -228,79 +217,79 @@ export default function ProductsPage() {
   const actionMenuRef = useRef<HTMLDivElement | null>(null);
   const columnsPanelRef = useRef<HTMLDivElement | null>(null);
 
-  const loadProducts = useCallback(async () => {
-    const response = await fetch(
+  const loadProducts = useCallback(async (signal?: AbortSignal) => {
+    const result = await fetchJson<{ items?: Product[] }>(
       `/api/products?include_inactive=${showInactive ? "true" : "false"}`,
-      { cache: "no-store" },
+      {
+        cache: "no-store",
+        signal,
+        fallbackError: "Failed to load products.",
+      },
     );
-    const json = (await response.json()) as { items?: Product[]; error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to load products.");
+    if (!result.ok) {
+      if (result.error !== "Request aborted.") {
+        setError(result.error);
+      }
       return;
     }
+
     setError(null);
     setOpenActionMenuProductId(null);
-    setProducts(json.items ?? []);
+    setProducts(result.data.items ?? []);
   }, [showInactive]);
 
-  const loadAuth = useCallback(async () => {
-    const response = await fetch("/api/auth/me", { cache: "no-store" });
-    const json = (await response.json()) as AuthMe & { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to load permissions.");
-      return;
-    }
-    setAuthUserId(json.user_id ?? null);
-    setCapabilities(json.capabilities);
-  }, []);
-
-  const loadTaxonomy = useCallback(async () => {
+  const loadTaxonomy = useCallback(async (signal?: AbortSignal) => {
     setTaxonomyLoading(true);
-    const [categoriesResponse, subcategoriesResponse] = await Promise.all([
-      fetch("/api/product-categories", { cache: "no-store" }),
-      fetch("/api/product-subcategories", { cache: "no-store" }),
-    ]);
+    try {
+      const [categoriesResult, subcategoriesResult] = await Promise.all([
+        fetchJson<{ items?: ProductCategory[] }>("/api/product-categories", {
+          cache: "no-store",
+          signal,
+          fallbackError: "Failed to load product categories.",
+        }),
+        fetchJson<{ items?: ProductSubcategory[] }>("/api/product-subcategories", {
+          cache: "no-store",
+          signal,
+          fallbackError: "Failed to load product subcategories.",
+        }),
+      ]);
 
-    const categoriesJson = (await categoriesResponse.json()) as {
-      items?: ProductCategory[];
-      error?: string;
-    };
-    if (!categoriesResponse.ok) {
-      setError(categoriesJson.error ?? "Failed to load product categories.");
+      if (!categoriesResult.ok) {
+        if (categoriesResult.error !== "Request aborted.") {
+          setError(categoriesResult.error);
+        }
+        return;
+      }
+
+      if (!subcategoriesResult.ok) {
+        if (subcategoriesResult.error !== "Request aborted.") {
+          setError(subcategoriesResult.error);
+        }
+        return;
+      }
+
+      setCategories(categoriesResult.data.items ?? []);
+      setSubcategories(subcategoriesResult.data.items ?? []);
+    } finally {
       setTaxonomyLoading(false);
-      return;
     }
-
-    const subcategoriesJson = (await subcategoriesResponse.json()) as {
-      items?: ProductSubcategory[];
-      error?: string;
-    };
-    if (!subcategoriesResponse.ok) {
-      setError(subcategoriesJson.error ?? "Failed to load product subcategories.");
-      setTaxonomyLoading(false);
-      return;
-    }
-
-    setCategories(categoriesJson.items ?? []);
-    setSubcategories(subcategoriesJson.items ?? []);
-    setTaxonomyLoading(false);
   }, []);
 
   useEffect(() => {
-    loadAuth().catch(() => setError("Failed to load product data."));
-  }, [loadAuth]);
-
-  useEffect(() => {
-    loadProducts().catch(() => setError("Failed to load products."));
+    const controller = new AbortController();
+    loadProducts(controller.signal).catch(() => setError("Failed to load products."));
+    return () => controller.abort();
   }, [loadProducts]);
 
-  const canCreateProductMaster = capabilities?.canCreateProductMaster ?? false;
+  const canCreateProductMaster = capabilities.canCreateProductMaster;
 
   useEffect(() => {
     if (!canCreateProductMaster) {
       return;
     }
-    loadTaxonomy().catch(() => setError("Failed to load product taxonomy."));
+    const controller = new AbortController();
+    loadTaxonomy(controller.signal).catch(() => setError("Failed to load product taxonomy."));
+    return () => controller.abort();
   }, [canCreateProductMaster, loadTaxonomy]);
 
   useEffect(() => {
@@ -553,39 +542,41 @@ export default function ProductsPage() {
 
     setCreateLoading(true);
     setError(null);
-    const payload = {
-      name: newProduct.name.trim(),
-      category_id: newProduct.category_id,
-      subcategory_id: newProduct.subcategory_id,
-      barcode: newProduct.barcode.trim() || null,
-      unit: newProduct.unit.trim(),
-      description: null,
-      is_active: newProduct.is_active,
-    };
+    try {
+      const payload = {
+        name: newProduct.name.trim(),
+        category_id: newProduct.category_id,
+        subcategory_id: newProduct.subcategory_id,
+        barcode: newProduct.barcode.trim() || null,
+        unit: newProduct.unit.trim(),
+        description: null,
+        is_active: newProduct.is_active,
+      };
 
-    const response = await fetch("/api/products", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+      const result = await fetchJson<{ error?: string }>("/api/products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        fallbackError: "Failed to create product.",
+      });
 
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to create product.");
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      setNewProduct({
+        name: "",
+        category_id: "",
+        subcategory_id: "",
+        barcode: "",
+        unit: "unit",
+        is_active: true,
+      });
+      await loadProducts();
+    } finally {
       setCreateLoading(false);
-      return;
     }
-
-    setNewProduct({
-      name: "",
-      category_id: "",
-      subcategory_id: "",
-      barcode: "",
-      unit: "unit",
-      is_active: true,
-    });
-    await loadProducts();
-    setCreateLoading(false);
   }
 
   async function createCategory() {
@@ -596,29 +587,31 @@ export default function ProductsPage() {
     setTaxonomySaving(true);
     setError(null);
     setTaxonomyMessage(null);
-    const response = await fetch("/api/product-categories", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: newCategory.name.trim(),
-        is_active: newCategory.is_active,
-      }),
-    });
+    try {
+      const result = await fetchJson<{ error?: string }>("/api/product-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newCategory.name.trim(),
+          is_active: newCategory.is_active,
+        }),
+        fallbackError: "Failed to create category.",
+      });
 
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to create category.");
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      setNewCategory({
+        name: "",
+        is_active: true,
+      });
+      setTaxonomyMessage("Category created. Product dropdowns refreshed.");
+      await loadTaxonomy();
+    } finally {
       setTaxonomySaving(false);
-      return;
     }
-
-    setNewCategory({
-      name: "",
-      is_active: true,
-    });
-    setTaxonomyMessage("Category created. Product dropdowns refreshed.");
-    await loadTaxonomy();
-    setTaxonomySaving(false);
   }
 
   async function createSubcategory() {
@@ -629,31 +622,33 @@ export default function ProductsPage() {
     setTaxonomySaving(true);
     setError(null);
     setTaxonomyMessage(null);
-    const response = await fetch("/api/product-subcategories", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        category_id: newSubcategory.category_id,
-        name: newSubcategory.name.trim(),
-        is_active: newSubcategory.is_active,
-      }),
-    });
+    try {
+      const result = await fetchJson<{ error?: string }>("/api/product-subcategories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category_id: newSubcategory.category_id,
+          name: newSubcategory.name.trim(),
+          is_active: newSubcategory.is_active,
+        }),
+        fallbackError: "Failed to create subcategory.",
+      });
 
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to create subcategory.");
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      setNewSubcategory((current) => ({
+        ...current,
+        name: "",
+        is_active: true,
+      }));
+      setTaxonomyMessage("Subcategory created. Product dropdowns refreshed.");
+      await loadTaxonomy();
+    } finally {
       setTaxonomySaving(false);
-      return;
     }
-
-    setNewSubcategory((current) => ({
-      ...current,
-      name: "",
-      is_active: true,
-    }));
-    setTaxonomyMessage("Subcategory created. Product dropdowns refreshed.");
-    await loadTaxonomy();
-    setTaxonomySaving(false);
   }
 
   async function importProductsFromCsv() {
@@ -674,13 +669,7 @@ export default function ProductsPage() {
       return;
     }
 
-    const response = await fetch("/api/products/import", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ csv: csvText }),
-    });
-
-    const json = (await response.json()) as {
+    type ProductImportResponse = {
       error?: string;
       inserted_count?: number;
       processed_count?: number;
@@ -703,7 +692,16 @@ export default function ProductsPage() {
       };
     };
 
-    if (!response.ok) {
+    const result = await fetchJson<ProductImportResponse>("/api/products/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ csv: csvText }),
+      fallbackError: "Product import failed.",
+    });
+
+    const json: ProductImportResponse = result.data ?? {};
+
+    if (!result.ok) {
       const duplicateBarcodes = json.details?.barcodes ?? [];
       const duplicateNames = json.details?.names ?? [];
       const hasNameDetails = duplicateNames.length > 0;
@@ -734,7 +732,7 @@ export default function ProductsPage() {
         }
         setError(parts.join(" "));
       } else {
-        setError(json.error ?? "Product import failed.");
+        setError(json.error ?? result.error);
       }
       setImportLoading(false);
       return;
@@ -766,19 +764,24 @@ export default function ProductsPage() {
   async function setProductActive(productId: string, active: boolean) {
     setStateLoading(true);
     setError(null);
-    const endpoint = active ? "activate" : "archive";
-    const response = await fetch(`/api/products/${productId}/${endpoint}`, {
-      method: "POST",
-    });
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? `Failed to ${endpoint} product.`);
-      setStateLoading(false);
-      return;
-    }
+    try {
+      const endpoint = active ? "activate" : "archive";
+      const result = await fetchJson<{ error?: string }>(
+        `/api/products/${productId}/${endpoint}`,
+        {
+          method: "POST",
+          fallbackError: `Failed to ${endpoint} product.`,
+        },
+      );
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
 
-    await loadProducts();
-    setStateLoading(false);
+      await loadProducts();
+    } finally {
+      setStateLoading(false);
+    }
   }
 
   async function hardDeleteProduct(product: Product) {
@@ -791,18 +794,23 @@ export default function ProductsPage() {
 
     setStateLoading(true);
     setError(null);
-    const response = await fetch(`/api/products/${product.id}/hard-delete`, {
-      method: "POST",
-    });
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to hard delete product.");
-      setStateLoading(false);
-      return;
-    }
+    try {
+      const result = await fetchJson<{ error?: string }>(
+        `/api/products/${product.id}/hard-delete`,
+        {
+          method: "POST",
+          fallbackError: "Failed to hard delete product.",
+        },
+      );
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
 
-    await loadProducts();
-    setStateLoading(false);
+      await loadProducts();
+    } finally {
+      setStateLoading(false);
+    }
   }
 
   function renderProductCell(product: Product, columnKey: ProductColumnKey) {
@@ -839,7 +847,7 @@ export default function ProductsPage() {
     }
 
     if (columnKey === "action") {
-      if (!capabilities?.canArchiveProducts) {
+      if (!capabilities.canArchiveProducts) {
         return <span className="text-xs text-[var(--text-muted)]">restricted</span>;
       }
 
@@ -1373,9 +1381,6 @@ export default function ProductsPage() {
             </table>
             {products.length === 0 ? (
               <p className="ims-empty mt-3">No products found.</p>
-            ) : null}
-            {capabilities === null ? (
-              <p className="ims-empty mt-3">Loading permissions...</p>
             ) : null}
           </div>
         </Card>

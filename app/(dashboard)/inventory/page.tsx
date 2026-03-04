@@ -1,5 +1,4 @@
 "use client";
-/* eslint-disable react-hooks/set-state-in-effect */
 
 import { FormEvent, useEffect, useState } from "react";
 
@@ -7,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { fetchJson } from "@/lib/utils/fetch-json";
 
 type StockRow = {
   id: string;
@@ -35,34 +35,66 @@ export default function InventoryPage() {
   const [loading, setLoading] = useState(false);
   const [asOfDate, setAsOfDate] = useState("");
 
-  async function loadStock(query = "") {
+  async function loadStock(query = "", signal?: AbortSignal) {
     setLoading(true);
-    const response = await fetch(`/api/stock${query}`, { cache: "no-store" });
-    const json = (await response.json()) as { items?: StockRow[]; error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to load stock.");
+    try {
+      const result = await fetchJson<{ items?: StockRow[]; error?: string }>(
+        `/api/stock${query}`,
+        {
+          cache: "no-store",
+          signal,
+          fallbackError: "Failed to load stock.",
+        },
+      );
+      if (!result.ok) {
+        if (result.error !== "Request aborted.") {
+          setError(result.error);
+        }
+        return;
+      }
+
+      setError(null);
+      setRows(result.data.items ?? []);
+    } finally {
       setLoading(false);
-      return;
     }
-    setRows(json.items ?? []);
-    setLoading(false);
   }
 
-  async function loadLookups() {
-    const [productsRes, locationsRes] = await Promise.all([
-      fetch("/api/products"),
-      fetch("/api/locations"),
+  async function loadLookups(signal?: AbortSignal) {
+    const [productsResult, locationsResult] = await Promise.all([
+      fetchJson<{ items?: Lookup[]; error?: string }>("/api/products", {
+        signal,
+        fallbackError: "Failed to load products.",
+      }),
+      fetchJson<{ items?: Lookup[]; error?: string }>("/api/locations", {
+        signal,
+        fallbackError: "Failed to load locations.",
+      }),
     ]);
-    const productsJson = (await productsRes.json()) as { items?: Lookup[] };
-    const locationsJson = (await locationsRes.json()) as { items?: Lookup[] };
-    setProducts(productsJson.items ?? []);
-    setLocations(locationsJson.items ?? []);
+
+    if (!productsResult.ok) {
+      if (productsResult.error !== "Request aborted.") {
+        setError(productsResult.error);
+      }
+      return;
+    }
+    if (!locationsResult.ok) {
+      if (locationsResult.error !== "Request aborted.") {
+        setError(locationsResult.error);
+      }
+      return;
+    }
+
+    setProducts(productsResult.data.items ?? []);
+    setLocations(locationsResult.data.items ?? []);
   }
 
   useEffect(() => {
-    Promise.all([loadStock(), loadLookups()]).catch(() => {
+    const controller = new AbortController();
+    Promise.all([loadStock("", controller.signal), loadLookups(controller.signal)]).catch(() => {
       setError("Failed to load inventory data.");
     });
+    return () => controller.abort();
   }, []);
 
   async function filterStock(event: FormEvent<HTMLFormElement>) {

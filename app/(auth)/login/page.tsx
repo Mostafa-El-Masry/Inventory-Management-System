@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
+import { fetchJson } from "@/lib/utils/fetch-json";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -27,30 +28,33 @@ export default function LoginPage() {
       password: String(formData.get("password") ?? ""),
     };
 
-    const response = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
+    try {
+      const result = await fetchJson<{ error?: string; success?: boolean }>(
+        "/api/auth/login",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+          fallbackError: "Failed to login.",
+        },
+      );
 
-    const json = (await response.json()) as { error?: string; success?: boolean };
+      if (!result.ok) {
+        if (result.status === 429) {
+          setError("Too many login attempts. Please try again in 15 minutes.");
+          return;
+        }
+        setError(result.error);
+        return;
+      }
 
-    if (response.status === 429) {
-      setError("Too many login attempts. Please try again in 15 minutes.");
+      router.push("/dashboard");
+      router.refresh();
+    } finally {
       setLoading(false);
-      return;
     }
-
-    if (!response.ok) {
-      setError(json.error ?? "Failed to login.");
-      setLoading(false);
-      return;
-    }
-
-    router.push("/dashboard");
-    router.refresh();
   }
 
   async function onResetPassword(event: FormEvent<HTMLFormElement>) {
@@ -62,38 +66,37 @@ export default function LoginPage() {
     const formData = new FormData(event.currentTarget);
     const email = String(formData.get("reset_email") ?? "").trim();
 
-    const response = await fetch("/api/auth/reset-password", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ email }),
-    });
+    try {
+      const result = await fetchJson<{
+        error?: string;
+        success?: boolean;
+        warning?: string;
+      }>("/api/auth/reset-password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email }),
+        fallbackError: "Failed to send recovery email.",
+      });
 
-    const json = (await response.json()) as {
-      error?: string;
-      success?: boolean;
-      warning?: string;
-    };
+      if (!result.ok) {
+        if (result.status === 429) {
+          setResetError("Too many reset attempts. Please try again later.");
+          return;
+        }
+        setResetError(result.error);
+        return;
+      }
 
-    if (response.status === 429) {
-      setResetError("Too many reset attempts. Please try again later.");
+      // Success - always show user-friendly message (genuine or not to prevent email enumeration)
+      setResetMessage(
+        result.data.warning ??
+          "If an account with this email exists, you'll receive a password reset link shortly. Check your inbox and spam folder.",
+      );
+    } finally {
       setResetLoading(false);
-      return;
     }
-
-    if (!response.ok) {
-      setResetError(json.error ?? "Failed to send recovery email.");
-      setResetLoading(false);
-      return;
-    }
-
-    // Success - always show user-friendly message (genuine or not to prevent email enumeration)
-    setResetMessage(
-      json.warning ??
-        "If an account with this email exists, you'll receive a password reset link shortly. Check your inbox and spam folder.",
-    );
-    setResetLoading(false);
   }
 
   return (

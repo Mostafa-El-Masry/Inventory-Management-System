@@ -389,8 +389,8 @@ export function AdjustmentTransactionPage({
       <BarcodePrintDialog
         open={printDialogOpen}
         onClose={() => setPrintDialogOpen(false)}
-        onConfirm={({ format, quantity }) => {
-          const result = printBarcodeLabels(printLabels, {
+        onConfirm={async ({ format, quantity }) => {
+          const result = await printBarcodeLabels(printLabels, {
             format,
             quantity,
             title: printTitle,

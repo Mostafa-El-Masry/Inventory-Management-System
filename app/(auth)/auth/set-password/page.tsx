@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { PasswordInput } from "@/components/ui/password-input";
 import { createClient } from "@/lib/supabase/client";
+import { fetchJson } from "@/lib/utils/fetch-json";
 
 const PASSWORD_REQUIREMENTS = {
   minLength: 12,
@@ -107,27 +108,32 @@ export default function SetPasswordPage() {
       return;
     }
 
-    const response = await fetch("/api/auth/set-password", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        password,
-        confirm_password: confirmPassword,
-      }),
-    });
+    try {
+      const result = await fetchJson<{ error?: string; success?: boolean }>(
+        "/api/auth/set-password",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            password,
+            confirm_password: confirmPassword,
+          }),
+          fallbackError: "Failed to update password.",
+        },
+      );
 
-    const json = (await response.json()) as { error?: string; success?: boolean };
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
 
-    if (!response.ok) {
-      setError(json.error ?? "Failed to update password.");
+      router.push("/login?success=password_reset");
+      router.refresh();
+    } finally {
       setLoading(false);
-      return;
     }
-
-    router.push("/login?success=password_reset");
-    router.refresh();
   }
 
   if (!ready) {

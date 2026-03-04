@@ -1,5 +1,4 @@
 "use client";
-/* eslint-disable react-hooks/set-state-in-effect */
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
@@ -7,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { fetchJson } from "@/lib/utils/fetch-json";
 
 type UserRow = {
   id: string;
@@ -61,54 +61,76 @@ export default function UsersAdminPage() {
     [users, selectedUserId],
   );
 
-  const loadUsers = useCallback(async () => {
-    const response = await fetch("/api/admin/users", { cache: "no-store" });
-    const json = (await response.json()) as { items?: UserRow[]; error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Only admins can access this page.");
+  const loadUsers = useCallback(async (signal?: AbortSignal) => {
+    const result = await fetchJson<{ items?: UserRow[]; error?: string }>("/api/admin/users", {
+      cache: "no-store",
+      signal,
+      fallbackError: "Only admins can access this page.",
+    });
+    if (!result.ok) {
+      if (result.error !== "Request aborted.") {
+        setError(result.error);
+      }
       return;
     }
-    setUsers(json.items ?? []);
-    const firstUserId = (json.items ?? [])[0]?.id ?? "";
+
+    setUsers(result.data.items ?? []);
+    const firstUserId = (result.data.items ?? [])[0]?.id ?? "";
     if (firstUserId) {
       setSelectedUserId((current) => current || firstUserId);
     }
   }, []);
 
-  const loadLocations = useCallback(async () => {
-    const response = await fetch("/api/locations");
-    const json = (await response.json()) as { items?: LocationRow[] };
-    setLocations(json.items ?? []);
-  }, []);
-
-  const loadUserLocations = useCallback(async (userId: string) => {
-    const response = await fetch(`/api/admin/users/${userId}/locations`, {
-      cache: "no-store",
+  const loadLocations = useCallback(async (signal?: AbortSignal) => {
+    const result = await fetchJson<{ items?: LocationRow[]; error?: string }>("/api/locations", {
+      signal,
+      fallbackError: "Failed to load locations.",
     });
-    const json = (await response.json()) as {
-      items?: Array<{ location_id: string }>;
-      error?: string;
-    };
-
-    if (!response.ok) {
-      setError(json.error ?? "Failed to load user locations.");
+    if (!result.ok) {
+      if (result.error !== "Request aborted.") {
+        setError(result.error);
+      }
       return;
     }
 
-    setSelectedLocationIds((json.items ?? []).map((row) => row.location_id));
+    setLocations(result.data.items ?? []);
+  }, []);
+
+  const loadUserLocations = useCallback(async (userId: string, signal?: AbortSignal) => {
+    const result = await fetchJson<{
+      items?: Array<{ location_id: string }>;
+      error?: string;
+    }>(`/api/admin/users/${userId}/locations`, {
+      cache: "no-store",
+      signal,
+      fallbackError: "Failed to load user locations.",
+    });
+
+    if (!result.ok) {
+      if (result.error !== "Request aborted.") {
+        setError(result.error);
+      }
+      return;
+    }
+
+    setSelectedLocationIds((result.data.items ?? []).map((row) => row.location_id));
   }, []);
 
   useEffect(() => {
-    Promise.all([loadUsers(), loadLocations()]).catch(() =>
+    const controller = new AbortController();
+    Promise.all([loadUsers(controller.signal), loadLocations(controller.signal)]).catch(() =>
       setError("Failed to load users."),
     );
+    return () => controller.abort();
   }, [loadUsers, loadLocations]);
 
   useEffect(() => {
     if (selectedUserId) {
-      loadUserLocations(selectedUserId).catch(() =>
+      const controller = new AbortController();
+      loadUserLocations(selectedUserId, controller.signal).catch(() =>
         setError("Failed to load user locations."),
       );
+      return () => controller.abort();
     }
   }, [selectedUserId, loadUserLocations]);
 
@@ -126,40 +148,42 @@ export default function UsersAdminPage() {
     setSaving(true);
     setError(null);
 
-    const payload = {
-      email: newUser.email.trim(),
-      full_name: newUser.full_name.trim(),
-      role: config.role,
-      mode: config.mode,
-      password: config.mode === "password" ? config.password : undefined,
-      location_ids: config.location_ids,
-    };
+    try {
+      const payload = {
+        email: newUser.email.trim(),
+        full_name: newUser.full_name.trim(),
+        role: config.role,
+        mode: config.mode,
+        password: config.mode === "password" ? config.password : undefined,
+        location_ids: config.location_ids,
+      };
 
-    const response = await fetch("/api/admin/users", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const json = (await response.json()) as { id?: string; error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to create user.");
+      const result = await fetchJson<{ id?: string; error?: string }>("/api/admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        fallbackError: "Failed to create user.",
+      });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      setNewUser({
+        full_name: "",
+        email: "",
+      });
+      setAdvancedConfig(DEFAULT_USER_CREATE_CONFIG);
+      setAdvancedOpen(false);
+
+      await loadUsers();
+      if (result.data.id) {
+        setSelectedUserId(result.data.id);
+        await loadUserLocations(result.data.id);
+      }
+    } finally {
       setSaving(false);
-      return;
     }
-
-    setNewUser({
-      full_name: "",
-      email: "",
-    });
-    setAdvancedConfig(DEFAULT_USER_CREATE_CONFIG);
-    setAdvancedOpen(false);
-
-    await loadUsers();
-    if (json.id) {
-      setSelectedUserId(json.id);
-      await loadUserLocations(json.id);
-    }
-    setSaving(false);
   }
 
   async function createUserNow() {
@@ -175,68 +199,78 @@ export default function UsersAdminPage() {
     setSaving(true);
     setError(null);
 
-    const formData = new FormData(event.currentTarget);
-    const payload = {
-      id: String(formData.get("id") ?? ""),
-      full_name: String(formData.get("full_name") ?? ""),
-      role: String(formData.get("role") ?? "staff"),
-      is_active: formData.get("is_active") === "on",
-    };
+    try {
+      const formData = new FormData(event.currentTarget);
+      const payload = {
+        id: String(formData.get("id") ?? ""),
+        full_name: String(formData.get("full_name") ?? ""),
+        role: String(formData.get("role") ?? "staff"),
+        is_active: formData.get("is_active") === "on",
+      };
 
-    const response = await fetch("/api/admin/users", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const json = (await response.json()) as { error?: string };
+      const result = await fetchJson<{ error?: string }>("/api/admin/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        fallbackError: "Failed to save user.",
+      });
 
-    if (!response.ok) {
-      setError(json.error ?? "Failed to save user.");
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      await loadUsers();
+    } finally {
       setSaving(false);
-      return;
     }
-
-    await loadUsers();
-    setSaving(false);
   }
 
   async function setUserEnabled(userId: string, enabled: boolean) {
     setSaving(true);
     setError(null);
-    const endpoint = enabled ? "enable" : "disable";
-    const response = await fetch(`/api/admin/users/${userId}/${endpoint}`, {
-      method: "POST",
-    });
-    const json = (await response.json()) as { error?: string };
+    try {
+      const endpoint = enabled ? "enable" : "disable";
+      const result = await fetchJson<{ error?: string }>(
+        `/api/admin/users/${userId}/${endpoint}`,
+        {
+          method: "POST",
+          fallbackError: `Failed to ${endpoint} user.`,
+        },
+      );
 
-    if (!response.ok) {
-      setError(json.error ?? `Failed to ${endpoint} user.`);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      await loadUsers();
+      if (selectedUserId) {
+        await loadUserLocations(selectedUserId);
+      }
+    } finally {
       setSaving(false);
-      return;
     }
-
-    await loadUsers();
-    if (selectedUserId) {
-      await loadUserLocations(selectedUserId);
-    }
-    setSaving(false);
   }
 
   async function resendInvite(userId: string) {
     setSaving(true);
     setError(null);
-    const response = await fetch(`/api/admin/users/${userId}/invite-resend`, {
-      method: "POST",
-    });
-    const json = (await response.json()) as { error?: string };
+    try {
+      const result = await fetchJson<{ error?: string }>(
+        `/api/admin/users/${userId}/invite-resend`,
+        {
+          method: "POST",
+          fallbackError: "Failed to send invite/reset email.",
+        },
+      );
 
-    if (!response.ok) {
-      setError(json.error ?? "Failed to send invite/reset email.");
+      if (!result.ok) {
+        setError(result.error);
+      }
+    } finally {
       setSaving(false);
-      return;
     }
-
-    setSaving(false);
   }
 
   async function saveLocations() {
@@ -244,19 +278,23 @@ export default function UsersAdminPage() {
 
     setSaving(true);
     setError(null);
-    const response = await fetch(`/api/admin/users/${selectedUserId}/locations`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ location_ids: selectedLocationIds }),
-    });
-    const json = (await response.json()) as { error?: string };
+    try {
+      const result = await fetchJson<{ error?: string }>(
+        `/api/admin/users/${selectedUserId}/locations`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ location_ids: selectedLocationIds }),
+          fallbackError: "Failed to save location access.",
+        },
+      );
 
-    if (!response.ok) {
-      setError(json.error ?? "Failed to save location access.");
+      if (!result.ok) {
+        setError(result.error);
+      }
+    } finally {
       setSaving(false);
-      return;
     }
-    setSaving(false);
   }
 
   function toggleLocation(locationId: string) {

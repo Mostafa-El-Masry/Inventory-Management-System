@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { cn } from "@/lib/utils/cn";
 
@@ -74,31 +74,8 @@ function NavContent({
   );
 }
 
-export function DashboardNav() {
+export function DashboardNav({ companyName }: { companyName: string }) {
   const [open, setOpen] = useState(false);
-  const [companyName, setCompanyName] = useState("ICE");
-
-  useEffect(() => {
-    let mounted = true;
-
-    async function loadCompanyName() {
-      const response = await fetch("/api/settings", { cache: "no-store" });
-      const json = (await response.json()) as { company_name?: string };
-      if (!response.ok || !mounted) {
-        return;
-      }
-
-      const nextName = String(json.company_name ?? "").trim();
-      if (nextName) {
-        setCompanyName(nextName);
-      }
-    }
-
-    loadCompanyName().catch(() => undefined);
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   const drawerClass = useMemo(
     () =>

@@ -11,7 +11,10 @@ import type { BarcodePrintFormat } from "./barcode-print";
 type Props = {
   open: boolean;
   onClose: () => void;
-  onConfirm: (options: { format: BarcodePrintFormat; quantity: number }) => void;
+  onConfirm: (options: {
+    format: BarcodePrintFormat;
+    quantity: number;
+  }) => Promise<void> | void;
 };
 
 export function BarcodePrintDialog({ open, onClose, onConfirm }: Props) {
@@ -24,13 +27,17 @@ export function BarcodePrintDialog({ open, onClose, onConfirm }: Props) {
 
 type ContentProps = {
   onClose: () => void;
-  onConfirm: (options: { format: BarcodePrintFormat; quantity: number }) => void;
+  onConfirm: (options: {
+    format: BarcodePrintFormat;
+    quantity: number;
+  }) => Promise<void> | void;
 };
 
 function BarcodePrintDialogContent({ onClose, onConfirm }: ContentProps) {
   const [format, setFormat] = useState<BarcodePrintFormat>("a4");
   const [quantity, setQuantity] = useState("1");
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   return (
     <div
@@ -77,21 +84,29 @@ function BarcodePrintDialogContent({ onClose, onConfirm }: ContentProps) {
         {validationError ? <p className="ims-alert-danger mt-3 text-sm">{validationError}</p> : null}
 
         <div className="mt-4 flex justify-end gap-2">
-          <Button variant="secondary" className="h-10" onClick={onClose}>
+          <Button variant="secondary" className="h-10" onClick={onClose} disabled={confirming}>
             Cancel
           </Button>
           <Button
             className="h-10"
-            onClick={() => {
+            disabled={confirming}
+            onClick={async () => {
               const parsed = Number(quantity);
               if (!Number.isInteger(parsed) || parsed < 1) {
                 setValidationError("Quantity must be an integer greater than or equal to 1.");
                 return;
               }
-              onConfirm({ format, quantity: parsed });
+              setConfirming(true);
+              try {
+                await onConfirm({ format, quantity: parsed });
+              } catch {
+                setValidationError("Failed to prepare barcode print.");
+              } finally {
+                setConfirming(false);
+              }
             }}
           >
-            Print
+            {confirming ? "Preparing..." : "Print"}
           </Button>
         </div>
       </div>

@@ -1,67 +1,32 @@
 "use client";
-/* eslint-disable react-hooks/set-state-in-effect */
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
+import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-
-type AuthMe = {
-  capabilities?: {
-    canManageSystemSettings?: boolean;
-  };
-};
+import { fetchJson } from "@/lib/utils/fetch-json";
 
 export default function AdminSettingsPage() {
+  const { capabilities, companyName: initialCompanyName } = useDashboardSession();
   const [companyName, setCompanyName] = useState("");
   const [savedCompanyName, setSavedCompanyName] = useState("");
-  const [canManageSystemSettings, setCanManageSystemSettings] = useState(false);
+  const [canManageSystemSettings, setCanManageSystemSettings] = useState(
+    capabilities.canManageSystemSettings,
+  );
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const loadPage = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    const [authRes, settingsRes] = await Promise.all([
-      fetch("/api/auth/me", { cache: "no-store" }),
-      fetch("/api/settings", { cache: "no-store" }),
-    ]);
-
-    const authJson = (await authRes.json()) as AuthMe & { error?: string };
-    const settingsJson = (await settingsRes.json()) as {
-      company_name?: string;
-      error?: string;
-    };
-
-    if (!authRes.ok) {
-      setError(authJson.error ?? "Failed to load permissions.");
-      setLoading(false);
-      return;
-    }
-
-    if (!settingsRes.ok) {
-      setError(settingsJson.error ?? "Failed to load settings.");
-      setLoading(false);
-      return;
-    }
-
-    const nextCompanyName = String(settingsJson.company_name ?? "").trim();
-    setCanManageSystemSettings(Boolean(authJson.capabilities?.canManageSystemSettings));
+  useEffect(() => {
+    const nextCompanyName = initialCompanyName.trim();
+    setCanManageSystemSettings(capabilities.canManageSystemSettings);
     setCompanyName(nextCompanyName);
     setSavedCompanyName(nextCompanyName);
     setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    loadPage().catch(() => {
-      setError("Failed to load settings.");
-      setLoading(false);
-    });
-  }, [loadPage]);
+  }, [capabilities.canManageSystemSettings, initialCompanyName]);
 
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -79,23 +44,28 @@ export default function AdminSettingsPage() {
     setError(null);
     setMessage(null);
 
-    const response = await fetch("/api/settings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ company_name: normalizedCompanyName }),
-    });
-    const json = (await response.json()) as { company_name?: string; error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to save settings.");
-      setSaving(false);
-      return;
-    }
+    try {
+      const result = await fetchJson<{ company_name?: string; error?: string }>(
+        "/api/settings",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ company_name: normalizedCompanyName }),
+          fallbackError: "Failed to save settings.",
+        },
+      );
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
 
-    const nextName = String(json.company_name ?? normalizedCompanyName);
-    setCompanyName(nextName);
-    setSavedCompanyName(nextName);
-    setMessage("Settings saved.");
-    setSaving(false);
+      const nextName = String(result.data.company_name ?? normalizedCompanyName);
+      setCompanyName(nextName);
+      setSavedCompanyName(nextName);
+      setMessage("Settings saved.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (

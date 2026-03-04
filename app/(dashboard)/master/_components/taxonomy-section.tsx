@@ -1,12 +1,13 @@
 "use client";
-/* eslint-disable react-hooks/set-state-in-effect */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { fetchJson } from "@/lib/utils/fetch-json";
 
 type RowLimitOption = 10 | 50 | 100 | "all";
 
@@ -48,20 +49,10 @@ type ProductSubcategory = {
   is_active: boolean;
 };
 
-type AuthMe = {
-  user_id: string;
-  capabilities: {
-    canCreateProductMaster: boolean;
-  };
-};
-
 export function TaxonomySection({ section }: { section: "categories" | "subcategories" }) {
+  const { userId: authUserId, capabilities } = useDashboardSession();
   const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [subcategories, setSubcategories] = useState<ProductSubcategory[]>([]);
-  const [authUserId, setAuthUserId] = useState<string | null>(null);
-  const [capabilities, setCapabilities] = useState<AuthMe["capabilities"] | null>(
-    null,
-  );
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [taxonomyLoading, setTaxonomyLoading] = useState(false);
@@ -81,56 +72,50 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
     is_active: true,
   });
 
-  const loadAuth = useCallback(async () => {
-    const response = await fetch("/api/auth/me", { cache: "no-store" });
-    const json = (await response.json()) as AuthMe & { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to load permissions.");
-      return;
-    }
-    setAuthUserId(json.user_id ?? null);
-    setCapabilities(json.capabilities);
-  }, []);
-
-  const loadTaxonomy = useCallback(async () => {
+  const loadTaxonomy = useCallback(async (signal?: AbortSignal) => {
     setTaxonomyLoading(true);
-    const [categoriesResponse, subcategoriesResponse] = await Promise.all([
-      fetch("/api/product-categories", { cache: "no-store" }),
-      fetch("/api/product-subcategories", { cache: "no-store" }),
-    ]);
+    try {
+      const [categoriesResult, subcategoriesResult] = await Promise.all([
+        fetchJson<{ items?: ProductCategory[]; error?: string }>("/api/product-categories", {
+          cache: "no-store",
+          signal,
+          fallbackError: "Failed to load categories.",
+        }),
+        fetchJson<{ items?: ProductSubcategory[]; error?: string }>(
+          "/api/product-subcategories",
+          {
+            cache: "no-store",
+            signal,
+            fallbackError: "Failed to load subcategories.",
+          },
+        ),
+      ]);
 
-    const categoriesJson = (await categoriesResponse.json()) as {
-      items?: ProductCategory[];
-      error?: string;
-    };
-    if (!categoriesResponse.ok) {
-      setError(categoriesJson.error ?? "Failed to load categories.");
+      if (!categoriesResult.ok) {
+        if (categoriesResult.error !== "Request aborted.") {
+          setError(categoriesResult.error);
+        }
+        return;
+      }
+      if (!subcategoriesResult.ok) {
+        if (subcategoriesResult.error !== "Request aborted.") {
+          setError(subcategoriesResult.error);
+        }
+        return;
+      }
+
+      setError(null);
+      setCategories(categoriesResult.data.items ?? []);
+      setSubcategories(subcategoriesResult.data.items ?? []);
+    } finally {
       setTaxonomyLoading(false);
-      return;
     }
-
-    const subcategoriesJson = (await subcategoriesResponse.json()) as {
-      items?: ProductSubcategory[];
-      error?: string;
-    };
-    if (!subcategoriesResponse.ok) {
-      setError(subcategoriesJson.error ?? "Failed to load subcategories.");
-      setTaxonomyLoading(false);
-      return;
-    }
-
-    setError(null);
-    setCategories(categoriesJson.items ?? []);
-    setSubcategories(subcategoriesJson.items ?? []);
-    setTaxonomyLoading(false);
   }, []);
 
   useEffect(() => {
-    loadAuth().catch(() => setError("Failed to load permissions."));
-  }, [loadAuth]);
-
-  useEffect(() => {
-    loadTaxonomy().catch(() => setError("Failed to load taxonomy."));
+    const controller = new AbortController();
+    loadTaxonomy(controller.signal).catch(() => setError("Failed to load taxonomy."));
+    return () => controller.abort();
   }, [loadTaxonomy]);
 
   useEffect(() => {
@@ -221,7 +206,7 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
     }
   }, [authUserId, subcategoryLimitPrefsLoaded, subcategoryRowLimit]);
 
-  const canManageTaxonomy = capabilities?.canCreateProductMaster ?? false;
+  const canManageTaxonomy = capabilities.canCreateProductMaster;
 
   const activeCategories = useMemo(
     () => categories.filter((category) => category.is_active),
@@ -269,29 +254,31 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
     setTaxonomySaving(true);
     setError(null);
     setMessage(null);
-    const response = await fetch("/api/product-categories", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: newCategory.name.trim(),
-        is_active: newCategory.is_active,
-      }),
-    });
+    try {
+      const result = await fetchJson<{ error?: string }>("/api/product-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newCategory.name.trim(),
+          is_active: newCategory.is_active,
+        }),
+        fallbackError: "Failed to create category.",
+      });
 
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to create category.");
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      setNewCategory({
+        name: "",
+        is_active: true,
+      });
+      setMessage("Category created.");
+      await loadTaxonomy();
+    } finally {
       setTaxonomySaving(false);
-      return;
     }
-
-    setNewCategory({
-      name: "",
-      is_active: true,
-    });
-    setMessage("Category created.");
-    await loadTaxonomy();
-    setTaxonomySaving(false);
   }
 
   async function createSubcategory() {
@@ -302,31 +289,33 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
     setTaxonomySaving(true);
     setError(null);
     setMessage(null);
-    const response = await fetch("/api/product-subcategories", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        category_id: newSubcategory.category_id,
-        name: newSubcategory.name.trim(),
-        is_active: newSubcategory.is_active,
-      }),
-    });
+    try {
+      const result = await fetchJson<{ error?: string }>("/api/product-subcategories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category_id: newSubcategory.category_id,
+          name: newSubcategory.name.trim(),
+          is_active: newSubcategory.is_active,
+        }),
+        fallbackError: "Failed to create subcategory.",
+      });
 
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to create subcategory.");
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      setNewSubcategory((current) => ({
+        ...current,
+        name: "",
+        is_active: true,
+      }));
+      setMessage("Subcategory created.");
+      await loadTaxonomy();
+    } finally {
       setTaxonomySaving(false);
-      return;
     }
-
-    setNewSubcategory((current) => ({
-      ...current,
-      name: "",
-      is_active: true,
-    }));
-    setMessage("Subcategory created.");
-    await loadTaxonomy();
-    setTaxonomySaving(false);
   }
 
   async function setCategoryActive(categoryId: string, active: boolean) {
@@ -337,20 +326,25 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
     setActionLoading(true);
     setError(null);
     setMessage(null);
-    const endpoint = active ? "activate" : "archive";
-    const response = await fetch(`/api/product-categories/${categoryId}/${endpoint}`, {
-      method: "POST",
-    });
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? `Failed to ${endpoint} category.`);
-      setActionLoading(false);
-      return;
-    }
+    try {
+      const endpoint = active ? "activate" : "archive";
+      const result = await fetchJson<{ error?: string }>(
+        `/api/product-categories/${categoryId}/${endpoint}`,
+        {
+          method: "POST",
+          fallbackError: `Failed to ${endpoint} category.`,
+        },
+      );
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
 
-    setMessage(active ? "Category activated." : "Category archived.");
-    await loadTaxonomy();
-    setActionLoading(false);
+      setMessage(active ? "Category activated." : "Category archived.");
+      await loadTaxonomy();
+    } finally {
+      setActionLoading(false);
+    }
   }
 
   async function hardDeleteCategory(category: ProductCategory) {
@@ -368,19 +362,24 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
     setActionLoading(true);
     setError(null);
     setMessage(null);
-    const response = await fetch(`/api/product-categories/${category.id}/hard-delete`, {
-      method: "POST",
-    });
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to hard delete category.");
-      setActionLoading(false);
-      return;
-    }
+    try {
+      const result = await fetchJson<{ error?: string }>(
+        `/api/product-categories/${category.id}/hard-delete`,
+        {
+          method: "POST",
+          fallbackError: "Failed to hard delete category.",
+        },
+      );
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
 
-    setMessage("Category hard deleted.");
-    await loadTaxonomy();
-    setActionLoading(false);
+      setMessage("Category hard deleted.");
+      await loadTaxonomy();
+    } finally {
+      setActionLoading(false);
+    }
   }
 
   async function setSubcategoryActive(subcategoryId: string, active: boolean) {
@@ -391,20 +390,25 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
     setActionLoading(true);
     setError(null);
     setMessage(null);
-    const endpoint = active ? "activate" : "archive";
-    const response = await fetch(`/api/product-subcategories/${subcategoryId}/${endpoint}`, {
-      method: "POST",
-    });
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? `Failed to ${endpoint} subcategory.`);
-      setActionLoading(false);
-      return;
-    }
+    try {
+      const endpoint = active ? "activate" : "archive";
+      const result = await fetchJson<{ error?: string }>(
+        `/api/product-subcategories/${subcategoryId}/${endpoint}`,
+        {
+          method: "POST",
+          fallbackError: `Failed to ${endpoint} subcategory.`,
+        },
+      );
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
 
-    setMessage(active ? "Subcategory activated." : "Subcategory archived.");
-    await loadTaxonomy();
-    setActionLoading(false);
+      setMessage(active ? "Subcategory activated." : "Subcategory archived.");
+      await loadTaxonomy();
+    } finally {
+      setActionLoading(false);
+    }
   }
 
   async function hardDeleteSubcategory(subcategory: ProductSubcategory) {
@@ -422,22 +426,24 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
     setActionLoading(true);
     setError(null);
     setMessage(null);
-    const response = await fetch(
-      `/api/product-subcategories/${subcategory.id}/hard-delete`,
-      {
-        method: "POST",
-      },
-    );
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to hard delete subcategory.");
-      setActionLoading(false);
-      return;
-    }
+    try {
+      const result = await fetchJson<{ error?: string }>(
+        `/api/product-subcategories/${subcategory.id}/hard-delete`,
+        {
+          method: "POST",
+          fallbackError: "Failed to hard delete subcategory.",
+        },
+      );
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
 
-    setMessage("Subcategory hard deleted.");
-    await loadTaxonomy();
-    setActionLoading(false);
+      setMessage("Subcategory hard deleted.");
+      await loadTaxonomy();
+    } finally {
+      setActionLoading(false);
+    }
   }
 
   const isCategoriesSection = section === "categories";

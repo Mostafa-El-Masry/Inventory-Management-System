@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { ZodSchema } from "zod";
 
-export type JsonRecord = Record<string, unknown>;
-
 export function ok<T>(data: T, status = 200) {
   return NextResponse.json(data, { status });
 }

@@ -1,13 +1,14 @@
 
 "use client";
-/* eslint-disable react-hooks/set-state-in-effect */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { fetchJson } from "@/lib/utils/fetch-json";
 
 type Metrics = {
   totalSkus: number;
@@ -133,7 +134,7 @@ function exportHref(entity: string, params: Record<string, string | null | undef
 const monthDefaults = getCurrentMonthRange();
 
 export default function ReportsPage() {
-  const [companyName, setCompanyName] = useState("ICE");
+  const { companyName } = useDashboardSession();
   const [activeTab, setActiveTab] = useState<ReportTab>("stock-summary");
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [lookupsLoading, setLookupsLoading] = useState(true);
@@ -193,56 +194,68 @@ export default function ReportsPage() {
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentLoading, setPaymentLoading] = useState(false);
 
-  const loadMetrics = useCallback(async () => {
+  const loadMetrics = useCallback(async (signal?: AbortSignal) => {
     setMetricsLoading(true);
-    const response = await fetch("/api/reports/dashboard", { cache: "no-store" });
-    const json = (await response.json()) as Metrics & { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to load report metrics.");
+    try {
+      const result = await fetchJson<Metrics & { error?: string }>("/api/reports/dashboard", {
+        cache: "no-store",
+        signal,
+        fallbackError: "Failed to load report metrics.",
+      });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      setMetrics(result.data);
+    } finally {
       setMetricsLoading(false);
-      return;
     }
-    setMetrics(json);
-    setMetricsLoading(false);
   }, []);
 
-  const loadLookups = useCallback(async () => {
+  const loadLookups = useCallback(async (signal?: AbortSignal) => {
     setLookupsLoading(true);
-    const [productsRes, locationsRes, suppliersRes] = await Promise.all([
-      fetch("/api/products"),
-      fetch("/api/locations"),
-      fetch("/api/suppliers"),
-    ]);
-    const productsJson = (await productsRes.json()) as { items?: Lookup[]; error?: string };
-    const locationsJson = (await locationsRes.json()) as { items?: Lookup[]; error?: string };
-    const suppliersJson = (await suppliersRes.json()) as { items?: Lookup[]; error?: string };
+    try {
+      const [productsResult, locationsResult, suppliersResult] = await Promise.all([
+        fetchJson<{ items?: Lookup[]; error?: string }>("/api/products", {
+          signal,
+          fallbackError: "Failed to load products.",
+        }),
+        fetchJson<{ items?: Lookup[]; error?: string }>("/api/locations", {
+          signal,
+          fallbackError: "Failed to load locations.",
+        }),
+        fetchJson<{ items?: Lookup[]; error?: string }>("/api/suppliers", {
+          signal,
+          fallbackError: "Failed to load suppliers.",
+        }),
+      ]);
 
-    if (!productsRes.ok) {
-      setError(productsJson.error ?? "Failed to load products.");
-      setLookupsLoading(false);
-      return;
-    }
-    if (!locationsRes.ok) {
-      setError(locationsJson.error ?? "Failed to load locations.");
-      setLookupsLoading(false);
-      return;
-    }
-    if (!suppliersRes.ok) {
-      setError(suppliersJson.error ?? "Failed to load suppliers.");
-      setLookupsLoading(false);
-      return;
-    }
+      if (!productsResult.ok) {
+        setError(productsResult.error);
+        return;
+      }
+      if (!locationsResult.ok) {
+        setError(locationsResult.error);
+        return;
+      }
+      if (!suppliersResult.ok) {
+        setError(suppliersResult.error);
+        return;
+      }
 
-    const nextProducts = productsJson.items ?? [];
-    setProducts(nextProducts);
-    setLocations(locationsJson.items ?? []);
-    setSuppliers(suppliersJson.items ?? []);
-    setStatementProductId((current) => current || nextProducts[0]?.id || "");
-    setCostProductId((current) => current || nextProducts[0]?.id || "");
-    setLookupsLoading(false);
+      const nextProducts = productsResult.data.items ?? [];
+      setProducts(nextProducts);
+      setLocations(locationsResult.data.items ?? []);
+      setSuppliers(suppliersResult.data.items ?? []);
+      setStatementProductId((current) => current || nextProducts[0]?.id || "");
+      setCostProductId((current) => current || nextProducts[0]?.id || "");
+    } finally {
+      setLookupsLoading(false);
+    }
   }, []);
 
-  const loadStockSummary = useCallback(async () => {
+  const loadStockSummary = useCallback(async (signal?: AbortSignal) => {
     setStockLoading(true);
     setError(null);
     const search = new URLSearchParams();
@@ -253,23 +266,26 @@ export default function ReportsPage() {
       search.set("location_id", stockLocationId);
     }
 
-    const response = await fetch(`/api/reports/stock-summary?${search.toString()}`, {
-      cache: "no-store",
-    });
-    const json = (await response.json()) as {
-      totals?: StockSummaryTotalRow[];
-      details?: StockSummaryDetailRow[];
-      error?: string;
-    };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to load stock summary.");
-      setStockLoading(false);
-      return;
-    }
+    try {
+      const result = await fetchJson<{
+        totals?: StockSummaryTotalRow[];
+        details?: StockSummaryDetailRow[];
+        error?: string;
+      }>(`/api/reports/stock-summary?${search.toString()}`, {
+        cache: "no-store",
+        signal,
+        fallbackError: "Failed to load stock summary.",
+      });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
 
-    setStockTotals(json.totals ?? []);
-    setStockDetails(json.details ?? []);
-    setStockLoading(false);
+      setStockTotals(result.data.totals ?? []);
+      setStockDetails(result.data.details ?? []);
+    } finally {
+      setStockLoading(false);
+    }
   }, [stockAsOfDate, stockLocationId]);
 
   const loadItemStatement = useCallback(async () => {
@@ -287,23 +303,25 @@ export default function ReportsPage() {
       search.set("location_id", statementLocationId);
     }
 
-    const response = await fetch(`/api/reports/item-statement?${search.toString()}`, {
-      cache: "no-store",
-    });
-    const json = (await response.json()) as {
-      opening_qty?: number;
-      rows?: ItemStatementRow[];
-      error?: string;
-    };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to load item statement.");
-      setStatementLoading(false);
-      return;
-    }
+    try {
+      const result = await fetchJson<{
+        opening_qty?: number;
+        rows?: ItemStatementRow[];
+        error?: string;
+      }>(`/api/reports/item-statement?${search.toString()}`, {
+        cache: "no-store",
+        fallbackError: "Failed to load item statement.",
+      });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
 
-    setStatementOpeningQty(Number(json.opening_qty ?? 0));
-    setStatementRows(json.rows ?? []);
-    setStatementLoading(false);
+      setStatementOpeningQty(Number(result.data.opening_qty ?? 0));
+      setStatementRows(result.data.rows ?? []);
+    } finally {
+      setStatementLoading(false);
+    }
   }, [statementProductId, statementFromDate, statementToDate, statementLocationId]);
 
   const loadCostEvolution = useCallback(async () => {
@@ -321,40 +339,42 @@ export default function ReportsPage() {
       search.set("location_id", costLocationId);
     }
 
-    const response = await fetch(`/api/reports/item-cost-evolution?${search.toString()}`, {
-      cache: "no-store",
-    });
-    const json = (await response.json()) as {
-      rows?: ItemCostEvolutionRow[];
-      summary?: {
-        min_unit_cost: number;
-        max_unit_cost: number;
-        avg_unit_cost: number;
-        total_qty_in: number;
-        total_value: number;
-      };
-      error?: string;
-    };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to load item cost evolution.");
-      setCostLoading(false);
-      return;
-    }
+    try {
+      const result = await fetchJson<{
+        rows?: ItemCostEvolutionRow[];
+        summary?: {
+          min_unit_cost: number;
+          max_unit_cost: number;
+          avg_unit_cost: number;
+          total_qty_in: number;
+          total_value: number;
+        };
+        error?: string;
+      }>(`/api/reports/item-cost-evolution?${search.toString()}`, {
+        cache: "no-store",
+        fallbackError: "Failed to load item cost evolution.",
+      });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
 
-    setCostRows(json.rows ?? []);
-    setCostSummary(
-      json.summary ?? {
-        min_unit_cost: 0,
-        max_unit_cost: 0,
-        avg_unit_cost: 0,
-        total_qty_in: 0,
-        total_value: 0,
-      },
-    );
-    setCostLoading(false);
+      setCostRows(result.data.rows ?? []);
+      setCostSummary(
+        result.data.summary ?? {
+          min_unit_cost: 0,
+          max_unit_cost: 0,
+          avg_unit_cost: 0,
+          total_qty_in: 0,
+          total_value: 0,
+        },
+      );
+    } finally {
+      setCostLoading(false);
+    }
   }, [costProductId, costFromDate, costToDate, costLocationId]);
 
-  const loadSupplierReport = useCallback(async () => {
+  const loadSupplierReport = useCallback(async (signal?: AbortSignal) => {
     setSupplierLoading(true);
     setError(null);
     const search = new URLSearchParams();
@@ -367,59 +387,47 @@ export default function ReportsPage() {
       search.set("status_filter", supplierStatusFilter);
     }
 
-    const response = await fetch(`/api/reports/supplier?${search.toString()}`, {
-      cache: "no-store",
-    });
-    const json = (await response.json()) as {
-      rows?: SupplierRow[];
-      summary?: SupplierSummary;
-      error?: string;
-    };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to load supplier report.");
-      setSupplierLoading(false);
-      return;
-    }
-
-    setSupplierRows(json.rows ?? []);
-    setSupplierSummary(
-      json.summary ?? {
-        total_invoiced: 0,
-        total_credits: 0,
-        total_paid: 0,
-        net_pending: 0,
-      },
-    );
-    setSupplierLoading(false);
-  }, [supplierFromDate, supplierToDate, supplierFilterId, supplierStatusFilter]);
-
-  useEffect(() => {
-    Promise.all([loadMetrics(), loadLookups(), loadStockSummary(), loadSupplierReport()]).catch(
-      () => setError("Failed to load report data."),
-    );
-  }, [loadMetrics, loadLookups, loadStockSummary, loadSupplierReport]);
-
-  useEffect(() => {
-    let mounted = true;
-
-    async function loadCompanyName() {
-      const response = await fetch("/api/settings", { cache: "no-store" });
-      const json = (await response.json()) as { company_name?: string };
-      if (!response.ok || !mounted) {
+    try {
+      const result = await fetchJson<{
+        rows?: SupplierRow[];
+        summary?: SupplierSummary;
+        error?: string;
+      }>(`/api/reports/supplier?${search.toString()}`, {
+        cache: "no-store",
+        signal,
+        fallbackError: "Failed to load supplier report.",
+      });
+      if (!result.ok) {
+        setError(result.error);
         return;
       }
 
-      const nextName = String(json.company_name ?? "").trim();
-      if (nextName) {
-        setCompanyName(nextName);
-      }
+      setSupplierRows(result.data.rows ?? []);
+      setSupplierSummary(
+        result.data.summary ?? {
+          total_invoiced: 0,
+          total_credits: 0,
+          total_paid: 0,
+          net_pending: 0,
+        },
+      );
+    } finally {
+      setSupplierLoading(false);
     }
+  }, [supplierFromDate, supplierToDate, supplierFilterId, supplierStatusFilter]);
 
-    loadCompanyName().catch(() => undefined);
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  useEffect(() => {
+    const controller = new AbortController();
+    Promise.all([
+      loadMetrics(controller.signal),
+      loadLookups(controller.signal),
+      loadStockSummary(controller.signal),
+      loadSupplierReport(controller.signal),
+    ]).catch(
+      () => setError("Failed to load report data."),
+    );
+    return () => controller.abort();
+  }, [loadMetrics, loadLookups, loadStockSummary, loadSupplierReport]);
 
   const stockExportUrl = useMemo(
     () =>
@@ -486,27 +494,29 @@ export default function ReportsPage() {
 
     setPaymentLoading(true);
     setPaymentError(null);
-    const response = await fetch("/api/reports/supplier/payments", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        supplier_document_id: paymentTarget.id,
-        payment_date: paymentDate,
-        amount: parsedAmount,
-        note: paymentNote.trim() || null,
-      }),
-    });
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setPaymentError(json.error ?? "Failed to record payment.");
-      setPaymentLoading(false);
-      return;
-    }
+    try {
+      const result = await fetchJson<{ error?: string }>("/api/reports/supplier/payments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          supplier_document_id: paymentTarget.id,
+          payment_date: paymentDate,
+          amount: parsedAmount,
+          note: paymentNote.trim() || null,
+        }),
+        fallbackError: "Failed to record payment.",
+      });
+      if (!result.ok) {
+        setPaymentError(result.error);
+        return;
+      }
 
-    setPaymentDialogOpen(false);
-    setPaymentTarget(null);
-    setPaymentLoading(false);
-    await loadSupplierReport();
+      setPaymentDialogOpen(false);
+      setPaymentTarget(null);
+      await loadSupplierReport();
+    } finally {
+      setPaymentLoading(false);
+    }
   }
 
   return (
