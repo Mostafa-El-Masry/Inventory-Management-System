@@ -1,7 +1,16 @@
 "use client";
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import {
+  FormEvent,
+  type ReactNode,
+  type SVGProps,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -15,10 +24,15 @@ import {
 } from "./barcode-print";
 
 type TxStatus = "DRAFT" | "SUBMITTED" | "POSTED" | "REVERSED" | "CANCELLED";
+type PurchaseTransactionViewMode = "combined" | "history" | "create";
+type PurchaseHeaderActionKind = "create" | "back";
 
 type TxLine = {
   id: string;
   product_id: string;
+  product_sku_snapshot: string | null;
+  product_name_snapshot: string | null;
+  product_barcode_snapshot: string | null;
   qty: number;
   lot_number: string | null;
   expiry_date: string | null;
@@ -45,6 +59,12 @@ type Lookup = {
   barcode?: string | null;
 };
 
+type PurchaseHeaderAction = {
+  href: string;
+  label: string;
+  kind: PurchaseHeaderActionKind;
+};
+
 type Props = {
   headerTitle: string;
   headerSubtitle: string;
@@ -53,7 +73,295 @@ type Props = {
   transactionType: "RECEIPT" | "RETURN_OUT";
   locationLabel: string;
   locationTarget: "source" | "destination";
+  viewMode?: PurchaseTransactionViewMode;
+  headerAction?: PurchaseHeaderAction;
+  successMessage?: string;
 };
+
+function SvgIcon({
+  children,
+  ...props
+}: SVGProps<SVGSVGElement> & {
+  children: ReactNode;
+}) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      {...props}
+    >
+      {children}
+    </svg>
+  );
+}
+
+function PlusIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <SvgIcon {...props}>
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
+    </SvgIcon>
+  );
+}
+
+function ArrowLeftIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <SvgIcon {...props}>
+      <path d="m15 6-6 6 6 6" />
+      <path d="M9 12h10" />
+    </SvgIcon>
+  );
+}
+
+function HeaderActionLink({ action }: { action: PurchaseHeaderAction }) {
+  const Icon = action.kind === "create" ? PlusIcon : ArrowLeftIcon;
+
+  return (
+    <Link
+      href={action.href}
+      aria-label={action.label}
+      title={action.label}
+      className="inline-flex ims-control-md w-10 shrink-0 items-center justify-center rounded-full border border-[var(--line)] bg-[var(--surface)] text-[var(--text-strong)] transition hover:bg-[var(--surface-muted)]"
+    >
+      <Icon className="h-4.5 w-4.5" />
+    </Link>
+  );
+}
+
+function TransactionPageHeader({
+  title,
+  subtitle,
+  action,
+}: {
+  title: string;
+  subtitle: string;
+  action?: PurchaseHeaderAction;
+}) {
+  return (
+    <header className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <p className="ims-kicker">Transactions</p>
+        <h1 className="ims-title">{title}</h1>
+        <p className="ims-subtitle">{subtitle}</p>
+      </div>
+      {action ? <HeaderActionLink action={action} /> : null}
+    </header>
+  );
+}
+
+function hasHistoricalProductSnapshot(line: TxLine | undefined) {
+  return Boolean(
+    line &&
+      (line.product_sku_snapshot != null ||
+        line.product_name_snapshot != null ||
+        line.product_barcode_snapshot != null),
+  );
+}
+
+function formatHistoricalProduct(line: TxLine | undefined, productById: Map<string, Lookup>) {
+  if (!line) {
+    return "--";
+  }
+
+  if (hasHistoricalProductSnapshot(line)) {
+    const code = line.product_sku_snapshot?.trim() || "SKU";
+    const name = line.product_name_snapshot?.trim() || null;
+    return name ? `${code} - ${name}` : code;
+  }
+
+  const product = productById.get(line.product_id);
+  return product ? `${product.sku ?? "SKU"} - ${product.name}` : "--";
+}
+
+function PurchaseTransactionCreateSection({
+  createTitle,
+  suppliers,
+  locations,
+  products,
+  createLoading,
+  locationLabel,
+  onSubmit,
+}: {
+  createTitle: string;
+  suppliers: Lookup[];
+  locations: Lookup[];
+  products: Lookup[];
+  createLoading: boolean;
+  locationLabel: string;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+}) {
+  return (
+    <Card className="min-h-[18rem]">
+      <h2 className="text-lg font-semibold">{createTitle}</h2>
+      <form onSubmit={onSubmit} className="mt-4 grid gap-3 md:grid-cols-6">
+        <Select name="supplier_id" required className="ims-control-lg">
+          <option value="">Select supplier</option>
+          {suppliers.map((supplier) => (
+            <option key={supplier.id} value={supplier.id}>
+              {(supplier.code ?? "SUP")} - {supplier.name}
+            </option>
+          ))}
+        </Select>
+
+        <Input
+          name="supplier_invoice_number"
+          required
+          placeholder="Supplier invoice number"
+          className="ims-control-lg"
+        />
+
+        <Input
+          name="supplier_invoice_date"
+          type="date"
+          required
+          className="ims-control-lg"
+          defaultValue={new Date().toISOString().slice(0, 10)}
+        />
+
+        <Select name="location_id" required className="ims-control-lg">
+          <option value="">{locationLabel}</option>
+          {locations.map((location) => (
+            <option key={location.id} value={location.id}>
+              {(location.code ?? "LOC")} - {location.name}
+            </option>
+          ))}
+        </Select>
+
+        <Select name="product_id" required className="ims-control-lg">
+          <option value="">Select product</option>
+          {products.map((product) => (
+            <option key={product.id} value={product.id}>
+              {(product.sku ?? "SKU")} - {product.name}
+            </option>
+          ))}
+        </Select>
+
+        <Input name="qty" required min={1} type="number" placeholder="Quantity" className="ims-control-lg" />
+        <Input name="lot_number" placeholder="Lot number" className="ims-control-lg" />
+        <Input name="expiry_date" type="date" className="ims-control-lg" />
+        <Input
+          name="unit_cost"
+          type="number"
+          step="0.01"
+          min={0}
+          placeholder="Unit cost"
+          className="ims-control-lg"
+        />
+        <Input name="notes" placeholder="Notes" className="ims-control-lg md:col-span-4" />
+        <Button type="submit" disabled={createLoading} className="ims-control-lg rounded-2xl">
+          {createLoading ? "Saving..." : "Create Draft"}
+        </Button>
+      </form>
+    </Card>
+  );
+}
+
+function PurchaseTransactionHistorySection({
+  historyTitle,
+  transactions,
+  locationTarget,
+  locationById,
+  productById,
+  stateLoading,
+  onRunAction,
+  onReverse,
+  onPrint,
+}: {
+  historyTitle: string;
+  transactions: Tx[];
+  locationTarget: "source" | "destination";
+  locationById: Map<string, Lookup>;
+  productById: Map<string, Lookup>;
+  stateLoading: boolean;
+  onRunAction: (id: string, action: "submit" | "post") => Promise<void>;
+  onReverse: (id: string) => Promise<void>;
+  onPrint: (tx: Tx, historyTitle: string) => void;
+}) {
+  return (
+    <Card className="min-h-[24rem]">
+      <h2 className="text-lg font-semibold">{historyTitle}</h2>
+      <div className="mt-4 max-h-[32rem] overflow-auto">
+        <table className="ims-table">
+          <thead className="ims-table-head">
+            <tr>
+              <th>Number</th>
+              <th>Status</th>
+              <th>Location</th>
+              <th>Product</th>
+              <th>Qty</th>
+              <th>Created</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {transactions.map((tx) => {
+              const line = tx.inventory_transaction_lines?.[0];
+              const locationId =
+                locationTarget === "destination"
+                  ? tx.destination_location_id
+                  : tx.source_location_id;
+              const location = locationId ? locationById.get(locationId) : undefined;
+
+              return (
+                <tr key={tx.id} className="ims-table-row">
+                  <td className="font-medium">{tx.tx_number}</td>
+                  <td>{tx.status}</td>
+                  <td>{location ? `${location.code ?? "LOC"} - ${location.name}` : "--"}</td>
+                  <td>{formatHistoricalProduct(line, productById)}</td>
+                  <td>{line?.qty ?? "--"}</td>
+                  <td>{new Date(tx.created_at).toLocaleString()}</td>
+                  <td>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="secondary"
+                        className="ims-control-sm"
+                        onClick={() => onRunAction(tx.id, "submit")}
+                        disabled={stateLoading || tx.status !== "DRAFT"}
+                      >
+                        Submit
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        className="ims-control-sm"
+                        onClick={() => onRunAction(tx.id, "post")}
+                        disabled={stateLoading || tx.status !== "SUBMITTED"}
+                      >
+                        Post
+                      </Button>
+                      <Button
+                        variant="danger"
+                        className="ims-control-sm"
+                        onClick={() => onReverse(tx.id)}
+                        disabled={stateLoading || tx.status !== "POSTED"}
+                      >
+                        Reverse
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        className="ims-control-sm"
+                        onClick={() => onPrint(tx, historyTitle)}
+                      >
+                        Print Barcode
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {transactions.length === 0 ? (
+          <p className="ims-empty mt-3">No records found.</p>
+        ) : null}
+      </div>
+    </Card>
+  );
+}
 
 export function PurchaseTransactionPage({
   headerTitle,
@@ -63,17 +371,29 @@ export function PurchaseTransactionPage({
   transactionType,
   locationLabel,
   locationTarget,
+  viewMode = "combined",
+  headerAction,
+  successMessage,
 }: Props) {
   const [transactions, setTransactions] = useState<Tx[]>([]);
   const [products, setProducts] = useState<Lookup[]>([]);
   const [locations, setLocations] = useState<Lookup[]>([]);
   const [suppliers, setSuppliers] = useState<Lookup[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
   const [stateLoading, setStateLoading] = useState(false);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [printLabels, setPrintLabels] = useState<BarcodeLabel[]>([]);
   const [printTitle, setPrintTitle] = useState("Barcode Labels");
+
+  const createSuccessMessage =
+    successMessage ??
+    (transactionType === "RETURN_OUT"
+      ? "Purchase return draft created."
+      : "Purchase draft created.");
+  const showCreateSection = viewMode !== "history";
+  const showHistorySection = viewMode !== "create";
 
   const loadTransactions = useCallback(async () => {
     const response = await fetch(`/api/transactions?type=${transactionType}&limit=100`, {
@@ -145,6 +465,7 @@ export function PurchaseTransactionPage({
     event.preventDefault();
     setCreateLoading(true);
     setError(null);
+    setMessage(null);
 
     const formData = new FormData(event.currentTarget);
     const locationId = String(formData.get("location_id") ?? "");
@@ -184,6 +505,7 @@ export function PurchaseTransactionPage({
     }
 
     (event.currentTarget as HTMLFormElement).reset();
+    setMessage(createSuccessMessage);
     await loadTransactions();
     setCreateLoading(false);
   }
@@ -191,6 +513,7 @@ export function PurchaseTransactionPage({
   async function runAction(id: string, action: "submit" | "post") {
     setStateLoading(true);
     setError(null);
+    setMessage(null);
     const response = await fetch(`/api/transactions/${id}/${action}`, {
       method: "POST",
     });
@@ -212,6 +535,7 @@ export function PurchaseTransactionPage({
 
     setStateLoading(true);
     setError(null);
+    setMessage(null);
     const response = await fetch(`/api/transactions/${id}/reverse`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -227,10 +551,16 @@ export function PurchaseTransactionPage({
     setStateLoading(false);
   }
 
-  function openPrintForTransaction(tx: Tx) {
+  function openPrintForTransaction(tx: Tx, title: string) {
     const lines = tx.inventory_transaction_lines ?? [];
     const prepared = buildBarcodeLabelsFromLines(
-      lines.map((line) => ({ productId: line.product_id })),
+      lines.map((line) => ({
+        productId: line.product_id,
+        productName: line.product_name_snapshot,
+        productSku: line.product_sku_snapshot,
+        productBarcode: line.product_barcode_snapshot,
+        useSnapshot: hasHistoricalProductSnapshot(line),
+      })),
       productById,
     );
     if ("error" in prepared) {
@@ -240,161 +570,46 @@ export function PurchaseTransactionPage({
 
     setError(null);
     setPrintLabels(prepared.labels);
-    setPrintTitle(`${historyTitle} - ${tx.tx_number}`);
+    setPrintTitle(`${title} - ${tx.tx_number}`);
     setPrintDialogOpen(true);
   }
 
   return (
     <div className="space-y-6">
-      <header>
-        <p className="ims-kicker">Transactions</p>
-        <h1 className="ims-title text-[2.1rem]">{headerTitle}</h1>
-        <p className="ims-subtitle">{headerSubtitle}</p>
-      </header>
+      <TransactionPageHeader
+        title={headerTitle}
+        subtitle={headerSubtitle}
+        action={headerAction}
+      />
 
       {error ? <p className="ims-alert-danger">{error}</p> : null}
+      {message ? <p className="ims-alert-success">{message}</p> : null}
 
-      <Card className="min-h-[18rem]">
-        <h2 className="text-lg font-semibold">{createTitle}</h2>
-        <form onSubmit={createTransaction} className="mt-4 grid gap-3 md:grid-cols-6">
-          <Select name="supplier_id" required className="h-11">
-            <option value="">Select supplier</option>
-            {suppliers.map((supplier) => (
-              <option key={supplier.id} value={supplier.id}>
-                {(supplier.code ?? "SUP")} - {supplier.name}
-              </option>
-            ))}
-          </Select>
+      {showCreateSection ? (
+        <PurchaseTransactionCreateSection
+          createTitle={createTitle}
+          suppliers={suppliers}
+          locations={locations}
+          products={products}
+          createLoading={createLoading}
+          locationLabel={locationLabel}
+          onSubmit={createTransaction}
+        />
+      ) : null}
 
-          <Input
-            name="supplier_invoice_number"
-            required
-            placeholder="Supplier invoice number"
-            className="h-11"
-          />
-
-          <Input
-            name="supplier_invoice_date"
-            type="date"
-            required
-            className="h-11"
-            defaultValue={new Date().toISOString().slice(0, 10)}
-          />
-
-          <Select name="location_id" required className="h-11">
-            <option value="">{locationLabel}</option>
-            {locations.map((location) => (
-              <option key={location.id} value={location.id}>
-                {(location.code ?? "LOC")} - {location.name}
-              </option>
-            ))}
-          </Select>
-
-          <Select name="product_id" required className="h-11">
-            <option value="">Select product</option>
-            {products.map((product) => (
-              <option key={product.id} value={product.id}>
-                {(product.sku ?? "SKU")} - {product.name}
-              </option>
-            ))}
-          </Select>
-
-          <Input name="qty" required min={1} type="number" placeholder="Quantity" className="h-11" />
-          <Input name="lot_number" placeholder="Lot number" className="h-11" />
-          <Input name="expiry_date" type="date" className="h-11" />
-          <Input
-            name="unit_cost"
-            type="number"
-            step="0.01"
-            min={0}
-            placeholder="Unit cost"
-            className="h-11"
-          />
-          <Input name="notes" placeholder="Notes" className="h-11 md:col-span-4" />
-          <Button type="submit" disabled={createLoading} className="h-11 rounded-2xl">
-            {createLoading ? "Saving..." : "Create Draft"}
-          </Button>
-        </form>
-      </Card>
-
-      <Card className="min-h-[24rem]">
-        <h2 className="text-lg font-semibold">{historyTitle}</h2>
-        <div className="mt-4 max-h-[32rem] overflow-auto">
-          <table className="ims-table">
-            <thead className="ims-table-head">
-              <tr>
-                <th>Number</th>
-                <th>Status</th>
-                <th>Location</th>
-                <th>Product</th>
-                <th>Qty</th>
-                <th>Created</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {transactions.map((tx) => {
-                const line = tx.inventory_transaction_lines?.[0];
-                const locationId =
-                  locationTarget === "destination"
-                    ? tx.destination_location_id
-                    : tx.source_location_id;
-                const location = locationId ? locationById.get(locationId) : undefined;
-                const product = line ? productById.get(line.product_id) : undefined;
-
-                return (
-                  <tr key={tx.id} className="ims-table-row">
-                    <td className="font-medium">{tx.tx_number}</td>
-                    <td>{tx.status}</td>
-                    <td>{location ? `${location.code ?? "LOC"} - ${location.name}` : "--"}</td>
-                    <td>{product ? `${product.sku ?? "SKU"} - ${product.name}` : "--"}</td>
-                    <td>{line?.qty ?? "--"}</td>
-                    <td>{new Date(tx.created_at).toLocaleString()}</td>
-                    <td>
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          variant="secondary"
-                          className="h-9"
-                          onClick={() => runAction(tx.id, "submit")}
-                          disabled={stateLoading || tx.status !== "DRAFT"}
-                        >
-                          Submit
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          className="h-9"
-                          onClick={() => runAction(tx.id, "post")}
-                          disabled={stateLoading || tx.status !== "SUBMITTED"}
-                        >
-                          Post
-                        </Button>
-                        <Button
-                          variant="danger"
-                          className="h-9"
-                          onClick={() => reverse(tx.id)}
-                          disabled={stateLoading || tx.status !== "POSTED"}
-                        >
-                          Reverse
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          className="h-9"
-                          onClick={() => openPrintForTransaction(tx)}
-                        >
-                          Print Barcode
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {transactions.length === 0 ? (
-            <p className="ims-empty mt-3">No records found.</p>
-          ) : null}
-        </div>
-      </Card>
+      {showHistorySection ? (
+        <PurchaseTransactionHistorySection
+          historyTitle={historyTitle}
+          transactions={transactions}
+          locationTarget={locationTarget}
+          locationById={locationById}
+          productById={productById}
+          stateLoading={stateLoading}
+          onRunAction={runAction}
+          onReverse={reverse}
+          onPrint={openPrintForTransaction}
+        />
+      ) : null}
 
       <BarcodePrintDialog
         open={printDialogOpen}

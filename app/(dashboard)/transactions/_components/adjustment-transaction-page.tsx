@@ -19,6 +19,9 @@ type TxStatus = "DRAFT" | "SUBMITTED" | "POSTED" | "REVERSED" | "CANCELLED";
 type TxLine = {
   id: string;
   product_id: string;
+  product_sku_snapshot: string | null;
+  product_name_snapshot: string | null;
+  product_barcode_snapshot: string | null;
   qty: number;
   lot_number: string | null;
   expiry_date: string | null;
@@ -44,6 +47,30 @@ type Lookup = {
   code?: string;
   barcode?: string | null;
 };
+
+function hasHistoricalProductSnapshot(line: TxLine | undefined) {
+  return Boolean(
+    line &&
+      (line.product_sku_snapshot != null ||
+        line.product_name_snapshot != null ||
+        line.product_barcode_snapshot != null),
+  );
+}
+
+function formatHistoricalProduct(line: TxLine | undefined, productById: Map<string, Lookup>) {
+  if (!line) {
+    return "--";
+  }
+
+  if (hasHistoricalProductSnapshot(line)) {
+    const code = line.product_sku_snapshot?.trim() || "SKU";
+    const name = line.product_name_snapshot?.trim() || null;
+    return name ? `${code} - ${name}` : code;
+  }
+
+  const product = productById.get(line.product_id);
+  return product ? `${product.sku ?? "SKU"} - ${product.name}` : "--";
+}
 
 type Mode = "opening" | "adjustment";
 
@@ -230,7 +257,13 @@ export function AdjustmentTransactionPage({
   function openPrintForTransaction(tx: Tx) {
     const lines = tx.inventory_transaction_lines ?? [];
     const prepared = buildBarcodeLabelsFromLines(
-      lines.map((line) => ({ productId: line.product_id })),
+      lines.map((line) => ({
+        productId: line.product_id,
+        productName: line.product_name_snapshot,
+        productSku: line.product_sku_snapshot,
+        productBarcode: line.product_barcode_snapshot,
+        useSnapshot: hasHistoricalProductSnapshot(line),
+      })),
       productById,
     );
     if ("error" in prepared) {
@@ -248,7 +281,7 @@ export function AdjustmentTransactionPage({
     <div className="space-y-6">
       <header>
         <p className="ims-kicker">Transactions</p>
-        <h1 className="ims-title text-[2.1rem]">{headerTitle}</h1>
+        <h1 className="ims-title">{headerTitle}</h1>
         <p className="ims-subtitle">{headerSubtitle}</p>
       </header>
 
@@ -257,7 +290,7 @@ export function AdjustmentTransactionPage({
       <Card className="min-h-[18rem]">
         <h2 className="text-lg font-semibold">{createTitle}</h2>
         <form onSubmit={createTransaction} className="mt-4 grid gap-3 md:grid-cols-5">
-          <Select name="location_id" required className="h-11">
+          <Select name="location_id" required className="ims-control-lg">
             <option value="">Location</option>
             {locations.map((location) => (
               <option key={location.id} value={location.id}>
@@ -267,17 +300,17 @@ export function AdjustmentTransactionPage({
           </Select>
 
           {mode === "adjustment" ? (
-            <Select name="direction" required className="h-11">
+            <Select name="direction" required className="ims-control-lg">
               <option value="ADD">Add Stock</option>
               <option value="REMOVE">Remove Stock</option>
             </Select>
           ) : (
-            <div className="h-11 rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface-muted)] px-[var(--space-4)] text-sm text-[var(--text-muted)]">
+            <div className="ims-control-lg rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface-muted)] px-[var(--space-4)] text-sm text-[var(--text-muted)]">
               Add Stock
             </div>
           )}
 
-          <Select name="product_id" required className="h-11">
+          <Select name="product_id" required className="ims-control-lg">
             <option value="">Select product</option>
             {products.map((product) => (
               <option key={product.id} value={product.id}>
@@ -286,19 +319,19 @@ export function AdjustmentTransactionPage({
             ))}
           </Select>
 
-          <Input name="qty" required min={1} type="number" placeholder="Quantity" className="h-11" />
-          <Input name="lot_number" placeholder="Lot number" className="h-11" />
-          <Input name="expiry_date" type="date" className="h-11" />
+          <Input name="qty" required min={1} type="number" placeholder="Quantity" className="ims-control-lg" />
+          <Input name="lot_number" placeholder="Lot number" className="ims-control-lg" />
+          <Input name="expiry_date" type="date" className="ims-control-lg" />
           <Input
             name="unit_cost"
             type="number"
             step="0.01"
             min={0}
             placeholder="Unit cost"
-            className="h-11"
+            className="ims-control-lg"
           />
-          <Input name="notes" placeholder="Notes" className="h-11 md:col-span-3" />
-          <Button type="submit" disabled={createLoading} className="h-11 rounded-2xl">
+          <Input name="notes" placeholder="Notes" className="ims-control-lg md:col-span-3" />
+          <Button type="submit" disabled={createLoading} className="ims-control-lg rounded-2xl">
             {createLoading ? "Saving..." : "Create Draft"}
           </Button>
         </form>
@@ -327,7 +360,6 @@ export function AdjustmentTransactionPage({
                 const isDecrease = reason === "DECREASE";
                 const locationId = isDecrease ? tx.source_location_id : tx.destination_location_id;
                 const location = locationId ? locationById.get(locationId) : undefined;
-                const product = line ? productById.get(line.product_id) : undefined;
                 const modeLabel =
                   reason === "OPENING" ? "Opening" : isDecrease ? "Remove" : "Add";
 
@@ -337,14 +369,14 @@ export function AdjustmentTransactionPage({
                     <td>{modeLabel}</td>
                     <td>{tx.status}</td>
                     <td>{location ? `${location.code ?? "LOC"} - ${location.name}` : "--"}</td>
-                    <td>{product ? `${product.sku ?? "SKU"} - ${product.name}` : "--"}</td>
+                    <td>{formatHistoricalProduct(line, productById)}</td>
                     <td>{line?.qty ?? "--"}</td>
                     <td>{new Date(tx.created_at).toLocaleString()}</td>
                     <td>
                       <div className="flex flex-wrap gap-2">
                         <Button
                           variant="secondary"
-                          className="h-9"
+                          className="ims-control-sm"
                           onClick={() => runAction(tx.id, "submit")}
                           disabled={stateLoading || tx.status !== "DRAFT"}
                         >
@@ -352,7 +384,7 @@ export function AdjustmentTransactionPage({
                         </Button>
                         <Button
                           variant="secondary"
-                          className="h-9"
+                          className="ims-control-sm"
                           onClick={() => runAction(tx.id, "post")}
                           disabled={stateLoading || tx.status !== "SUBMITTED"}
                         >
@@ -360,7 +392,7 @@ export function AdjustmentTransactionPage({
                         </Button>
                         <Button
                           variant="danger"
-                          className="h-9"
+                          className="ims-control-sm"
                           onClick={() => reverse(tx.id)}
                           disabled={stateLoading || tx.status !== "POSTED"}
                         >
@@ -368,7 +400,7 @@ export function AdjustmentTransactionPage({
                         </Button>
                         <Button
                           variant="secondary"
-                          className="h-9"
+                          className="ims-control-sm"
                           onClick={() => openPrintForTransaction(tx)}
                         >
                           Print Barcode

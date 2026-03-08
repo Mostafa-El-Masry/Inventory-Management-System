@@ -1,10 +1,14 @@
 import { assertRole, getAuthContext } from "@/lib/auth/permissions";
 import { deriveNamePrefix, nextPrefixedCode } from "@/lib/locations/code";
-import { supplierCreateSchema } from "@/lib/validation";
+import { supplierCreateSchema, supplierUpdateSchema } from "@/lib/validation";
 import { fail, ok, parseBody } from "@/lib/utils/http";
 
 function normalizeSupplierName(value: string) {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function normalizeStoredSupplierName(value: string) {
+  return value.trim().replace(/\s+/g, " ");
 }
 
 export async function GET(request: Request) {
@@ -49,7 +53,7 @@ export async function POST(request: Request) {
     return payload.error;
   }
 
-  const normalizedName = payload.data.name.trim();
+  const normalizedName = normalizeStoredSupplierName(payload.data.name);
   const normalizedNameKey = normalizeSupplierName(normalizedName);
   const normalizedPhone = payload.data.phone?.trim() || null;
   const normalizedEmail = payload.data.email?.trim().toLowerCase() || null;
@@ -134,4 +138,59 @@ export async function POST(request: Request) {
   }
 
   return fail("Failed to generate a unique supplier code.", 409);
+}
+
+export async function PATCH(request: Request) {
+  const context = await getAuthContext();
+  if (context instanceof Response) {
+    return context;
+  }
+
+  const roleError = assertRole(context, ["admin"]);
+  if (roleError) {
+    return roleError;
+  }
+
+  const payload = await parseBody(request, supplierUpdateSchema);
+  if ("error" in payload) {
+    return payload.error;
+  }
+
+  const normalizedName = normalizeStoredSupplierName(payload.data.name);
+  const normalizedNameKey = normalizeSupplierName(normalizedName);
+
+  const { data: existingRows, error: existingError } = await context.supabase
+    .from("suppliers")
+    .select("id, name");
+  if (existingError) {
+    return fail(existingError.message, 400);
+  }
+
+  if (
+    (existingRows ?? []).some(
+      (row: { id: string; name: string }) =>
+        row.id !== payload.data.id && normalizeSupplierName(row.name) === normalizedNameKey,
+    )
+  ) {
+    return fail("Supplier name already exists.", 409);
+  }
+
+  const { data, error } = await context.supabase
+    .from("suppliers")
+    .update({
+      name: normalizedName,
+    })
+    .eq("id", payload.data.id)
+    .select("id, code, name, phone, email, is_active, created_at, updated_at")
+    .single();
+
+  if (error) {
+    return fail(error.message, 400);
+  }
+
+  if (!data) {
+    return fail("Supplier not found.", 404);
+  }
+
+  return ok(data);
 }

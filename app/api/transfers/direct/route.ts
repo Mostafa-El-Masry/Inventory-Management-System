@@ -3,6 +3,10 @@ import {
   assertRole,
   getAuthContext,
 } from "@/lib/auth/permissions";
+import {
+  isMissingSnapshotColumnError,
+  stripSnapshotFieldsFromRows,
+} from "@/lib/supabase/snapshot-schema-compat";
 import { transferCreateSchema } from "@/lib/validation";
 import { fail, ok, parseBody } from "@/lib/utils/http";
 
@@ -53,6 +57,27 @@ export async function POST(request: Request) {
     return fail("Transfer source and destination must be different.", 422);
   }
 
+  const productIds = Array.from(
+    new Set(payload.data.lines.map((line) => line.product_id)),
+  );
+
+  const { data: productRows, error: productError } = await context.supabase
+    .from("products")
+    .select("id, sku, name, barcode")
+    .in("id", productIds);
+
+  if (productError) {
+    return fail(productError.message, 400);
+  }
+
+  const productById = new Map(
+    (productRows ?? []).map((product) => [product.id, product]),
+  );
+
+  if (productById.size !== productIds.length) {
+    return fail("One or more products were not found.", 404);
+  }
+
   const trimmedNotes = payload.data.notes?.trim();
   const notes = trimmedNotes
     ? `${DIRECT_NOTE_PREFIX} ${trimmedNotes}`
@@ -77,17 +102,30 @@ export async function POST(request: Request) {
     return fail(transferError?.message ?? "Failed to create direct transfer.", 400);
   }
 
-  const transferLines = payload.data.lines.map((line) => ({
-    transfer_id: transfer.id,
-    product_id: line.product_id,
-    requested_qty: line.requested_qty,
-    dispatched_qty: 0,
-    received_qty: 0,
-  }));
+  const transferLines = payload.data.lines.map((line) => {
+    const product = productById.get(line.product_id);
 
-  const { error: linesError } = await context.supabase
+    return {
+      transfer_id: transfer.id,
+      product_id: line.product_id,
+      product_sku_snapshot: product?.sku ?? null,
+      product_name_snapshot: product?.name ?? null,
+      product_barcode_snapshot: product?.barcode ?? null,
+      requested_qty: line.requested_qty,
+      dispatched_qty: 0,
+      received_qty: 0,
+    };
+  });
+
+  let { error: linesError } = await context.supabase
     .from("transfer_lines")
     .insert(transferLines);
+
+  if (isMissingSnapshotColumnError(linesError)) {
+    ({ error: linesError } = await context.supabase
+      .from("transfer_lines")
+      .insert(stripSnapshotFieldsFromRows(transferLines)));
+  }
 
   if (linesError) {
     return fail(linesError.message, 400);

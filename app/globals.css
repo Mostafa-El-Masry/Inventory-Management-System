@@ -26,6 +26,17 @@
   --space-6: clamp(1.45rem, 1.3rem + 0.54vw, 1.9rem);
   --space-7: clamp(1.8rem, 1.6rem + 0.74vw, 2.35rem);
   --space-8: clamp(2.25rem, 2rem + 0.95vw, 3rem);
+  --control-font-size: clamp(0.82rem, 0.8rem + 0.12vw, 0.92rem);
+  --control-px: clamp(0.78rem, 0.72rem + 0.24vw, 1rem);
+  --control-h-sm: clamp(2rem, 1.94rem + 0.28vw, 2.18rem);
+  --control-h-md: clamp(2.2rem, 2.1rem + 0.36vw, 2.42rem);
+  --control-h-lg: clamp(2.42rem, 2.28rem + 0.48vw, 2.72rem);
+  --icon-btn-sm: clamp(2rem, 1.94rem + 0.28vw, 2.16rem);
+  --icon-btn-md: clamp(2.2rem, 2.1rem + 0.36vw, 2.42rem);
+  --icon-btn-lg: clamp(2.42rem, 2.28rem + 0.48vw, 2.72rem);
+  --dashboard-topbar-h: 4.75rem;
+  --dashboard-topbar-h-lg: 5.35rem;
+  --dashboard-shell-z: 35;
 
   --radius-sm: 0.5rem;
   --radius-md: 0.75rem;
@@ -51,6 +62,20 @@
   --color-foreground: var(--text-strong);
   --font-sans: var(--font-body);
   --font-mono: var(--font-code);
+}
+
+@media (min-width: 80rem) {
+  :root {
+    --control-font-size: clamp(0.9rem, 0.88rem + 0.08vw, 0.96rem);
+    --control-px: clamp(0.92rem, 0.88rem + 0.16vw, 1.15rem);
+    --control-h-sm: clamp(2.12rem, 2.06rem + 0.2vw, 2.3rem);
+    --control-h-md: clamp(2.38rem, 2.28rem + 0.24vw, 2.6rem);
+    --control-h-lg: clamp(2.7rem, 2.58rem + 0.26vw, 2.92rem);
+    --icon-btn-sm: clamp(2.12rem, 2.06rem + 0.2vw, 2.3rem);
+    --icon-btn-md: clamp(2.38rem, 2.28rem + 0.24vw, 2.6rem);
+    --icon-btn-lg: clamp(2.7rem, 2.58rem + 0.26vw, 2.92rem);
+    --dashboard-topbar-h: var(--dashboard-topbar-h-lg);
+  }
 }
 
 body {
@@ -94,13 +119,33 @@ h6 {
   color: var(--text-strong);
 }
 
-.ims-content {
-  min-width: 0;
-  flex: 1 1 auto;
-  padding: var(--space-4) var(--space-4) var(--space-7);
+.ims-dashboard-shell {
+  min-height: 100dvh;
 }
 
 @media (min-width: 48rem) {
+  .ims-dashboard-shell {
+    padding-top: var(--dashboard-topbar-h);
+  }
+}
+
+.ims-dashboard-topbar {
+  z-index: var(--dashboard-shell-z);
+}
+
+.ims-content {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: var(--space-3) var(--space-3) var(--space-6);
+}
+
+@media (min-width: 48rem) {
+  .ims-content {
+    padding: var(--space-4) var(--space-4) var(--space-6);
+  }
+}
+
+@media (min-width: 80rem) {
   .ims-content {
     padding: var(--space-7) var(--space-7) var(--space-8);
   }
@@ -124,8 +169,8 @@ h6 {
 
 .ims-title {
   margin-top: var(--space-2);
-  font-size: clamp(1.75rem, 1.48rem + 1.1vw, 2.35rem);
-  line-height: 1.08;
+  font-size: clamp(1.72rem, 1.42rem + 1.18vw, 2.7rem);
+  line-height: 1.04;
   letter-spacing: -0.02em;
   font-weight: 700;
   color: var(--text-strong);
@@ -133,15 +178,15 @@ h6 {
 
 .ims-subtitle {
   margin-top: var(--space-2);
-  font-size: clamp(0.9rem, 0.87rem + 0.2vw, 1rem);
-  line-height: 1.55;
+  font-size: clamp(0.84rem, 0.82rem + 0.18vw, 0.98rem);
+  line-height: 1.48;
   color: var(--text-muted);
 }
 
 .ims-field-label {
   display: block;
   margin-bottom: var(--space-1);
-  font-size: clamp(0.8rem, 0.78rem + 0.12vw, 0.88rem);
+  font-size: clamp(0.76rem, 0.74rem + 0.1vw, 0.84rem);
   font-weight: 500;
   color: var(--text-muted);
 }
@@ -158,9 +203,9 @@ h6 {
 
 .ims-input,
 .ims-select {
-  min-height: clamp(2.55rem, 2.4rem + 0.5vw, 2.85rem);
-  padding: 0 var(--space-3);
-  font-size: clamp(0.88rem, 0.85rem + 0.16vw, 0.95rem);
+  min-height: var(--control-h-md);
+  padding: 0 var(--control-px);
+  font-size: var(--control-font-size);
 }
 
 .ims-input::placeholder {
@@ -174,10 +219,65 @@ h6 {
   box-shadow: 0 0 0 var(--ring-width) color-mix(in srgb, var(--brand-primary) 22%, transparent);
 }
 
+.ims-file-picker {
+  width: 100%;
+  border: var(--line-1) solid var(--line);
+  background: var(--surface);
+  color: var(--text-strong);
+  border-radius: var(--radius-md);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  text-align: left;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+}
+
+.ims-file-picker:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--brand-primary) 52%, var(--line) 48%);
+  box-shadow: 0 0 0 var(--ring-width) color-mix(in srgb, var(--brand-primary) 22%, transparent);
+}
+
+.ims-file-picker:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.ims-file-picker-trigger {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(var(--control-h-md) - 0.5rem);
+  border-radius: 9999px;
+  border: var(--line-1) solid var(--line);
+  background: var(--surface-muted);
+  padding: 0 var(--control-px);
+  font-size: var(--control-font-size);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.ims-file-picker-name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  font-size: var(--control-font-size);
+  line-height: 1.2;
+}
+
+.ims-file-picker-name[data-empty="true"] {
+  color: color-mix(in srgb, var(--text-muted) 84%, #fff 16%);
+}
+
 .ims-table {
   min-width: 100%;
   border-collapse: collapse;
-  font-size: clamp(0.85rem, 0.82rem + 0.16vw, 0.93rem);
+  font-size: clamp(0.78rem, 0.76rem + 0.14vw, 0.9rem);
 }
 
 .ims-table-head {
@@ -188,10 +288,10 @@ h6 {
 }
 
 .ims-table-head th {
-  padding: var(--space-3) var(--space-3) var(--space-2) 0;
+  padding: var(--space-2) var(--space-2) var(--space-1) 0;
   text-align: left;
-  font-size: clamp(0.69rem, 0.67rem + 0.1vw, 0.75rem);
-  letter-spacing: 0.04em;
+  font-size: clamp(0.64rem, 0.62rem + 0.08vw, 0.72rem);
+  letter-spacing: 0.03em;
   text-transform: uppercase;
   color: var(--text-muted);
   font-weight: 600;
@@ -199,7 +299,7 @@ h6 {
 
 .ims-table-row td {
   border-top: var(--line-1) solid color-mix(in srgb, var(--line) 93%, #fff 7%);
-  padding: var(--space-2) var(--space-3) var(--space-2) 0;
+  padding: var(--space-2) var(--space-2) var(--space-2) 0;
   color: var(--text-strong);
 }
 
@@ -253,7 +353,7 @@ h6 {
 .ims-alert-success {
   border-radius: var(--radius-md);
   padding: var(--space-3) var(--space-4);
-  font-size: clamp(0.86rem, 0.84rem + 0.14vw, 0.93rem);
+  font-size: clamp(0.8rem, 0.78rem + 0.12vw, 0.9rem);
   border: var(--line-1) solid;
 }
 
@@ -277,5 +377,32 @@ h6 {
 
 .ims-empty {
   color: var(--text-muted);
-  font-size: clamp(0.86rem, 0.84rem + 0.14vw, 0.93rem);
+  font-size: clamp(0.8rem, 0.78rem + 0.12vw, 0.9rem);
+}
+
+.ims-control-sm {
+  height: var(--control-h-sm);
+}
+
+.ims-control-md {
+  height: var(--control-h-md);
+}
+
+.ims-control-lg {
+  height: var(--control-h-lg);
+}
+
+.ims-icon-btn-sm {
+  height: var(--icon-btn-sm);
+  width: var(--icon-btn-sm);
+}
+
+.ims-icon-btn-md {
+  height: var(--icon-btn-md);
+  width: var(--icon-btn-md);
+}
+
+.ims-icon-btn-lg {
+  height: var(--icon-btn-lg);
+  width: var(--icon-btn-lg);
 }

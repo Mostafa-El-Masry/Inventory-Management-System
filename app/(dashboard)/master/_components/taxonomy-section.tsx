@@ -4,36 +4,31 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
 import { MasterCsvSync } from "@/components/master/master-csv-sync";
+import { MasterPageHeader } from "@/components/master/master-page-header";
+import {
+  SortDirection,
+  SortableTableHeader,
+} from "@/components/master/sortable-table-header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { RowActionsMenu } from "@/components/ui/row-actions-menu";
 import { Select } from "@/components/ui/select";
+import type { ExportColumn } from "@/lib/export/contracts";
+import {
+  buildFilterStorageKey,
+  readLocalFilterState,
+  removeLocalFilterState,
+  writeLocalFilterState,
+} from "@/lib/utils/local-filter-storage";
+import { compareTextValues } from "@/lib/utils/sort-values";
 import { fetchJson } from "@/lib/utils/fetch-json";
-
-type RowLimitOption = 10 | 50 | 100 | "all";
-
-function parseRowLimitOption(raw: unknown): RowLimitOption {
-  if (raw === 10 || raw === "10") {
-    return 10;
-  }
-  if (raw === 50 || raw === "50") {
-    return 50;
-  }
-  if (raw === 100 || raw === "100") {
-    return 100;
-  }
-  if (raw === "all") {
-    return "all";
-  }
-  return 10;
-}
-
-function sliceRowsByLimit<T>(rows: T[], limit: RowLimitOption) {
-  if (limit === "all") {
-    return rows;
-  }
-  return rows.slice(0, limit);
-}
+import {
+  MasterTablePagination,
+  RowLimitOption,
+  paginateRows,
+  parseRowLimitOption,
+} from "@/components/master/master-table-pagination";
 
 type ProductCategory = {
   id: string;
@@ -50,6 +45,22 @@ type ProductSubcategory = {
   is_active: boolean;
 };
 
+type CategorySortKey = "code" | "name" | "active";
+type SubcategorySortKey = "parent" | "code" | "name" | "active";
+
+const CATEGORY_EXPORT_COLUMNS: ExportColumn[] = [
+  { key: "code", label: "Code" },
+  { key: "name", label: "Name" },
+  { key: "is_active", label: "Active" },
+];
+
+const SUBCATEGORY_EXPORT_COLUMNS: ExportColumn[] = [
+  { key: "category_code", label: "Category Code" },
+  { key: "code", label: "Code" },
+  { key: "name", label: "Name" },
+  { key: "is_active", label: "Active" },
+];
+
 export function TaxonomySection({ section }: { section: "categories" | "subcategories" }) {
   const { userId: authUserId, capabilities } = useDashboardSession();
   const [categories, setCategories] = useState<ProductCategory[]>([]);
@@ -59,8 +70,20 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
   const [taxonomyLoading, setTaxonomyLoading] = useState(false);
   const [taxonomySaving, setTaxonomySaving] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [masterPanelOpen, setMasterPanelOpen] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
+  const [archivedFilterHydrated, setArchivedFilterHydrated] = useState(false);
   const [categoryRowLimit, setCategoryRowLimit] = useState<RowLimitOption>(10);
   const [subcategoryRowLimit, setSubcategoryRowLimit] = useState<RowLimitOption>(10);
+  const [categoryPage, setCategoryPage] = useState(1);
+  const [subcategoryPage, setSubcategoryPage] = useState(1);
+  const [categorySortKey, setCategorySortKey] = useState<CategorySortKey>("code");
+  const [categorySortDirection, setCategorySortDirection] =
+    useState<SortDirection>("asc");
+  const [subcategorySortKey, setSubcategorySortKey] =
+    useState<SubcategorySortKey>("parent");
+  const [subcategorySortDirection, setSubcategorySortDirection] =
+    useState<SortDirection>("asc");
   const [categoryLimitPrefsLoaded, setCategoryLimitPrefsLoaded] = useState(false);
   const [subcategoryLimitPrefsLoaded, setSubcategoryLimitPrefsLoaded] = useState(false);
   const [newCategory, setNewCategory] = useState({
@@ -72,6 +95,7 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
     name: "",
     is_active: true,
   });
+  const archivedFilterStorageKey = buildFilterStorageKey(authUserId, "master", section);
 
   const loadTaxonomy = useCallback(async (signal?: AbortSignal) => {
     setTaxonomyLoading(true);
@@ -114,10 +138,20 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
   }, []);
 
   useEffect(() => {
+    const saved = readLocalFilterState<{ showInactive?: boolean }>(archivedFilterStorageKey);
+    setShowInactive(saved?.showInactive === true);
+    setArchivedFilterHydrated(true);
+  }, [archivedFilterStorageKey]);
+
+  useEffect(() => {
+    if (!archivedFilterHydrated) {
+      return;
+    }
+
     const controller = new AbortController();
     loadTaxonomy(controller.signal).catch(() => setError("Failed to load taxonomy."));
     return () => controller.abort();
-  }, [loadTaxonomy]);
+  }, [archivedFilterHydrated, loadTaxonomy]);
 
   useEffect(() => {
     if (!authUserId) {
@@ -220,14 +254,79 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
     }
     return mapped;
   }, [categories]);
-  const visibleCategories = useMemo(
-    () => sliceRowsByLimit(categories, categoryRowLimit),
-    [categories, categoryRowLimit],
+  const filteredCategories = useMemo(
+    () => (showInactive ? categories : categories.filter((category) => category.is_active)),
+    [categories, showInactive],
   );
-  const visibleSubcategories = useMemo(
-    () => sliceRowsByLimit(subcategories, subcategoryRowLimit),
-    [subcategories, subcategoryRowLimit],
+  const filteredSubcategories = useMemo(
+    () =>
+      showInactive
+        ? subcategories
+        : subcategories.filter((subcategory) => subcategory.is_active),
+    [showInactive, subcategories],
   );
+  const sortedCategories = useMemo(() => {
+    const next = [...filteredCategories];
+    next.sort((left, right) => {
+      switch (categorySortKey) {
+        case "code":
+          return compareTextValues(left.code, right.code, categorySortDirection);
+        case "name":
+          return compareTextValues(left.name, right.name, categorySortDirection);
+        case "active":
+          return compareTextValues(left.is_active, right.is_active, categorySortDirection);
+      }
+    });
+    return next;
+  }, [categorySortDirection, categorySortKey, filteredCategories]);
+  const sortedSubcategories = useMemo(() => {
+    const next = [...filteredSubcategories];
+    next.sort((left, right) => {
+      switch (subcategorySortKey) {
+        case "parent":
+          return compareTextValues(
+            categoriesById.get(left.category_id)?.name,
+            categoriesById.get(right.category_id)?.name,
+            subcategorySortDirection,
+          );
+        case "code":
+          return compareTextValues(left.code, right.code, subcategorySortDirection);
+        case "name":
+          return compareTextValues(left.name, right.name, subcategorySortDirection);
+        case "active":
+          return compareTextValues(left.is_active, right.is_active, subcategorySortDirection);
+      }
+    });
+    return next;
+  }, [categoriesById, filteredSubcategories, subcategorySortDirection, subcategorySortKey]);
+  const categoryPagination = useMemo(
+    () => paginateRows(sortedCategories, categoryRowLimit, categoryPage),
+    [categoryPage, categoryRowLimit, sortedCategories],
+  );
+  const subcategoryPagination = useMemo(
+    () => paginateRows(sortedSubcategories, subcategoryRowLimit, subcategoryPage),
+    [subcategoryPage, subcategoryRowLimit, sortedSubcategories],
+  );
+  const visibleCategories = categoryPagination.items;
+  const visibleSubcategories = subcategoryPagination.items;
+
+  useEffect(() => {
+    setCategoryPage(1);
+  }, [categoryRowLimit, categorySortDirection, categorySortKey, showInactive]);
+
+  useEffect(() => {
+    setSubcategoryPage(1);
+  }, [showInactive, subcategoryRowLimit, subcategorySortDirection, subcategorySortKey]);
+
+  useEffect(() => {
+    setCategoryPage((current) => Math.min(current, categoryPagination.totalPages));
+  }, [categoryPagination.totalPages]);
+
+  useEffect(() => {
+    setSubcategoryPage((current) =>
+      Math.min(current, subcategoryPagination.totalPages),
+    );
+  }, [subcategoryPagination.totalPages]);
 
   useEffect(() => {
     if (!newSubcategory.category_id) {
@@ -447,112 +546,279 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
     }
   }
 
+  function toggleCategorySort(nextKey: CategorySortKey) {
+    setCategorySortDirection((current) =>
+      categorySortKey === nextKey ? (current === "asc" ? "desc" : "asc") : "asc",
+    );
+    setCategorySortKey(nextKey);
+  }
+
+  function toggleSubcategorySort(nextKey: SubcategorySortKey) {
+    setSubcategorySortDirection((current) =>
+      subcategorySortKey === nextKey ? (current === "asc" ? "desc" : "asc") : "asc",
+    );
+    setSubcategorySortKey(nextKey);
+  }
+
+  useEffect(() => {
+    if (!archivedFilterHydrated) {
+      return;
+    }
+
+    if (!showInactive) {
+      removeLocalFilterState(archivedFilterStorageKey);
+      return;
+    }
+
+    writeLocalFilterState(archivedFilterStorageKey, { showInactive: true });
+  }, [archivedFilterHydrated, archivedFilterStorageKey, showInactive]);
+
   const isCategoriesSection = section === "categories";
 
   return (
     <div className="space-y-6">
-      <header className="space-y-2">
-        <p className="ims-kicker">Master Data</p>
-        <h1 className="ims-title text-[2.1rem]">
-          {isCategoriesSection ? "Categories" : "Subcategories"}
-        </h1>
-        <p className="ims-subtitle">
-          {isCategoriesSection
+      <MasterPageHeader
+        kicker="Master Data"
+        title={isCategoriesSection ? "Categories" : "Subcategories"}
+        subtitle={
+          isCategoriesSection
             ? "Manage product categories."
-            : "Manage product subcategories."}
-        </p>
-      </header>
+            : "Manage product subcategories."
+        }
+        showAction={canManageTaxonomy}
+        panelOpen={masterPanelOpen}
+        onTogglePanel={() => setMasterPanelOpen((current) => !current)}
+        openLabel={
+          isCategoriesSection
+            ? "Open category actions"
+            : "Open subcategory actions"
+        }
+        closeLabel={
+          isCategoriesSection
+            ? "Close category actions"
+            : "Close subcategory actions"
+        }
+      />
 
       {error ? <p className="ims-alert-danger">{error}</p> : null}
       {message ? <p className="ims-alert-success">{message}</p> : null}
 
-      <MasterCsvSync
-        entity={isCategoriesSection ? "categories" : "subcategories"}
-        canManage={canManageTaxonomy}
-        helperText={
-          isCategoriesSection
-            ? "Keys by category code (2 digits)."
-            : "Keys by category_code + subcategory code (2 + 3 digits)."
-        }
-        onImported={async () => {
-          await loadTaxonomy();
-        }}
-      />
+      {canManageTaxonomy ? (
+        masterPanelOpen ? (
+          <div className="space-y-4">
+            <MasterCsvSync
+              entity={isCategoriesSection ? "categories" : "subcategories"}
+              canManage={canManageTaxonomy}
+              title={isCategoriesSection ? "Categories" : "Subcategories"}
+              filenameBase={isCategoriesSection ? "categories" : "subcategories"}
+              columns={isCategoriesSection ? CATEGORY_EXPORT_COLUMNS : SUBCATEGORY_EXPORT_COLUMNS}
+              rows={
+                isCategoriesSection
+                  ? filteredCategories.map((category) => ({
+                      code: category.code,
+                      name: category.name,
+                      is_active: category.is_active,
+                    }))
+                  : filteredSubcategories.map((subcategory) => ({
+                      category_code: categoriesById.get(subcategory.category_id)?.code ?? "",
+                      code: subcategory.code,
+                      name: subcategory.name,
+                      is_active: subcategory.is_active,
+                    }))
+              }
+              helperText={
+                isCategoriesSection
+                  ? "Keys by category code (2 digits)."
+                  : "Keys by category_code + subcategory code (2 + 3 digits)."
+              }
+              filterSummary={[`Archived included: ${showInactive ? "Yes" : "No"}`]}
+              onImported={async () => {
+                await loadTaxonomy();
+              }}
+            />
+
+            {isCategoriesSection ? (
+              <Card className="min-h-[12rem]">
+                <h2 className="text-lg font-semibold">Create Category</h2>
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <Input
+                    value={newCategory.name}
+                    placeholder="Category name"
+                    className="ims-control-md flex-1"
+                    onChange={(event) =>
+                      setNewCategory((current) => ({
+                        ...current,
+                        name: event.target.value,
+                      }))
+                    }
+                  />
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={newCategory.is_active}
+                      onChange={(event) =>
+                        setNewCategory((current) => ({
+                          ...current,
+                          is_active: event.target.checked,
+                        }))
+                      }
+                    />
+                    Active
+                  </label>
+                  <Button
+                    className="ims-control-md"
+                    disabled={!canCreateCategory || taxonomySaving}
+                    onClick={() => createCategory()}
+                  >
+                    Add
+                  </Button>
+                </div>
+              </Card>
+            ) : (
+              <Card className="min-h-[12rem]">
+                <h2 className="text-lg font-semibold">Create Subcategory</h2>
+                <div className="mt-4 space-y-2">
+                  <Select
+                    className="ims-control-md"
+                    value={newSubcategory.category_id}
+                    onChange={(event) =>
+                      setNewSubcategory((current) => ({
+                        ...current,
+                        category_id: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">Select category</option>
+                    {activeCategories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.code} - {category.name}
+                      </option>
+                    ))}
+                  </Select>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input
+                      value={newSubcategory.name}
+                      placeholder="Subcategory name"
+                      className="ims-control-md flex-1"
+                      onChange={(event) =>
+                        setNewSubcategory((current) => ({
+                          ...current,
+                          name: event.target.value,
+                        }))
+                      }
+                    />
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={newSubcategory.is_active}
+                        onChange={(event) =>
+                          setNewSubcategory((current) => ({
+                            ...current,
+                            is_active: event.target.checked,
+                          }))
+                        }
+                      />
+                      Active
+                    </label>
+                    <Button
+                      className="ims-control-md"
+                      disabled={!canCreateSubcategory || taxonomySaving}
+                      onClick={() => createSubcategory()}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                  {activeCategories.length === 0 ? (
+                    <p className="ims-alert-warn text-xs">
+                      Create an active category first to add subcategories.
+                    </p>
+                  ) : null}
+                </div>
+              </Card>
+            )}
+          </div>
+        ) : null
+      ) : (
+        <MasterCsvSync
+          entity={isCategoriesSection ? "categories" : "subcategories"}
+          canManage={canManageTaxonomy}
+          title={isCategoriesSection ? "Categories" : "Subcategories"}
+          filenameBase={isCategoriesSection ? "categories" : "subcategories"}
+          columns={isCategoriesSection ? CATEGORY_EXPORT_COLUMNS : SUBCATEGORY_EXPORT_COLUMNS}
+          rows={
+            isCategoriesSection
+              ? filteredCategories.map((category) => ({
+                  code: category.code,
+                  name: category.name,
+                  is_active: category.is_active,
+                }))
+              : filteredSubcategories.map((subcategory) => ({
+                  category_code: categoriesById.get(subcategory.category_id)?.code ?? "",
+                  code: subcategory.code,
+                  name: subcategory.name,
+                  is_active: subcategory.is_active,
+                }))
+          }
+          helperText={
+            isCategoriesSection
+              ? "Keys by category code (2 digits)."
+              : "Keys by category_code + subcategory code (2 + 3 digits)."
+          }
+          filterSummary={[`Archived included: ${showInactive ? "Yes" : "No"}`]}
+          onImported={async () => {
+            await loadTaxonomy();
+          }}
+        />
+      )}
 
       {isCategoriesSection ? (
         <section>
           <Card className="min-h-[28rem]">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-lg font-semibold">Categories</h2>
-              <div className="flex flex-wrap items-center gap-3">
-                <label className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-                  Rows
-                  <Select
-                    className="h-8 w-[5.25rem]"
-                    value={String(categoryRowLimit)}
-                    onChange={(event) =>
-                      setCategoryRowLimit(parseRowLimitOption(event.target.value))
-                    }
-                  >
-                    <option value="10">10</option>
-                    <option value="50">50</option>
-                    <option value="100">100</option>
-                    <option value="all">All</option>
-                  </Select>
-                </label>
+              <div className="flex items-center gap-3">
                 <span className="text-xs text-[var(--text-muted)]">
-                  {taxonomyLoading
-                    ? "Refreshing..."
-                    : `${visibleCategories.length} of ${categories.length}`}
+                  {taxonomyLoading ? "Refreshing..." : `${filteredCategories.length} total`}
                 </span>
-              </div>
-            </div>
-
-            {canManageTaxonomy ? (
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                <Input
-                  value={newCategory.name}
-                  placeholder="Category name"
-                  className="h-10 flex-1"
-                  onChange={(event) =>
-                    setNewCategory((current) => ({
-                      ...current,
-                      name: event.target.value,
-                    }))
-                  }
-                />
-                <label className="flex items-center gap-2 text-sm">
+                <label className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
                   <input
                     type="checkbox"
-                    checked={newCategory.is_active}
-                    onChange={(event) =>
-                      setNewCategory((current) => ({
-                        ...current,
-                        is_active: event.target.checked,
-                      }))
-                    }
+                    checked={showInactive}
+                    onChange={(event) => setShowInactive(event.target.checked)}
                   />
-                  Active
+                  Show archived
                 </label>
-                <Button
-                  className="h-10"
-                  disabled={!canCreateCategory || taxonomySaving}
-                  onClick={() => createCategory()}
-                >
-                  Add
-                </Button>
               </div>
-            ) : (
-              <p className="ims-empty mt-4 text-sm">restricted</p>
-            )}
+            </div>
 
             <div className="mt-4 max-h-[23rem] overflow-auto">
               <table className="ims-table">
                 <thead className="ims-table-head">
                   <tr>
-                    <th>Code</th>
-                    <th>Name</th>
-                    <th>Active</th>
+                    <th>
+                      <SortableTableHeader
+                        label="Code"
+                        active={categorySortKey === "code"}
+                        direction={categorySortDirection}
+                        onClick={() => toggleCategorySort("code")}
+                      />
+                    </th>
+                    <th>
+                      <SortableTableHeader
+                        label="Name"
+                        active={categorySortKey === "name"}
+                        direction={categorySortDirection}
+                        onClick={() => toggleCategorySort("name")}
+                      />
+                    </th>
+                    <th>
+                      <SortableTableHeader
+                        label="Active"
+                        active={categorySortKey === "active"}
+                        direction={categorySortDirection}
+                        onClick={() => toggleCategorySort("active")}
+                      />
+                    </th>
                     <th>Action</th>
                   </tr>
                 </thead>
@@ -564,35 +830,22 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
                       <td>{category.is_active ? "Yes" : "No"}</td>
                       <td>
                         {canManageTaxonomy ? (
-                          <div className="flex flex-wrap items-center gap-2">
-                            {category.is_active ? (
-                              <Button
-                                variant="secondary"
-                                className="h-9"
-                                disabled={actionLoading}
-                                onClick={() => setCategoryActive(category.id, false)}
-                              >
-                                Archive
-                              </Button>
-                            ) : (
-                              <Button
-                                variant="secondary"
-                                className="h-9"
-                                disabled={actionLoading}
-                                onClick={() => setCategoryActive(category.id, true)}
-                              >
-                                Activate
-                              </Button>
-                            )}
-                            <Button
-                              variant="danger"
-                              className="h-9"
-                              disabled={actionLoading}
-                              onClick={() => hardDeleteCategory(category)}
-                            >
-                              Delete
-                            </Button>
-                          </div>
+                          <RowActionsMenu
+                            label={`Open actions for ${category.name}`}
+                            disabled={actionLoading}
+                            items={[
+                              {
+                                label: category.is_active ? "Archive" : "Activate",
+                                onSelect: () =>
+                                  setCategoryActive(category.id, !category.is_active),
+                              },
+                              {
+                                label: "Delete",
+                                destructive: true,
+                                onSelect: () => hardDeleteCategory(category),
+                              },
+                            ]}
+                          />
                         ) : (
                           <span className="text-xs text-[var(--text-muted)]">restricted</span>
                         )}
@@ -605,6 +858,17 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
                 <p className="ims-empty mt-3">No categories yet.</p>
               ) : null}
             </div>
+
+            <MasterTablePagination
+              totalItems={filteredCategories.length}
+              currentPage={categoryPage}
+              rowLimit={categoryRowLimit}
+              onPageChange={setCategoryPage}
+              onRowLimitChange={(limit) => {
+                setCategoryRowLimit(limit);
+                setCategoryPage(1);
+              }}
+            />
           </Card>
         </section>
       ) : (
@@ -612,100 +876,57 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
           <Card className="min-h-[28rem]">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-lg font-semibold">Subcategories</h2>
-              <div className="flex flex-wrap items-center gap-3">
-                <label className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-                  Rows
-                  <Select
-                    className="h-8 w-[5.25rem]"
-                    value={String(subcategoryRowLimit)}
-                    onChange={(event) =>
-                      setSubcategoryRowLimit(parseRowLimitOption(event.target.value))
-                    }
-                  >
-                    <option value="10">10</option>
-                    <option value="50">50</option>
-                    <option value="100">100</option>
-                    <option value="all">All</option>
-                  </Select>
-                </label>
+              <div className="flex items-center gap-3">
                 <span className="text-xs text-[var(--text-muted)]">
-                  {taxonomyLoading
-                    ? "Refreshing..."
-                    : `${visibleSubcategories.length} of ${subcategories.length}`}
+                  {taxonomyLoading ? "Refreshing..." : `${filteredSubcategories.length} total`}
                 </span>
+                <label className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
+                  <input
+                    type="checkbox"
+                    checked={showInactive}
+                    onChange={(event) => setShowInactive(event.target.checked)}
+                  />
+                  Show archived
+                </label>
               </div>
             </div>
-
-            {canManageTaxonomy ? (
-              <div className="mt-4 space-y-2">
-                <Select
-                  className="h-10"
-                  value={newSubcategory.category_id}
-                  onChange={(event) =>
-                    setNewSubcategory((current) => ({
-                      ...current,
-                      category_id: event.target.value,
-                    }))
-                  }
-                >
-                  <option value="">Select category</option>
-                  {activeCategories.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.code} - {category.name}
-                    </option>
-                  ))}
-                </Select>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Input
-                    value={newSubcategory.name}
-                    placeholder="Subcategory name"
-                    className="h-10 flex-1"
-                    onChange={(event) =>
-                      setNewSubcategory((current) => ({
-                        ...current,
-                        name: event.target.value,
-                      }))
-                    }
-                  />
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={newSubcategory.is_active}
-                      onChange={(event) =>
-                        setNewSubcategory((current) => ({
-                          ...current,
-                          is_active: event.target.checked,
-                        }))
-                      }
-                    />
-                    Active
-                  </label>
-                  <Button
-                    className="h-10"
-                    disabled={!canCreateSubcategory || taxonomySaving}
-                    onClick={() => createSubcategory()}
-                  >
-                    Add
-                  </Button>
-                </div>
-                {activeCategories.length === 0 ? (
-                  <p className="ims-alert-warn text-xs">
-                    Create an active category first to add subcategories.
-                  </p>
-                ) : null}
-              </div>
-            ) : (
-              <p className="ims-empty mt-4 text-sm">restricted</p>
-            )}
 
             <div className="mt-4 max-h-[23rem] overflow-auto">
               <table className="ims-table">
                 <thead className="ims-table-head">
                   <tr>
-                    <th>Parent Category</th>
-                    <th>Code</th>
-                    <th>Name</th>
-                    <th>Active</th>
+                    <th>
+                      <SortableTableHeader
+                        label="Parent Category"
+                        active={subcategorySortKey === "parent"}
+                        direction={subcategorySortDirection}
+                        onClick={() => toggleSubcategorySort("parent")}
+                      />
+                    </th>
+                    <th>
+                      <SortableTableHeader
+                        label="Code"
+                        active={subcategorySortKey === "code"}
+                        direction={subcategorySortDirection}
+                        onClick={() => toggleSubcategorySort("code")}
+                      />
+                    </th>
+                    <th>
+                      <SortableTableHeader
+                        label="Name"
+                        active={subcategorySortKey === "name"}
+                        direction={subcategorySortDirection}
+                        onClick={() => toggleSubcategorySort("name")}
+                      />
+                    </th>
+                    <th>
+                      <SortableTableHeader
+                        label="Active"
+                        active={subcategorySortKey === "active"}
+                        direction={subcategorySortDirection}
+                        onClick={() => toggleSubcategorySort("active")}
+                      />
+                    </th>
                     <th>Action</th>
                   </tr>
                 </thead>
@@ -720,35 +941,25 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
                         <td>{subcategory.is_active ? "Yes" : "No"}</td>
                         <td>
                           {canManageTaxonomy ? (
-                            <div className="flex flex-wrap items-center gap-2">
-                              {subcategory.is_active ? (
-                                <Button
-                                  variant="secondary"
-                                  className="h-9"
-                                  disabled={actionLoading}
-                                  onClick={() => setSubcategoryActive(subcategory.id, false)}
-                                >
-                                  Archive
-                                </Button>
-                              ) : (
-                                <Button
-                                  variant="secondary"
-                                  className="h-9"
-                                  disabled={actionLoading}
-                                  onClick={() => setSubcategoryActive(subcategory.id, true)}
-                                >
-                                  Activate
-                                </Button>
-                              )}
-                              <Button
-                                variant="danger"
-                                className="h-9"
-                                disabled={actionLoading}
-                                onClick={() => hardDeleteSubcategory(subcategory)}
-                              >
-                                Delete
-                              </Button>
-                            </div>
+                            <RowActionsMenu
+                              label={`Open actions for ${subcategory.name}`}
+                              disabled={actionLoading}
+                              items={[
+                                {
+                                  label: subcategory.is_active ? "Archive" : "Activate",
+                                  onSelect: () =>
+                                    setSubcategoryActive(
+                                      subcategory.id,
+                                      !subcategory.is_active,
+                                    ),
+                                },
+                                {
+                                  label: "Delete",
+                                  destructive: true,
+                                  onSelect: () => hardDeleteSubcategory(subcategory),
+                                },
+                              ]}
+                            />
                           ) : (
                             <span className="text-xs text-[var(--text-muted)]">restricted</span>
                           )}
@@ -762,6 +973,17 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
                 <p className="ims-empty mt-3">No subcategories yet.</p>
               ) : null}
             </div>
+
+            <MasterTablePagination
+              totalItems={filteredSubcategories.length}
+              currentPage={subcategoryPage}
+              rowLimit={subcategoryRowLimit}
+              onPageChange={setSubcategoryPage}
+              onRowLimitChange={(limit) => {
+                setSubcategoryRowLimit(limit);
+                setSubcategoryPage(1);
+              }}
+            />
           </Card>
         </section>
       )}

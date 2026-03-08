@@ -19,9 +19,9 @@ export default function TransactionsLayout({ children }: { children: ReactNode }
 
   return (
     <div className="space-y-4">
-      <nav className="flex flex-wrap gap-2">
+      <nav className="flex flex-wrap gap-2 md:hidden">
         {tabs.map((tab) => {
-          const active = pathname === tab.href;
+          const active = pathname === tab.href || pathname.startsWith(`${tab.href}/`);
           return (
             <Link
               key={tab.href}

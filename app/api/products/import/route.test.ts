@@ -140,7 +140,7 @@ describe("POST /api/products/import", () => {
       rejected_rows: [
         {
           row_number: 3,
-          name: "paracetamol",
+          name: "Paracetamol",
           barcode: null,
           reason: "Duplicate name in CSV.",
           first_row_number: 2,
@@ -228,7 +228,7 @@ describe("POST /api/products/import", () => {
       rejected_rows: [
         {
           row_number: 2,
-          name: "paracetamol",
+          name: "Paracetamol",
           barcode: "8901000000011",
           reason: "Name already exists in catalog.",
           existing_product_id: "product-existing",
@@ -239,6 +239,30 @@ describe("POST /api/products/import", () => {
       current_count: 4,
     });
     expect(createProductWithGeneratedSkuMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("stores imported product names in proper case while keeping taxonomy lookup case-insensitive", async () => {
+    const response = await POST(
+      new Request("https://app.example.com/api/products/import", {
+        method: "POST",
+        body: JSON.stringify({
+          csv: [
+            "name,category_name,subcategory_name,barcode,unit,is_active,description",
+            "  hAIR   repair   serum  ,hAIR,conDitioner,8901000000012,box,true,Effervescent",
+          ].join("\n"),
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(createProductWithGeneratedSkuMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        name: "Hair Repair Serum",
+        category_id: "cat-1",
+        subcategory_id: "sub-2",
+      }),
+    );
   });
 
   it("imports unique rows successfully with zero rejects", async () => {

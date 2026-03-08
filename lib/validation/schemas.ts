@@ -183,6 +183,11 @@ export const supplierCreateSchema = z.object({
   is_active: z.boolean().default(true),
 });
 
+export const supplierUpdateSchema = z.object({
+  id: uuid,
+  name: z.string().min(2).max(160),
+});
+
 export const supplierPaymentCreateSchema = z.object({
   supplier_document_id: uuid,
   payment_date: isoDate,

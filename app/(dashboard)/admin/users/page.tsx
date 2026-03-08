@@ -337,7 +337,7 @@ export default function UsersAdminPage() {
     <div className="space-y-6">
       <header>
         <p className="ims-kicker">Administration</p>
-        <h1 className="ims-title text-[2.1rem]">Users</h1>
+        <h1 className="ims-title">Users</h1>
         <p className="ims-subtitle">
           Production user lifecycle controls: provisioning, role updates, status, and
           location access.
@@ -359,7 +359,7 @@ export default function UsersAdminPage() {
                   setNewUser((current) => ({ ...current, full_name: event.target.value }))
                 }
                 placeholder="Full name"
-                className="h-10 rounded-xl"
+                className="ims-control-md rounded-xl"
               />
               <Input
                 type="email"
@@ -368,11 +368,11 @@ export default function UsersAdminPage() {
                   setNewUser((current) => ({ ...current, email: event.target.value }))
                 }
                 placeholder="Email"
-                className="h-10 rounded-xl"
+                className="ims-control-md rounded-xl"
               />
               <Button
                 type="button"
-                className="h-10 rounded-xl"
+                className="ims-control-md rounded-xl"
                 disabled={saving || !canSubmitBase}
                 onClick={createUserNow}
               >
@@ -381,7 +381,7 @@ export default function UsersAdminPage() {
               <Button
                 type="button"
                 variant="secondary"
-                className="h-10 rounded-xl"
+                className="ims-control-md rounded-xl"
                 disabled={saving}
                 onClick={openAdvancedDrawer}
               >
@@ -409,9 +409,9 @@ export default function UsersAdminPage() {
                   <Input
                     name="full_name"
                     defaultValue={user.full_name}
-                    className="h-10 rounded-xl"
+                    className="ims-control-md rounded-xl"
                   />
-                  <Select name="role" defaultValue={user.role} className="h-10 rounded-xl">
+                  <Select name="role" defaultValue={user.role} className="ims-control-md rounded-xl">
                     <option value="admin">admin</option>
                     <option value="manager">manager</option>
                     <option value="staff">staff</option>
@@ -423,14 +423,14 @@ export default function UsersAdminPage() {
                     <input name="is_active" type="checkbox" defaultChecked={user.is_active} />
                     Active
                   </label>
-                  <Button type="submit" variant="secondary" disabled={saving} className="h-9">
+                  <Button type="submit" variant="secondary" disabled={saving} className="ims-control-sm">
                     Save
                   </Button>
                   {user.is_active ? (
                     <Button
                       type="button"
                       variant="danger"
-                      className="h-9"
+                      className="ims-control-sm"
                       disabled={saving}
                       onClick={() => {
                         if (
@@ -446,7 +446,7 @@ export default function UsersAdminPage() {
                     <Button
                       type="button"
                       variant="secondary"
-                      className="h-9"
+                      className="ims-control-sm"
                       disabled={saving}
                       onClick={() => setUserEnabled(user.id, true)}
                     >
@@ -456,7 +456,7 @@ export default function UsersAdminPage() {
                   <Button
                     type="button"
                     variant="ghost"
-                    className="h-9"
+                    className="ims-control-sm"
                     disabled={saving}
                     onClick={() => resendInvite(user.id)}
                   >
@@ -473,7 +473,7 @@ export default function UsersAdminPage() {
           <h2 className="text-lg font-semibold">Location Access</h2>
           <div className="mt-4 space-y-3">
             <Select
-              className="h-11 w-full"
+              className="ims-control-lg w-full"
               value={selectedUserId}
               onChange={(event) => setSelectedUserId(event.target.value)}
             >
@@ -506,7 +506,7 @@ export default function UsersAdminPage() {
                 <Button
                   onClick={saveLocations}
                   disabled={saving || !selectedUser.is_active}
-                  className="h-11 rounded-2xl"
+                  className="ims-control-lg rounded-2xl"
                 >
                   Save location access
                 </Button>
@@ -543,7 +543,7 @@ export default function UsersAdminPage() {
               <Button
                 type="button"
                 variant="secondary"
-                className="h-10 rounded-xl"
+                className="ims-control-md rounded-xl"
                 disabled={saving}
                 onClick={closeAdvancedDrawer}
               >
@@ -558,7 +558,7 @@ export default function UsersAdminPage() {
                   ...current,
                   role: event.target.value as UserRole,
                 }))}
-                className="h-11"
+                className="ims-control-lg"
               >
                 <option value="admin">admin</option>
                 <option value="manager">manager</option>
@@ -568,7 +568,7 @@ export default function UsersAdminPage() {
               <Select
                 value={advancedConfig.mode}
                 onChange={(event) => setAdvancedMode(event.target.value as ProvisionMode)}
-                className="h-11"
+                className="ims-control-lg"
               >
                 <option value="invite">invite by email</option>
                 <option value="password">set temp password</option>
@@ -584,7 +584,7 @@ export default function UsersAdminPage() {
                   }))}
                   minLength={12}
                   placeholder="Temporary password"
-                  className="h-11 w-full"
+                  className="ims-control-lg w-full"
                 />
               ) : null}
 
@@ -615,7 +615,7 @@ export default function UsersAdminPage() {
               <Button
                 type="button"
                 variant="secondary"
-                className="h-10 rounded-xl"
+                className="ims-control-md rounded-xl"
                 disabled={saving}
                 onClick={() => {
                   setAdvancedConfig(DEFAULT_USER_CREATE_CONFIG);
@@ -626,7 +626,7 @@ export default function UsersAdminPage() {
               </Button>
               <Button
                 type="button"
-                className="h-10 rounded-xl"
+                className="ims-control-md rounded-xl"
                 disabled={saving || !canSubmitAdvanced}
                 onClick={createUserAdvanced}
               >

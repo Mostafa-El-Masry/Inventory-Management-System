@@ -1,11 +1,18 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
-import { Button } from "@/components/ui/button";
+import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
 import { Card } from "@/components/ui/card";
+import { FilterPopover } from "@/components/ui/filter-popover";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import {
+  buildFilterStorageKey,
+  readLocalFilterState,
+  removeLocalFilterState,
+  writeLocalFilterState,
+} from "@/lib/utils/local-filter-storage";
 import { fetchJson } from "@/lib/utils/fetch-json";
 
 type StockRow = {
@@ -27,13 +34,25 @@ type Lookup = {
   sku?: string;
 };
 
+type InventoryFilterState = {
+  productId: string;
+  locationId: string;
+  asOfDate: string;
+};
+
 export default function InventoryPage() {
+  const { userId: authUserId } = useDashboardSession();
   const [rows, setRows] = useState<StockRow[]>([]);
   const [products, setProducts] = useState<Lookup[]>([]);
   const [locations, setLocations] = useState<Lookup[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [productId, setProductId] = useState("");
+  const [locationId, setLocationId] = useState("");
   const [asOfDate, setAsOfDate] = useState("");
+  const [filtersHydrated, setFiltersHydrated] = useState(false);
+
+  const inventoryFilterStorageKey = buildFilterStorageKey(authUserId, "inventory");
 
   async function loadStock(query = "", signal?: AbortSignal) {
     setLoading(true);
@@ -89,34 +108,84 @@ export default function InventoryPage() {
     setLocations(locationsResult.data.items ?? []);
   }
 
+  function buildStockQuery(
+    nextFilters: {
+      productId?: string;
+      locationId?: string;
+      asOfDate?: string;
+    } = {},
+  ) {
+    const params = new URLSearchParams();
+    const nextProductId = nextFilters.productId ?? productId;
+    const nextLocationId = nextFilters.locationId ?? locationId;
+    const nextAsOfDate = nextFilters.asOfDate ?? asOfDate;
+
+    if (nextProductId) params.set("product_id", nextProductId);
+    if (nextLocationId) params.set("location_id", nextLocationId);
+    if (nextAsOfDate) params.set("as_of_date", nextAsOfDate);
+
+    return params.toString() ? `?${params.toString()}` : "";
+  }
+
   useEffect(() => {
+    const saved = readLocalFilterState<Partial<InventoryFilterState>>(inventoryFilterStorageKey);
+    setProductId(typeof saved?.productId === "string" ? saved.productId : "");
+    setLocationId(typeof saved?.locationId === "string" ? saved.locationId : "");
+    setAsOfDate(typeof saved?.asOfDate === "string" ? saved.asOfDate : "");
+    setFiltersHydrated(true);
+  }, [inventoryFilterStorageKey]);
+
+  useEffect(() => {
+    if (!filtersHydrated) {
+      return;
+    }
+
     const controller = new AbortController();
-    Promise.all([loadStock("", controller.signal), loadLookups(controller.signal)]).catch(() => {
+    Promise.all([
+      loadStock(buildStockQuery(), controller.signal),
+      loadLookups(controller.signal),
+    ]).catch(() => {
       setError("Failed to load inventory data.");
     });
     return () => controller.abort();
-  }, []);
+  }, [filtersHydrated]);
 
-  async function filterStock(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const formData = new FormData(event.currentTarget);
-    const params = new URLSearchParams();
-    const productId = String(formData.get("product_id") ?? "");
-    const locationId = String(formData.get("location_id") ?? "");
-    const asOfDateValue = String(formData.get("as_of_date") ?? "");
-    if (productId) params.set("product_id", productId);
-    if (locationId) params.set("location_id", locationId);
-    if (asOfDateValue) params.set("as_of_date", asOfDateValue);
-    setAsOfDate(asOfDateValue);
-    const query = params.toString() ? `?${params.toString()}` : "";
-    await loadStock(query);
+  useEffect(() => {
+    if (!filtersHydrated) {
+      return;
+    }
+
+    if (!productId && !locationId && !asOfDate) {
+      removeLocalFilterState(inventoryFilterStorageKey);
+      return;
+    }
+
+    writeLocalFilterState(inventoryFilterStorageKey, {
+      productId,
+      locationId,
+      asOfDate,
+    } satisfies InventoryFilterState);
+  }, [asOfDate, filtersHydrated, inventoryFilterStorageKey, locationId, productId]);
+
+  async function applyFilters() {
+    await loadStock(buildStockQuery());
   }
+
+  async function clearFilters() {
+    setProductId("");
+    setLocationId("");
+    setAsOfDate("");
+    removeLocalFilterState(inventoryFilterStorageKey);
+    await loadStock("");
+  }
+
+  const filtersApplied = Boolean(productId || locationId || asOfDate);
 
   return (
     <div className="space-y-6">
       <header>
         <p className="ims-kicker">Inventory</p>
-        <h1 className="ims-title text-[2.1rem]">Inventory Stock</h1>
+        <h1 className="ims-title">Inventory Stock</h1>
         <p className="ims-subtitle">
           Batch-level stock with lot, expiry date, and available quantity.
         </p>
@@ -124,50 +193,71 @@ export default function InventoryPage() {
 
       {error ? <p className="ims-alert-danger">{error}</p> : null}
 
-      <Card className="min-h-36">
-        <h2 className="text-lg font-semibold">Filters</h2>
-        <form onSubmit={filterStock} className="mt-3 grid gap-3 md:grid-cols-4">
-          <Select name="product_id" className="h-11">
-            <option value="">All products</option>
-            {products.map((product) => (
-              <option key={product.id} value={product.id}>
-                {(product.sku ?? "SKU")} - {product.name}
-              </option>
-            ))}
-          </Select>
-
-          <Select name="location_id" className="h-11">
-            <option value="">All locations</option>
-            {locations.map((location) => (
-              <option key={location.id} value={location.id}>
-                {(location.code ?? "LOC")} - {location.name}
-              </option>
-            ))}
-          </Select>
-
-          <Input
-            name="as_of_date"
-            type="date"
-            className="h-11"
-            value={asOfDate}
-            onChange={(event) => setAsOfDate(event.target.value)}
-          />
-
-          <Button type="submit" className="h-11 rounded-2xl">
-            Apply Filter
-          </Button>
-        </form>
-        <p className="mt-3 text-sm text-[var(--text-muted)]">
-          {asOfDate
-            ? `Showing stock snapshot as of ${asOfDate}.`
-            : "Leave date empty to show current stock."}
-        </p>
-      </Card>
-
       <Card className="min-h-[22rem]">
-        <h2 className="text-lg font-semibold">
-          Stock Batches {loading ? "(Loading...)" : ""}
-        </h2>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-[clamp(1.05rem,1rem+0.22vw,1.2rem)] font-semibold text-[var(--text-strong)]">
+              Stock Batches {loading ? "(Loading...)" : ""}
+            </h2>
+            <p className="mt-2 text-[clamp(0.9rem,0.87rem+0.12vw,0.98rem)] text-[var(--text-muted)]">
+              {asOfDate
+                ? `Showing stock snapshot as of ${asOfDate}.`
+                : "Leave date empty to show current stock."}
+            </p>
+          </div>
+
+          <FilterPopover
+            title="Inventory Filters"
+            applied={filtersApplied}
+            onApply={() => applyFilters()}
+            onClear={() => clearFilters()}
+          >
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="space-y-2">
+                <span className="ims-field-label mb-0">Product</span>
+                <Select
+                  value={productId}
+                  className="ims-control-lg"
+                  onChange={(event) => setProductId(event.target.value)}
+                >
+                  <option value="">All products</option>
+                  {products.map((product) => (
+                    <option key={product.id} value={product.id}>
+                      {(product.sku ?? "SKU")} - {product.name}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+
+              <label className="space-y-2">
+                <span className="ims-field-label mb-0">Location</span>
+                <Select
+                  value={locationId}
+                  className="ims-control-lg"
+                  onChange={(event) => setLocationId(event.target.value)}
+                >
+                  <option value="">All locations</option>
+                  {locations.map((location) => (
+                    <option key={location.id} value={location.id}>
+                      {(location.code ?? "LOC")} - {location.name}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+
+              <label className="space-y-2 md:col-span-2">
+                <span className="ims-field-label mb-0">As of date</span>
+                <Input
+                  type="date"
+                  className="ims-control-lg"
+                  value={asOfDate}
+                  onChange={(event) => setAsOfDate(event.target.value)}
+                />
+              </label>
+            </div>
+          </FilterPopover>
+        </div>
+
         <div className="mt-4 max-h-[32rem] overflow-auto">
           <table className="ims-table">
             <thead className="ims-table-head">

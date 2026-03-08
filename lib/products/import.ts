@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeImportName } from "@/lib/import-text/normalize-import-name";
 import { parseCsv } from "@/lib/utils/csv";
 
 export const PRODUCT_IMPORT_MAX_ROWS = 500;
@@ -150,7 +151,7 @@ export function parseProductImportCsv(csv: string) {
     const isActive = parseBoolean(isActiveRaw, row.rowNumber);
 
     const candidate = {
-      name,
+      name: normalizeImportName(name),
       category_name: categoryName,
       subcategory_name: subcategoryName,
       barcode: barcodeRaw.length > 0 ? barcodeRaw : null,

@@ -18,7 +18,7 @@ describe("product csv import helpers", () => {
     const rows = parseProductImportCsv(
       [
         "name,category_name,subcategory_name,barcode,unit,is_active,description",
-        "Paracetamol,Hair,Shampoo,8901000000011,box,true,Tablet strip",
+        "  pARACETAMOL  ,Hair,Shampoo,8901000000011,box,true,Tablet strip",
         "Vitamin C,Hair,Conditioner,,box,no,Effervescent",
       ].join("\n"),
     );
@@ -43,6 +43,28 @@ describe("product csv import helpers", () => {
         unit: "box",
         is_active: false,
         description: "Effervescent",
+      },
+    ]);
+  });
+
+  it("collapses whitespace and proper-cases imported product names only", () => {
+    const rows = parseProductImportCsv(
+      [
+        "name,category_name,subcategory_name,barcode,unit,is_active,description",
+        "  hair   repair   serum  ,  hAIR  ,  conDitioner  ,,box,true,",
+      ].join("\n"),
+    );
+
+    expect(rows).toEqual([
+      {
+        row_number: 2,
+        name: "Hair Repair Serum",
+        category_name: "hAIR",
+        subcategory_name: "conDitioner",
+        barcode: null,
+        unit: "box",
+        is_active: true,
+        description: null,
       },
     ]);
   });

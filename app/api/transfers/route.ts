@@ -3,6 +3,10 @@ import {
   assertRole,
   getAuthContext,
 } from "@/lib/auth/permissions";
+import {
+  isMissingSnapshotColumnError,
+  stripSnapshotFieldsFromRows,
+} from "@/lib/supabase/snapshot-schema-compat";
 import { transferCreateSchema } from "@/lib/validation";
 import { fail, ok, parseBody } from "@/lib/utils/http";
 
@@ -74,6 +78,27 @@ export async function POST(request: Request) {
     return fail("Transfer source and destination must be different.", 422);
   }
 
+  const productIds = Array.from(
+    new Set(payload.data.lines.map((line) => line.product_id)),
+  );
+
+  const { data: productRows, error: productError } = await context.supabase
+    .from("products")
+    .select("id, sku, name, barcode")
+    .in("id", productIds);
+
+  if (productError) {
+    return fail(productError.message, 400);
+  }
+
+  const productById = new Map(
+    (productRows ?? []).map((product) => [product.id, product]),
+  );
+
+  if (productById.size !== productIds.length) {
+    return fail("One or more products were not found.", 404);
+  }
+
   const { data: transfer, error: transferError } = await context.supabase
     .from("transfers")
     .insert({
@@ -91,17 +116,31 @@ export async function POST(request: Request) {
     return fail(transferError?.message ?? "Failed to create transfer.", 400);
   }
 
-  const transferLines = payload.data.lines.map((line) => ({
-    transfer_id: transfer.id,
-    ...line,
-    dispatched_qty: 0,
-    received_qty: 0,
-  }));
+  const transferLines = payload.data.lines.map((line) => {
+    const product = productById.get(line.product_id);
 
-  const { data: lines, error: linesError } = await context.supabase
+    return {
+      transfer_id: transfer.id,
+      ...line,
+      product_sku_snapshot: product?.sku ?? null,
+      product_name_snapshot: product?.name ?? null,
+      product_barcode_snapshot: product?.barcode ?? null,
+      dispatched_qty: 0,
+      received_qty: 0,
+    };
+  });
+
+  let { data: lines, error: linesError } = await context.supabase
     .from("transfer_lines")
     .insert(transferLines)
     .select("*");
+
+  if (isMissingSnapshotColumnError(linesError)) {
+    ({ data: lines, error: linesError } = await context.supabase
+      .from("transfer_lines")
+      .insert(stripSnapshotFieldsFromRows(transferLines))
+      .select("*"));
+  }
 
   if (linesError) {
     return fail(linesError.message, 400);

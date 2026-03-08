@@ -1,4 +1,5 @@
 import { parseCsv } from "@/lib/utils/csv";
+import { normalizeImportName } from "@/lib/import-text/normalize-import-name";
 
 import {
   MASTER_IMPORT_HEADERS,
@@ -75,6 +76,10 @@ function requireValue(value: string, field: string, rowNumber: number, key: stri
   return trimmed;
 }
 
+function requireName(value: string, field: string, rowNumber: number, key: string) {
+  return normalizeImportName(requireValue(value, field, rowNumber, key));
+}
+
 function ensureLength(
   value: string,
   field: string,
@@ -118,7 +123,7 @@ function parseLocationRow(
 ): ParsedMasterRow<"locations"> {
   const code = normalizeCode(getCell(cells, headerIndex.get("code")));
   const key = code || `row-${rowNumber}`;
-  const name = requireValue(getCell(cells, headerIndex.get("name")), "name", rowNumber, key);
+  const name = requireName(getCell(cells, headerIndex.get("name")), "name", rowNumber, key);
   const timezone = requireValue(
     getCell(cells, headerIndex.get("timezone")),
     "timezone",
@@ -158,7 +163,7 @@ function parseSupplierRow(
 ): ParsedMasterRow<"suppliers"> {
   const code = normalizeCode(getCell(cells, headerIndex.get("code")));
   const key = code || `row-${rowNumber}`;
-  const name = requireValue(getCell(cells, headerIndex.get("name")), "name", rowNumber, key);
+  const name = requireName(getCell(cells, headerIndex.get("name")), "name", rowNumber, key);
   const phone = normalizeNullableString(getCell(cells, headerIndex.get("phone")));
   const emailRaw = normalizeNullableString(getCell(cells, headerIndex.get("email")));
   const email = emailRaw ? emailRaw.toLowerCase() : null;
@@ -204,7 +209,7 @@ function parseCategoryRow(
 ): ParsedMasterRow<"categories"> {
   const code = normalizeCode(getCell(cells, headerIndex.get("code")));
   const key = code || `row-${rowNumber}`;
-  const name = requireValue(getCell(cells, headerIndex.get("name")), "name", rowNumber, key);
+  const name = requireName(getCell(cells, headerIndex.get("name")), "name", rowNumber, key);
   const isActive = parseBoolean(getCell(cells, headerIndex.get("is_active")), rowNumber, key);
 
   if (!CATEGORY_CODE_REGEX.test(code)) {
@@ -237,7 +242,7 @@ function parseSubcategoryRow(
   const categoryCode = normalizeCode(getCell(cells, headerIndex.get("category_code")));
   const code = normalizeCode(getCell(cells, headerIndex.get("code")));
   const key = categoryCode && code ? `${categoryCode}:${code}` : `row-${rowNumber}`;
-  const name = requireValue(getCell(cells, headerIndex.get("name")), "name", rowNumber, key);
+  const name = requireName(getCell(cells, headerIndex.get("name")), "name", rowNumber, key);
   const isActive = parseBoolean(getCell(cells, headerIndex.get("is_active")), rowNumber, key);
 
   if (!CATEGORY_CODE_REGEX.test(categoryCode)) {
@@ -278,7 +283,7 @@ function parseProductRow(
   const sku = normalizeCode(getCell(cells, headerIndex.get("sku")));
   const key = sku || `row-${rowNumber}`;
 
-  const name = requireValue(getCell(cells, headerIndex.get("name")), "name", rowNumber, key);
+  const name = requireName(getCell(cells, headerIndex.get("name")), "name", rowNumber, key);
   const unit = requireValue(getCell(cells, headerIndex.get("unit")), "unit", rowNumber, key);
   const categoryCode = normalizeCode(getCell(cells, headerIndex.get("category_code")));
   const subcategoryCode = normalizeCode(getCell(cells, headerIndex.get("subcategory_code")));

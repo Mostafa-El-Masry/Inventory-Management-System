@@ -69,7 +69,7 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <header>
         <p className="ims-kicker">Operations</p>
-        <h1 className="ims-title text-[2.1rem]">Inventory Dashboard</h1>
+        <h1 className="ims-title">Inventory Dashboard</h1>
         <p className="ims-subtitle">Live stock health, transfer flow, and recent activity.</p>
       </header>
 

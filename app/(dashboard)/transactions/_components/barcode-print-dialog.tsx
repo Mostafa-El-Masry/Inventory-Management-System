@@ -46,9 +46,9 @@ function BarcodePrintDialogContent({ onClose, onConfirm }: ContentProps) {
       aria-modal="true"
       aria-label="Barcode print settings"
     >
-      <div className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] p-4 shadow-[var(--shadow-lg)]">
-        <h3 className="text-base font-semibold text-[var(--text-strong)]">Print Barcodes</h3>
-        <p className="mt-1 text-sm text-[var(--text-muted)]">
+      <div className="w-full max-w-md rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] p-3 shadow-[var(--shadow-lg)] sm:p-4">
+        <h3 className="text-[0.95rem] font-semibold text-[var(--text-strong)] sm:text-base">Print Barcodes</h3>
+        <p className="mt-1 text-[0.82rem] text-[var(--text-muted)] sm:text-sm">
           Choose label format and quantity for each product line.
         </p>
 
@@ -56,7 +56,7 @@ function BarcodePrintDialogContent({ onClose, onConfirm }: ContentProps) {
           <label className="space-y-1">
             <span className="ims-field-label mb-0">Label format</span>
             <Select
-              className="h-10"
+              className="ims-control-md"
               value={format}
               onChange={(event) => setFormat(event.target.value as BarcodePrintFormat)}
             >
@@ -71,7 +71,7 @@ function BarcodePrintDialogContent({ onClose, onConfirm }: ContentProps) {
               type="number"
               min={1}
               step={1}
-              className="h-10"
+              className="ims-control-md"
               value={quantity}
               onChange={(event) => {
                 setQuantity(event.target.value);
@@ -81,14 +81,14 @@ function BarcodePrintDialogContent({ onClose, onConfirm }: ContentProps) {
           </label>
         </div>
 
-        {validationError ? <p className="ims-alert-danger mt-3 text-sm">{validationError}</p> : null}
+        {validationError ? <p className="ims-alert-danger mt-3 text-[0.82rem] sm:text-sm">{validationError}</p> : null}
 
         <div className="mt-4 flex justify-end gap-2">
-          <Button variant="secondary" className="h-10" onClick={onClose} disabled={confirming}>
+          <Button variant="secondary" className="ims-control-md" onClick={onClose} disabled={confirming}>
             Cancel
           </Button>
           <Button
-            className="h-10"
+            className="ims-control-md"
             disabled={confirming}
             onClick={async () => {
               const parsed = Number(quantity);

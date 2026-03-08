@@ -79,7 +79,7 @@ export default function AlertsPage() {
     <div className="space-y-6">
       <header>
         <p className="ims-kicker">Operations</p>
-        <h1 className="ims-title text-[2.1rem]">Alerts</h1>
+        <h1 className="ims-title">Alerts</h1>
         <p className="ims-subtitle">Low stock and expiry warnings with acknowledgment workflow.</p>
       </header>
 
@@ -112,7 +112,7 @@ export default function AlertsPage() {
               {alert.status !== "ACKED" ? (
                 <Button
                   variant="secondary"
-                  className="mt-3 h-10 rounded-xl"
+                  className="mt-3 ims-control-md rounded-xl"
                   disabled={acking === alert.id}
                   onClick={() => ackAlert(alert.id)}
                 >

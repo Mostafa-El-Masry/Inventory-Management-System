@@ -16,6 +16,10 @@ type PrintOptions = {
 
 type LineInput = {
   productId: string;
+  productName?: string | null;
+  productSku?: string | null;
+  productBarcode?: string | null;
+  useSnapshot?: boolean;
 };
 
 type ProductLookup = {
@@ -154,23 +158,32 @@ export function buildBarcodeLabelsFromLines(
 
   for (const line of lines) {
     const product = productById.get(line.productId);
-    if (!product) {
+    const useSnapshot = line.useSnapshot === true;
+
+    if (!useSnapshot && !product) {
       missing.push(line.productId);
       continue;
     }
 
-    const barcode = product.barcode?.trim() ?? "";
+    const productName = useSnapshot
+      ? line.productName?.trim() || line.productId
+      : product?.name ?? line.productId;
+    const sku = useSnapshot
+      ? line.productSku?.trim() || null
+      : product?.sku?.trim() || null;
+    const barcode = useSnapshot
+      ? line.productBarcode?.trim() ?? ""
+      : product?.barcode?.trim() ?? "";
+
     if (barcode.length === 0) {
-      const identifier = product.sku?.trim()
-        ? `${product.sku} (${product.name})`
-        : product.name;
+      const identifier = sku ? `${sku} (${productName})` : productName;
       missing.push(identifier);
       continue;
     }
 
     labels.push({
-      productName: product.name,
-      sku: product.sku?.trim() ? product.sku : null,
+      productName,
+      sku,
       barcode,
     });
   }

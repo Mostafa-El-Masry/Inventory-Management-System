@@ -8,7 +8,7 @@ describe("master csv parser", () => {
       "suppliers",
       [
         "code,name,phone,email,is_active",
-        " sup-01 , Alpha Supplier ,12345, SALES@EXAMPLE.COM ,yes",
+        " sup-01 ,   aLpHa   suPPLIER   ,12345, SALES@EXAMPLE.COM ,yes",
       ].join("\n"),
     );
 
@@ -67,5 +67,25 @@ describe("master csv parser", () => {
         ].join("\n"),
       ),
     ).toThrow(MasterCsvImportError);
+  });
+
+  it("proper-cases master product names while keeping codes normalized", () => {
+    const result = parseMasterImportCsv(
+      "products",
+      [
+        "sku,name,barcode,unit,is_active,description,category_code,subcategory_code",
+        "sku-01,  hAIR   maSk  ,,box,true,,01,001",
+      ].join("\n"),
+    );
+
+    expect(result.rows[0]).toMatchObject({
+      key: "SKU-01",
+      value: {
+        sku: "SKU-01",
+        name: "Hair Mask",
+        category_code: "01",
+        subcategory_code: "001",
+      },
+    });
   });
 });

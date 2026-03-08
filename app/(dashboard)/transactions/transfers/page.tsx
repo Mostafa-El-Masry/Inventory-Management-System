@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
@@ -14,6 +14,17 @@ import {
   printBarcodeLabels,
 } from "../_components/barcode-print";
 
+type TransferLine = {
+  id: string;
+  product_id: string;
+  product_sku_snapshot: string | null;
+  product_name_snapshot: string | null;
+  product_barcode_snapshot: string | null;
+  requested_qty: number;
+  dispatched_qty: number;
+  received_qty: number;
+};
+
 type Transfer = {
   id: string;
   transfer_number: string;
@@ -22,13 +33,7 @@ type Transfer = {
   to_location_id: string;
   notes?: string | null;
   created_at: string;
-  transfer_lines?: Array<{
-    id: string;
-    product_id: string;
-    requested_qty: number;
-    dispatched_qty: number;
-    received_qty: number;
-  }>;
+  transfer_lines?: TransferLine[];
 };
 
 type Lookup = {
@@ -45,6 +50,33 @@ const DIRECT_NOTE_PREFIX = "[DIRECT]";
 
 function isDirectTransfer(transfer: Transfer) {
   return (transfer.notes ?? "").startsWith(DIRECT_NOTE_PREFIX);
+}
+
+function hasHistoricalProductSnapshot(line: TransferLine | undefined) {
+  return Boolean(
+    line &&
+      (line.product_sku_snapshot != null ||
+        line.product_name_snapshot != null ||
+        line.product_barcode_snapshot != null),
+  );
+}
+
+function formatHistoricalProduct(
+  line: TransferLine | undefined,
+  productById: Map<string, Lookup>,
+) {
+  if (!line) {
+    return "--";
+  }
+
+  if (hasHistoricalProductSnapshot(line)) {
+    const code = line.product_sku_snapshot?.trim() || "SKU";
+    const name = line.product_name_snapshot?.trim() || null;
+    return name ? `${code} - ${name}` : code;
+  }
+
+  const product = productById.get(line.product_id);
+  return product ? `${product.sku ?? "SKU"} - ${product.name}` : "--";
 }
 
 export default function TransfersPage() {
@@ -400,7 +432,13 @@ export default function TransfersPage() {
   function openPrintForTransfer(transfer: Transfer, titlePrefix: string) {
     const lines = transfer.transfer_lines ?? [];
     const prepared = buildBarcodeLabelsFromLines(
-      lines.map((line) => ({ productId: line.product_id })),
+      lines.map((line) => ({
+        productId: line.product_id,
+        productName: line.product_name_snapshot,
+        productSku: line.product_sku_snapshot,
+        productBarcode: line.product_barcode_snapshot,
+        useSnapshot: hasHistoricalProductSnapshot(line),
+      })),
       productById,
     );
     if ("error" in prepared) {
@@ -418,7 +456,7 @@ export default function TransfersPage() {
     <div className="space-y-6">
       <header>
         <p className="ims-kicker">Transfers</p>
-        <h1 className="ims-title text-[2.1rem]">Transfers</h1>
+        <h1 className="ims-title">Transfers</h1>
         <p className="ims-subtitle">
           Material Request, Material Transfer workflow, and Direct Transfer.
         </p>
@@ -430,21 +468,21 @@ export default function TransfersPage() {
       <div className="flex flex-wrap gap-2">
         <Button
           variant={section === "material-request" ? "secondary" : "ghost"}
-          className="h-10"
+          className="ims-control-md"
           onClick={() => setSection("material-request")}
         >
           Material Request
         </Button>
         <Button
           variant={section === "material-transfer" ? "secondary" : "ghost"}
-          className="h-10"
+          className="ims-control-md"
           onClick={() => setSection("material-transfer")}
         >
           Material Transfer
         </Button>
         <Button
           variant={section === "direct-transfer" ? "secondary" : "ghost"}
-          className="h-10"
+          className="ims-control-md"
           onClick={() => setSection("direct-transfer")}
         >
           Direct Transfer
@@ -456,7 +494,7 @@ export default function TransfersPage() {
           <Card className="min-h-[18rem]">
             <h2 className="text-lg font-semibold">Create Material Request</h2>
             <form onSubmit={createMaterialRequest} className="mt-4 grid gap-3 md:grid-cols-5">
-              <Select name="from_location_id" required className="h-11">
+              <Select name="from_location_id" required className="ims-control-lg">
                 <option value="">From location</option>
                 {locations.map((location) => (
                   <option key={location.id} value={location.id}>
@@ -464,7 +502,7 @@ export default function TransfersPage() {
                   </option>
                 ))}
               </Select>
-              <Select name="to_location_id" required className="h-11">
+              <Select name="to_location_id" required className="ims-control-lg">
                 <option value="">To location</option>
                 {locations.map((location) => (
                   <option key={location.id} value={location.id}>
@@ -472,7 +510,7 @@ export default function TransfersPage() {
                   </option>
                 ))}
               </Select>
-              <Select name="product_id" required className="h-11">
+              <Select name="product_id" required className="ims-control-lg">
                 <option value="">Product</option>
                 {products.map((product) => (
                   <option key={product.id} value={product.id}>
@@ -486,12 +524,12 @@ export default function TransfersPage() {
                 min={1}
                 required
                 placeholder="Qty"
-                className="h-11"
+                className="ims-control-lg"
               />
-              <Button type="submit" disabled={requestLoading} className="h-11 rounded-2xl">
+              <Button type="submit" disabled={requestLoading} className="ims-control-lg rounded-2xl">
                 {requestLoading ? "Saving..." : "Create Request"}
               </Button>
-              <Input name="notes" placeholder="Notes" className="h-11 md:col-span-5" />
+              <Input name="notes" placeholder="Notes" className="ims-control-lg md:col-span-5" />
             </form>
           </Card>
 
@@ -518,13 +556,13 @@ export default function TransfersPage() {
                         <td className="font-medium">{transfer.transfer_number}</td>
                         <td>{formatLookup(locationById.get(transfer.from_location_id), "LOC")}</td>
                         <td>{formatLookup(locationById.get(transfer.to_location_id), "LOC")}</td>
-                        <td>{line ? formatLookup(productById.get(line.product_id), "SKU") : "--"}</td>
+                        <td>{formatHistoricalProduct(line, productById)}</td>
                         <td>{line?.requested_qty ?? "--"}</td>
                         <td>{new Date(transfer.created_at).toLocaleString()}</td>
                         <td>
                           <Button
                             variant="secondary"
-                            className="h-9"
+                            className="ims-control-sm"
                             onClick={() =>
                               openPrintForTransfer(transfer, "Material Request Barcode")
                             }
@@ -553,7 +591,7 @@ export default function TransfersPage() {
                 <h2 className="text-lg font-semibold">Edit Material Request</h2>
                 <Button
                   variant="ghost"
-                  className="h-9"
+                  className="ims-control-sm"
                   onClick={() => {
                     setEditingTransferId(null);
                     setEditForm({
@@ -571,7 +609,7 @@ export default function TransfersPage() {
               <form onSubmit={saveEditTransfer} className="mt-4 grid gap-3 md:grid-cols-5">
                 <Select
                   required
-                  className="h-11"
+                  className="ims-control-lg"
                   value={editForm.from_location_id}
                   onChange={(event) =>
                     setEditForm((current) => ({ ...current, from_location_id: event.target.value }))
@@ -586,7 +624,7 @@ export default function TransfersPage() {
                 </Select>
                 <Select
                   required
-                  className="h-11"
+                  className="ims-control-lg"
                   value={editForm.to_location_id}
                   onChange={(event) =>
                     setEditForm((current) => ({ ...current, to_location_id: event.target.value }))
@@ -601,7 +639,7 @@ export default function TransfersPage() {
                 </Select>
                 <Select
                   required
-                  className="h-11"
+                  className="ims-control-lg"
                   value={editForm.product_id}
                   onChange={(event) =>
                     setEditForm((current) => ({ ...current, product_id: event.target.value }))
@@ -618,17 +656,17 @@ export default function TransfersPage() {
                   type="number"
                   min={1}
                   required
-                  className="h-11"
+                  className="ims-control-lg"
                   value={editForm.requested_qty}
                   onChange={(event) =>
                     setEditForm((current) => ({ ...current, requested_qty: event.target.value }))
                   }
                 />
-                <Button type="submit" className="h-11 rounded-2xl" disabled={editLoading}>
+                <Button type="submit" className="ims-control-lg rounded-2xl" disabled={editLoading}>
                   {editLoading ? "Saving..." : "Save Changes"}
                 </Button>
                 <Input
-                  className="h-11 md:col-span-5"
+                  className="ims-control-lg md:col-span-5"
                   value={editForm.notes}
                   onChange={(event) =>
                     setEditForm((current) => ({ ...current, notes: event.target.value }))
@@ -663,7 +701,7 @@ export default function TransfersPage() {
                         <td>{transfer.status}</td>
                         <td>{formatLookup(locationById.get(transfer.from_location_id), "LOC")}</td>
                         <td>{formatLookup(locationById.get(transfer.to_location_id), "LOC")}</td>
-                        <td>{line ? formatLookup(productById.get(line.product_id), "SKU") : "--"}</td>
+                        <td>{formatHistoricalProduct(line, productById)}</td>
                         <td>{line?.requested_qty ?? "--"}</td>
                         <td>{new Date(transfer.created_at).toLocaleString()}</td>
                         <td>
@@ -672,7 +710,7 @@ export default function TransfersPage() {
                               <>
                                 <Button
                                   variant="secondary"
-                                  className="h-9"
+                                  className="ims-control-sm"
                                   onClick={() =>
                                     openPrintForTransfer(transfer, "Material Transfer Barcode")
                                   }
@@ -681,7 +719,7 @@ export default function TransfersPage() {
                                 </Button>
                                 <Button
                                   variant="secondary"
-                                  className="h-9"
+                                  className="ims-control-sm"
                                   disabled={actionLoading}
                                   onClick={() => approveTransfer(transfer.id)}
                                 >
@@ -689,7 +727,7 @@ export default function TransfersPage() {
                                 </Button>
                                 <Button
                                   variant="secondary"
-                                  className="h-9"
+                                  className="ims-control-sm"
                                   disabled={actionLoading || editLoading}
                                   onClick={() => startEditTransfer(transfer)}
                                 >
@@ -697,7 +735,7 @@ export default function TransfersPage() {
                                 </Button>
                                 <Button
                                   variant="danger"
-                                  className="h-9"
+                                  className="ims-control-sm"
                                   disabled={actionLoading}
                                   onClick={() => rejectTransfer(transfer)}
                                 >
@@ -709,7 +747,7 @@ export default function TransfersPage() {
                               <>
                                 <Button
                                   variant="secondary"
-                                  className="h-9"
+                                  className="ims-control-sm"
                                   onClick={() =>
                                     openPrintForTransfer(transfer, "Material Transfer Barcode")
                                   }
@@ -718,7 +756,7 @@ export default function TransfersPage() {
                                 </Button>
                                 <Button
                                   variant="secondary"
-                                  className="h-9"
+                                  className="ims-control-sm"
                                   disabled={actionLoading}
                                   onClick={() => transferMaterial(transfer)}
                                 >
@@ -726,7 +764,7 @@ export default function TransfersPage() {
                                 </Button>
                                 <Button
                                   variant="danger"
-                                  className="h-9"
+                                  className="ims-control-sm"
                                   disabled={actionLoading}
                                   onClick={() => rejectTransfer(transfer)}
                                 >
@@ -738,7 +776,7 @@ export default function TransfersPage() {
                               <>
                                 <Button
                                   variant="secondary"
-                                  className="h-9"
+                                  className="ims-control-sm"
                                   onClick={() =>
                                     openPrintForTransfer(transfer, "Material Transfer Barcode")
                                   }
@@ -747,7 +785,7 @@ export default function TransfersPage() {
                                 </Button>
                                 <Button
                                   variant="secondary"
-                                  className="h-9"
+                                  className="ims-control-sm"
                                   disabled={actionLoading}
                                   onClick={() => transferMaterial(transfer)}
                                 >
@@ -758,7 +796,7 @@ export default function TransfersPage() {
                             {transfer.status === "COMPLETED" ? (
                               <Button
                                 variant="secondary"
-                                className="h-9"
+                                className="ims-control-sm"
                                 onClick={() =>
                                   openPrintForTransfer(transfer, "Material Transfer Barcode")
                                 }
@@ -786,7 +824,7 @@ export default function TransfersPage() {
           <Card className="min-h-[18rem]">
             <h2 className="text-lg font-semibold">Create Direct Transfer</h2>
             <form onSubmit={createDirectTransfer} className="mt-4 grid gap-3 md:grid-cols-5">
-              <Select name="from_location_id" required className="h-11">
+              <Select name="from_location_id" required className="ims-control-lg">
                 <option value="">From location</option>
                 {locations.map((location) => (
                   <option key={location.id} value={location.id}>
@@ -794,7 +832,7 @@ export default function TransfersPage() {
                   </option>
                 ))}
               </Select>
-              <Select name="to_location_id" required className="h-11">
+              <Select name="to_location_id" required className="ims-control-lg">
                 <option value="">To location</option>
                 {locations.map((location) => (
                   <option key={location.id} value={location.id}>
@@ -802,7 +840,7 @@ export default function TransfersPage() {
                   </option>
                 ))}
               </Select>
-              <Select name="product_id" required className="h-11">
+              <Select name="product_id" required className="ims-control-lg">
                 <option value="">Product</option>
                 {products.map((product) => (
                   <option key={product.id} value={product.id}>
@@ -816,12 +854,12 @@ export default function TransfersPage() {
                 min={1}
                 required
                 placeholder="Qty"
-                className="h-11"
+                className="ims-control-lg"
               />
-              <Button type="submit" disabled={directLoading} className="h-11 rounded-2xl">
+              <Button type="submit" disabled={directLoading} className="ims-control-lg rounded-2xl">
                 {directLoading ? "Transferring..." : "Transfer Now"}
               </Button>
-              <Input name="notes" placeholder="Notes" className="h-11 md:col-span-5" />
+              <Input name="notes" placeholder="Notes" className="ims-control-lg md:col-span-5" />
             </form>
           </Card>
 
@@ -852,7 +890,7 @@ export default function TransfersPage() {
                       <td>
                         <Button
                           variant="secondary"
-                          className="h-9"
+                          className="ims-control-sm"
                           onClick={() => openPrintForTransfer(transfer, "Direct Transfer Barcode")}
                         >
                           Print Barcode

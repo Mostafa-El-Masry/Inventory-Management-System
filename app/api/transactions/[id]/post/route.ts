@@ -3,7 +3,31 @@ import {
   assertRole,
   getAuthContext,
 } from "@/lib/auth/permissions";
+import {
+  isMissingSnapshotColumnError,
+  stripSnapshotFields,
+} from "@/lib/supabase/snapshot-schema-compat";
 import { fail, ok } from "@/lib/utils/http";
+
+const TRANSACTION_POST_SELECT_WITH_SNAPSHOTS =
+  "id, tx_number, type, status, source_location_id, destination_location_id, supplier_id, supplier_code_snapshot, supplier_name_snapshot, supplier_invoice_number, supplier_invoice_date, created_at";
+const TRANSACTION_POST_SELECT_LEGACY =
+  "id, tx_number, type, status, source_location_id, destination_location_id, supplier_id, supplier_invoice_number, supplier_invoice_date, created_at";
+
+type TransactionPostRecord = {
+  id: string;
+  tx_number: string | null;
+  type: string;
+  status: string;
+  source_location_id: string | null;
+  destination_location_id: string | null;
+  supplier_id: string | null;
+  supplier_code_snapshot?: string | null;
+  supplier_name_snapshot?: string | null;
+  supplier_invoice_number: string | null;
+  supplier_invoice_date: string | null;
+  created_at: string | null;
+};
 
 export async function POST(
   _request: Request,
@@ -20,21 +44,31 @@ export async function POST(
   }
 
   const { id } = await params;
-  const { data: transaction, error: findError } = await context.supabase
-    .from("inventory_transactions")
-    .select(
-      "id, tx_number, type, status, source_location_id, destination_location_id, supplier_id, supplier_invoice_number, supplier_invoice_date, created_at",
-    )
-    .eq("id", id)
-    .single();
+  const selectTransaction = (includeSnapshots: boolean) =>
+    context.supabase
+      .from("inventory_transactions")
+      .select(
+        includeSnapshots
+          ? TRANSACTION_POST_SELECT_WITH_SNAPSHOTS
+          : TRANSACTION_POST_SELECT_LEGACY,
+      )
+      .eq("id", id)
+      .single();
 
-  if (findError || !transaction) {
+  let { data: transaction, error: findError } = await selectTransaction(true);
+  let typedTransaction = transaction as TransactionPostRecord | null;
+  if (isMissingSnapshotColumnError(findError)) {
+    ({ data: transaction, error: findError } = await selectTransaction(false));
+    typedTransaction = transaction as TransactionPostRecord | null;
+  }
+
+  if (findError || !typedTransaction) {
     return fail(findError?.message ?? "Transaction not found.", 404);
   }
 
   const sourceError = assertLocationAccess(
     context,
-    transaction.source_location_id as string | null,
+    typedTransaction.source_location_id,
   );
   if (sourceError) {
     return sourceError;
@@ -42,13 +76,13 @@ export async function POST(
 
   const destinationError = assertLocationAccess(
     context,
-    transaction.destination_location_id as string | null,
+    typedTransaction.destination_location_id,
   );
   if (destinationError) {
     return destinationError;
   }
 
-  if (transaction.status !== "SUBMITTED") {
+  if (typedTransaction.status !== "SUBMITTED") {
     return fail("Only SUBMITTED transactions can be posted.", 409);
   }
 
@@ -61,11 +95,11 @@ export async function POST(
   }
 
   const isSupplierDocumentType =
-    transaction.type === "RECEIPT" || transaction.type === "RETURN_OUT";
+    typedTransaction.type === "RECEIPT" || typedTransaction.type === "RETURN_OUT";
   if (
     isSupplierDocumentType &&
-    transaction.supplier_id &&
-    transaction.supplier_invoice_number
+    typedTransaction.supplier_id &&
+    typedTransaction.supplier_invoice_number
   ) {
     const { data: lines, error: linesError } = await context.supabase
       .from("inventory_transaction_lines")
@@ -82,36 +116,45 @@ export async function POST(
     );
 
     const locationId =
-      transaction.type === "RECEIPT"
-        ? transaction.destination_location_id
-        : transaction.source_location_id;
+      typedTransaction.type === "RECEIPT"
+        ? typedTransaction.destination_location_id
+        : typedTransaction.source_location_id;
     if (!locationId) {
       return fail("Supplier document location is missing.", 409);
     }
 
     const documentType =
-      transaction.type === "RECEIPT" ? "INVOICE" : "CREDIT_NOTE";
+      typedTransaction.type === "RECEIPT" ? "INVOICE" : "CREDIT_NOTE";
     const documentDate =
-      transaction.supplier_invoice_date ??
-      String(transaction.created_at ?? "").slice(0, 10);
+      typedTransaction.supplier_invoice_date ??
+      String(typedTransaction.created_at ?? "").slice(0, 10);
 
-    const { error: documentError } = await context.supabase
+    const supplierDocument = {
+      supplier_id: typedTransaction.supplier_id,
+      supplier_code_snapshot: typedTransaction.supplier_code_snapshot ?? null,
+      supplier_name_snapshot: typedTransaction.supplier_name_snapshot ?? null,
+      location_id: locationId,
+      source_transaction_id: typedTransaction.id,
+      document_type: documentType,
+      document_number: typedTransaction.supplier_invoice_number,
+      document_date: documentDate,
+      currency: "KWD",
+      gross_amount: grossAmount,
+      status: "OPEN",
+      created_by: context.user.id,
+    };
+
+    let { error: documentError } = await context.supabase
       .from("supplier_documents")
-      .upsert(
-        {
-          supplier_id: transaction.supplier_id,
-          location_id: locationId,
-          source_transaction_id: transaction.id,
-          document_type: documentType,
-          document_number: transaction.supplier_invoice_number,
-          document_date: documentDate,
-          currency: "KWD",
-          gross_amount: grossAmount,
-          status: "OPEN",
-          created_by: context.user.id,
-        },
-        { onConflict: "source_transaction_id" },
-      );
+      .upsert(supplierDocument, { onConflict: "source_transaction_id" });
+
+    if (isMissingSnapshotColumnError(documentError)) {
+      ({ error: documentError } = await context.supabase
+        .from("supplier_documents")
+        .upsert(stripSnapshotFields(supplierDocument), {
+          onConflict: "source_transaction_id",
+        }));
+    }
 
     if (documentError) {
       return fail(documentError.message, 400);

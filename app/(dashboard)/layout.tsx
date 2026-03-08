@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { DashboardNav } from "@/components/layout/dashboard-nav";
 import { DashboardSessionProvider } from "@/components/layout/dashboard-session-provider";
+import { DashboardTopbar } from "@/components/layout/dashboard-topbar";
 import { getAuthContext } from "@/lib/auth/permissions";
 
 export default async function DashboardLayout({
@@ -28,6 +29,10 @@ export default async function DashboardLayout({
     .trim()
     .replace(/\s+/g, " ");
   const companyName = normalizedCompanyName || "ICE";
+  const displayName =
+    context.profile.full_name.trim() ||
+    context.user.email?.trim() ||
+    companyName;
 
   return (
     <DashboardSessionProvider
@@ -40,9 +45,18 @@ export default async function DashboardLayout({
       }}
     >
       <div className="ims-page">
-        <div className="mx-auto flex min-h-dvh w-full max-w-[107.5rem] flex-col md:flex-row">
-          <DashboardNav companyName={companyName} />
-          <main className="ims-content">{children}</main>
+        <DashboardTopbar
+          companyName={companyName}
+          displayName={displayName}
+          role={context.profile.role}
+        />
+        <div className="ims-dashboard-shell">
+          <div className="flex min-h-dvh w-full flex-col md:flex-row">
+            <DashboardNav companyName={companyName} />
+            <main className="ims-content">
+              <div className="space-y-4 lg:space-y-5 xl:space-y-7">{children}</div>
+            </main>
+          </div>
         </div>
       </div>
     </DashboardSessionProvider>

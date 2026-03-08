@@ -3,11 +3,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
+import { MasterPageHeader } from "@/components/master/master-page-header";
 import { MasterCsvSync } from "@/components/master/master-csv-sync";
+import {
+  MasterTablePagination,
+  RowLimitOption,
+  paginateRows,
+  parseRowLimitOption,
+} from "@/components/master/master-table-pagination";
+import {
+  SortDirection,
+  SortableTableHeader,
+} from "@/components/master/sortable-table-header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { FilePicker } from "@/components/ui/file-picker";
 import { Input } from "@/components/ui/input";
+import { RowActionsMenu } from "@/components/ui/row-actions-menu";
 import { Select } from "@/components/ui/select";
+import type { ExportColumn } from "@/lib/export/contracts";
+import {
+  buildFilterStorageKey,
+  readLocalFilterState,
+  removeLocalFilterState,
+  writeLocalFilterState,
+} from "@/lib/utils/local-filter-storage";
+import { compareTextValues } from "@/lib/utils/sort-values";
 import { fetchJson } from "@/lib/utils/fetch-json";
 import {
   PRODUCT_IMPORT_MAX_ROWS,
@@ -53,6 +74,17 @@ const DEFAULT_PRODUCT_COLUMN_VISIBILITY: Record<ProductColumnKey, boolean> = {
   active: false,
   action: false,
 };
+
+const PRODUCT_EXPORT_COLUMNS: ExportColumn[] = [
+  { key: "sku", label: "SKU" },
+  { key: "name", label: "Name" },
+  { key: "barcode", label: "Barcode" },
+  { key: "unit", label: "Unit" },
+  { key: "is_active", label: "Active" },
+  { key: "description", label: "Description" },
+  { key: "category_code", label: "Category Code" },
+  { key: "subcategory_code", label: "Subcategory Code" },
+];
 
 function getDefaultProductColumnOrder() {
   return [...DEFAULT_PRODUCT_COLUMN_ORDER];
@@ -115,39 +147,17 @@ function normalizeProductColumnVisibility(raw: unknown): Record<ProductColumnKey
   return next;
 }
 
-type RowLimitOption = 10 | 50 | 100 | "all";
-
-function parseRowLimitOption(raw: unknown): RowLimitOption {
-  if (raw === 10 || raw === "10") {
-    return 10;
-  }
-  if (raw === 50 || raw === "50") {
-    return 50;
-  }
-  if (raw === 100 || raw === "100") {
-    return 100;
-  }
-  if (raw === "all") {
-    return "all";
-  }
-  return 10;
-}
-
-function sliceRowsByLimit<T>(rows: T[], limit: RowLimitOption) {
-  if (limit === "all") {
-    return rows;
-  }
-  return rows.slice(0, limit);
-}
-
 type Product = {
   id: string;
   sku: string;
   barcode: string | null;
   name: string;
+  description?: string | null;
   unit: string;
   is_active: boolean;
+  category_code?: string | null;
   category_name?: string | null;
+  subcategory_code?: string | null;
   subcategory_name?: string | null;
   can_hard_delete?: boolean;
 };
@@ -167,6 +177,8 @@ type ProductSubcategory = {
   is_active: boolean;
 };
 
+type ProductSortKey = Exclude<ProductColumnKey, "action">;
+
 export default function ProductsPage() {
   const { capabilities, userId: authUserId } = useDashboardSession();
   const [products, setProducts] = useState<Product[]>([]);
@@ -182,12 +194,16 @@ export default function ProductsPage() {
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const [taxonomyMessage, setTaxonomyMessage] = useState<string | null>(null);
-  const [showCreateRow, setShowCreateRow] = useState(false);
-  const [quickTaxonomyOpen, setQuickTaxonomyOpen] = useState(false);
+  const [masterPanelOpen, setMasterPanelOpen] = useState(false);
   const [columnsPanelOpen, setColumnsPanelOpen] = useState(false);
   const [columnPrefsLoaded, setColumnPrefsLoaded] = useState(false);
   const [productRowLimit, setProductRowLimit] = useState<RowLimitOption>(10);
   const [productRowLimitPrefsLoaded, setProductRowLimitPrefsLoaded] = useState(false);
+  const [productPage, setProductPage] = useState(1);
+  const [archivedFilterHydrated, setArchivedFilterHydrated] = useState(false);
+  const [productSortKey, setProductSortKey] = useState<ProductSortKey>("name");
+  const [productSortDirection, setProductSortDirection] =
+    useState<SortDirection>("asc");
   const [columnOrder, setColumnOrder] = useState<ProductColumnKey[]>(() =>
     getDefaultProductColumnOrder(),
   );
@@ -217,6 +233,7 @@ export default function ProductsPage() {
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const actionMenuRef = useRef<HTMLDivElement | null>(null);
   const columnsPanelRef = useRef<HTMLDivElement | null>(null);
+  const archivedFilterStorageKey = buildFilterStorageKey(authUserId, "master", "products");
 
   const loadProducts = useCallback(async (signal?: AbortSignal) => {
     const result = await fetchJson<{ items?: Product[] }>(
@@ -277,12 +294,28 @@ export default function ProductsPage() {
   }, []);
 
   useEffect(() => {
+    const saved = readLocalFilterState<{ showInactive?: boolean }>(archivedFilterStorageKey);
+    setShowInactive(saved?.showInactive === true);
+    setArchivedFilterHydrated(true);
+  }, [archivedFilterStorageKey]);
+
+  useEffect(() => {
+    if (!archivedFilterHydrated) {
+      return;
+    }
+
     const controller = new AbortController();
     loadProducts(controller.signal).catch(() => setError("Failed to load products."));
     return () => controller.abort();
-  }, [loadProducts]);
+  }, [archivedFilterHydrated, loadProducts]);
 
   const canCreateProductMaster = capabilities.canCreateProductMaster;
+
+  useEffect(() => {
+    if (!canCreateProductMaster) {
+      setMasterPanelOpen(false);
+    }
+  }, [canCreateProductMaster]);
 
   useEffect(() => {
     if (!canCreateProductMaster) {
@@ -388,6 +421,23 @@ export default function ProductsPage() {
   }, [authUserId, productRowLimitPrefsLoaded, productRowLimit]);
 
   useEffect(() => {
+    setProductPage(1);
+  }, [productRowLimit, productSortDirection, productSortKey, showInactive]);
+
+  useEffect(() => {
+    if (!archivedFilterHydrated) {
+      return;
+    }
+
+    if (!showInactive) {
+      removeLocalFilterState(archivedFilterStorageKey);
+      return;
+    }
+
+    writeLocalFilterState(archivedFilterStorageKey, { showInactive: true });
+  }, [archivedFilterHydrated, archivedFilterStorageKey, showInactive]);
+
+  useEffect(() => {
     if (!columnsPanelOpen) {
       return;
     }
@@ -488,10 +538,47 @@ export default function ProductsPage() {
     () => orderedColumns.filter((column) => columnVisibility[column.key]),
     [orderedColumns, columnVisibility],
   );
-  const visibleProducts = useMemo(
-    () => sliceRowsByLimit(products, productRowLimit),
-    [products, productRowLimit],
+  const sortedProducts = useMemo(() => {
+    const next = [...products];
+    next.sort((left, right) => {
+      switch (productSortKey) {
+        case "name":
+          return compareTextValues(left.name, right.name, productSortDirection);
+        case "barcode":
+          return compareTextValues(left.barcode, right.barcode, productSortDirection);
+        case "sku":
+          return compareTextValues(left.sku, right.sku, productSortDirection);
+        case "category":
+          return compareTextValues(
+            left.category_name ?? left.category_code,
+            right.category_name ?? right.category_code,
+            productSortDirection,
+          );
+        case "subcategory":
+          return compareTextValues(
+            left.subcategory_name ?? left.subcategory_code,
+            right.subcategory_name ?? right.subcategory_code,
+            productSortDirection,
+          );
+        case "unit":
+          return compareTextValues(left.unit, right.unit, productSortDirection);
+        case "active":
+          return compareTextValues(left.is_active, right.is_active, productSortDirection);
+      }
+    });
+    return next;
+  }, [productSortDirection, productSortKey, products]);
+  const productPagination = useMemo(
+    () => paginateRows(sortedProducts, productRowLimit, productPage),
+    [productPage, productRowLimit, sortedProducts],
   );
+  const visibleProducts = productPagination.items;
+
+  useEffect(() => {
+    if (productPage > productPagination.totalPages) {
+      setProductPage(productPagination.totalPages);
+    }
+  }, [productPage, productPagination.totalPages]);
 
   function toggleColumnVisibility(columnKey: ProductColumnKey) {
     setColumnVisibility((current) => {
@@ -534,6 +621,13 @@ export default function ProductsPage() {
   function resetColumnPreferences() {
     setColumnOrder(getDefaultProductColumnOrder());
     setColumnVisibility(getDefaultProductColumnVisibility());
+  }
+
+  function toggleProductSort(nextKey: ProductSortKey) {
+    setProductSortDirection((current) =>
+      productSortKey === nextKey ? (current === "asc" ? "desc" : "asc") : "asc",
+    );
+    setProductSortKey(nextKey);
   }
 
   async function createProduct() {
@@ -852,90 +946,35 @@ export default function ProductsPage() {
         return <span className="text-xs text-[var(--text-muted)]">restricted</span>;
       }
 
-      return (
-        <>
-          <div className="hidden flex-wrap items-center gap-2 lg:flex">
-            {product.is_active ? (
-              <Button
-                variant="secondary"
-                className="h-9"
-                disabled={stateLoading}
-                onClick={() => setProductActive(product.id, false)}
-              >
-                Archive
-              </Button>
-            ) : (
-              <Button
-                variant="secondary"
-                className="h-9"
-                disabled={stateLoading}
-                onClick={() => setProductActive(product.id, true)}
-              >
-                Activate
-              </Button>
-            )}
-            {product.can_hard_delete ? (
-              <Button
-                variant="danger"
-                className="h-9"
-                disabled={stateLoading}
-                onClick={() => hardDeleteProduct(product)}
-              >
-                Delete
-              </Button>
-            ) : null}
-          </div>
-          <div
-            ref={openActionMenuProductId === product.id ? actionMenuRef : null}
-            className="inline-flex items-center lg:hidden"
+      if (!product.can_hard_delete) {
+        return (
+          <Button
+            variant="secondary"
+            className="ims-control-sm"
+            disabled={stateLoading}
+            onClick={() => setProductActive(product.id, !product.is_active)}
           >
-            <Button
-              variant="secondary"
-              className="h-8 w-8 rounded-full p-0 text-sm leading-none"
-              disabled={stateLoading}
-              aria-label={`Open actions for ${product.name}`}
-              aria-expanded={openActionMenuProductId === product.id}
-              onClick={() =>
-                setOpenActionMenuProductId((current) =>
-                  current === product.id ? null : product.id,
-                )
-              }
-            >
-              ...
-            </Button>
-            {openActionMenuProductId === product.id ? (
-              <div
-                role="menu"
-                className="absolute right-0 top-[calc(100%+0.35rem)] z-20 min-w-[8.75rem] rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] p-1 shadow-[var(--shadow-md)]"
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="block w-full rounded-[var(--radius-sm)] px-3 py-2 text-left text-sm hover:bg-[var(--surface-muted)]"
-                  onClick={() => {
-                    setOpenActionMenuProductId(null);
-                    setProductActive(product.id, !product.is_active);
-                  }}
-                >
-                  {product.is_active ? "Archive" : "Activate"}
-                </button>
-                {product.can_hard_delete ? (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="block w-full rounded-[var(--radius-sm)] px-3 py-2 text-left text-sm text-[var(--status-danger-fg)] hover:bg-[var(--status-danger-bg)]"
-                    onClick={() => {
-                      setOpenActionMenuProductId(null);
-                      hardDeleteProduct(product);
-                    }}
-                  >
-                    Delete
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        </>
+            {product.is_active ? "Archive" : "Activate"}
+          </Button>
+        );
+      }
+
+      return (
+        <RowActionsMenu
+          label={`Open actions for ${product.name}`}
+          disabled={stateLoading}
+          items={[
+            {
+              label: product.is_active ? "Archive" : "Activate",
+              onSelect: () => setProductActive(product.id, !product.is_active),
+            },
+            {
+              label: "Delete",
+              destructive: true,
+              onSelect: () => hardDeleteProduct(product),
+            },
+          ]}
+        />
       );
     }
 
@@ -944,80 +983,381 @@ export default function ProductsPage() {
 
   return (
     <div className="space-y-6">
-      <header className="space-y-2">
-        <p className="ims-kicker">Master Data</p>
-        <h1 className="ims-title text-[2.1rem]">Products</h1>
-        <p className="ims-subtitle">Product master is admin-managed.</p>
-      </header>
+      <MasterPageHeader
+        kicker="MASTER DATA"
+        title="Products"
+        subtitle="Product master is admin-managed."
+        showAction={canCreateProductMaster}
+        panelOpen={masterPanelOpen}
+        onTogglePanel={canCreateProductMaster ? () => setMasterPanelOpen((current) => !current) : undefined}
+        openLabel="Show product actions"
+        closeLabel="Hide product actions"
+      />
 
       {error ? <p className="ims-alert-danger">{error}</p> : null}
       {importMessage ? <p className="ims-alert-success">{importMessage}</p> : null}
       {taxonomyMessage ? <p className="ims-alert-success">{taxonomyMessage}</p> : null}
 
-      <MasterCsvSync
-        entity="products"
-        canManage={canCreateProductMaster}
-        helperText="Reimport is strict SKU upsert. Category/subcategory codes must already exist."
-        onImported={async () => {
-          await loadProducts();
-          await loadTaxonomy();
-        }}
-      />
+      {canCreateProductMaster && masterPanelOpen ? (
+        <div className="space-y-4">
+          <MasterCsvSync
+            entity="products"
+            canManage={canCreateProductMaster}
+            helperText="Reimport is strict SKU upsert. Category/subcategory codes must already exist."
+            title="Products"
+            filenameBase="products"
+            columns={PRODUCT_EXPORT_COLUMNS}
+            rows={products.map((product) => ({
+              sku: product.sku,
+              name: product.name,
+              barcode: product.barcode ?? "",
+              unit: product.unit,
+              is_active: product.is_active,
+              description: product.description ?? "",
+              category_code: product.category_code ?? "",
+              subcategory_code: product.subcategory_code ?? "",
+            }))}
+            filterSummary={[`Inactive included: ${showInactive ? "Yes" : "No"}`]}
+            onImported={async () => {
+              await loadProducts();
+              await loadTaxonomy();
+            }}
+          />
 
-      {canCreateProductMaster ? (
-        <Card className="min-h-[12rem]">
-          <h2 className="text-lg font-semibold">Bulk Import</h2>
-          <p className="mt-2 text-sm text-[var(--text-muted)]">
-            Download the product CSV template, fill rows, then upload to import products in
-            bulk.
-          </p>
-          <p className="mt-1 text-xs text-[var(--text-muted)]">
-            Required columns include <code>name</code>, <code>category_name</code>,{" "}
-            <code>subcategory_name</code>, and <code>unit</code>.
-          </p>
-          <p className="mt-1 text-xs text-[var(--text-muted)]">
-            Max rows per import: {PRODUCT_IMPORT_MAX_ROWS}. Max total products:{" "}
-            {PRODUCT_MAX_COUNT}.
-          </p>
+          <Card className="min-h-[12rem]">
+            <h2 className="text-lg font-semibold">Bulk Import</h2>
+            <p className="mt-2 text-sm text-[var(--text-muted)]">
+              Download the product CSV template, fill rows, then upload to import products in
+              bulk.
+            </p>
+            <p className="mt-1 text-xs text-[var(--text-muted)]">
+              Required columns include <code>name</code>, <code>category_name</code>,{" "}
+              <code>subcategory_name</code>, and <code>unit</code>.
+            </p>
+            <p className="mt-1 text-xs text-[var(--text-muted)]">
+              Max rows per import: {PRODUCT_IMPORT_MAX_ROWS}. Max total products:{" "}
+              {PRODUCT_MAX_COUNT}.
+            </p>
 
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            <a href="/api/products/import/template">
-              <Button variant="secondary" className="h-11 rounded-2xl">
-                Download Template
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <a href="/api/products/import/template">
+                <Button variant="secondary" className="ims-control-lg rounded-2xl">
+                  Download Template
+                </Button>
+              </a>
+
+              <FilePicker
+                ref={importFileInputRef}
+                accept=".csv,text/csv"
+                fileName={importFile?.name ?? null}
+                className="ims-control-lg w-full max-w-xl"
+                onChange={(event) => {
+                  setImportMessage(null);
+                  setImportFile(event.target.files?.[0] ?? null);
+                }}
+              />
+
+              <Button
+                className="ims-control-lg rounded-2xl"
+                onClick={() => importProductsFromCsv()}
+                disabled={importLoading || !importFile}
+              >
+                {importLoading ? "Importing..." : "Import CSV"}
               </Button>
-            </a>
+            </div>
+          </Card>
 
-            <Input
-              ref={importFileInputRef}
-              type="file"
-              accept=".csv,text/csv"
-              className="h-11 w-full max-w-xl"
-              onChange={(event) => {
-                setImportMessage(null);
-                setImportFile(event.target.files?.[0] ?? null);
-              }}
-            />
+          <Card className="space-y-4">
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold">Quick Taxonomy</h2>
+              <p className="text-sm text-[var(--text-muted)]">
+                Create categories and subcategories without leaving the products screen.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface-muted)] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold">Quick Create Taxonomy</h3>
+                <span className="text-xs text-[var(--text-muted)]">
+                  {taxonomyLoading ? "Refreshing masters..." : `${categories.length} categories`}
+                </span>
+              </div>
+              <div className="mt-3 grid gap-4 lg:grid-cols-2">
+                <div className="space-y-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3">
+                  <p className="text-sm font-medium">Category</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input
+                      value={newCategory.name}
+                      placeholder="Category name"
+                      className="ims-control-md flex-1"
+                      onChange={(event) =>
+                        setNewCategory((current) => ({
+                          ...current,
+                          name: event.target.value,
+                        }))
+                      }
+                    />
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={newCategory.is_active}
+                        onChange={(event) =>
+                          setNewCategory((current) => ({
+                            ...current,
+                            is_active: event.target.checked,
+                          }))
+                        }
+                      />
+                      Active
+                    </label>
+                    <Button
+                      className="ims-control-md"
+                      disabled={!canCreateCategory || taxonomySaving}
+                      onClick={() => createCategory()}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                </div>
 
-            <Button
-              className="h-11 rounded-2xl"
-              onClick={() => importProductsFromCsv()}
-              disabled={importLoading || !importFile}
-            >
-              {importLoading ? "Importing..." : "Import CSV"}
-            </Button>
-          </div>
-        </Card>
+                <div className="space-y-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3">
+                  <p className="text-sm font-medium">Subcategory</p>
+                  <Select
+                    className="ims-control-md"
+                    value={newSubcategory.category_id}
+                    onChange={(event) =>
+                      setNewSubcategory((current) => ({
+                        ...current,
+                        category_id: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">Select category</option>
+                    {activeCategories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.code} - {category.name}
+                      </option>
+                    ))}
+                  </Select>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input
+                      value={newSubcategory.name}
+                      placeholder="Subcategory name"
+                      className="ims-control-md flex-1"
+                      onChange={(event) =>
+                        setNewSubcategory((current) => ({
+                          ...current,
+                          name: event.target.value,
+                        }))
+                      }
+                    />
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={newSubcategory.is_active}
+                        onChange={(event) =>
+                          setNewSubcategory((current) => ({
+                            ...current,
+                            is_active: event.target.checked,
+                          }))
+                        }
+                      />
+                      Active
+                    </label>
+                    <Button
+                      className="ims-control-md"
+                      disabled={!canCreateSubcategory || taxonomySaving}
+                      onClick={() => createSubcategory()}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                  {activeCategories.length === 0 ? (
+                    <p className="ims-alert-warn text-xs">
+                      Create an active category first to add subcategories.
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          <Card className="space-y-4">
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold">Create Product</h2>
+              <p className="text-sm text-[var(--text-muted)]">
+                Add a new product directly from the master screen.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface-muted)] p-4">
+              <div className="grid gap-3 lg:grid-cols-2">
+                <div className="space-y-1">
+                  <label className="ims-field-label mb-0">Product name</label>
+                  <Input
+                    value={newProduct.name}
+                    onChange={(event) =>
+                      setNewProduct((current) => ({
+                        ...current,
+                        name: event.target.value,
+                      }))
+                    }
+                    placeholder="Product name"
+                    className="ims-control-md"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="ims-field-label mb-0">Barcode</label>
+                  <Input
+                    value={newProduct.barcode}
+                    onChange={(event) =>
+                      setNewProduct((current) => ({
+                        ...current,
+                        barcode: event.target.value,
+                      }))
+                    }
+                    placeholder="Barcode"
+                    className="ims-control-md"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="ims-field-label mb-0">Category</label>
+                  <Select
+                    className="ims-control-md"
+                    value={newProduct.category_id}
+                    onChange={(event) =>
+                      setNewProduct((current) => ({
+                        ...current,
+                        category_id: event.target.value,
+                        subcategory_id:
+                          current.category_id === event.target.value
+                            ? current.subcategory_id
+                            : "",
+                      }))
+                    }
+                    disabled={taxonomyLoading || activeCategories.length === 0}
+                  >
+                    <option value="">Select category</option>
+                    {activeCategories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.code} - {category.name}
+                      </option>
+                    ))}
+                  </Select>
+                  {!taxonomyLoading && activeCategories.length === 0 ? (
+                    <p className="ims-alert-warn mt-1 text-xs">
+                      Create an active category first in taxonomy or categories.
+                    </p>
+                  ) : null}
+                </div>
+                <div className="space-y-1">
+                  <label className="ims-field-label mb-0">Subcategory</label>
+                  <Select
+                    className="ims-control-md"
+                    value={newProduct.subcategory_id}
+                    onChange={(event) =>
+                      setNewProduct((current) => ({
+                        ...current,
+                        subcategory_id: event.target.value,
+                      }))
+                    }
+                    disabled={!newProduct.category_id || createRowSubcategories.length === 0}
+                  >
+                    <option value="">Select subcategory</option>
+                    {createRowSubcategories.map((subcategory) => (
+                      <option key={subcategory.id} value={subcategory.id}>
+                        {subcategory.code} - {subcategory.name}
+                      </option>
+                    ))}
+                  </Select>
+                  {newProduct.category_id &&
+                  !taxonomyLoading &&
+                  createRowSubcategories.length === 0 ? (
+                    <p className="ims-alert-warn mt-1 text-xs">
+                      This category has no active subcategories. Create one first.
+                    </p>
+                  ) : null}
+                </div>
+                <div className="space-y-1">
+                  <label className="ims-field-label mb-0">Unit</label>
+                  <Input
+                    value={newProduct.unit}
+                    onChange={(event) =>
+                      setNewProduct((current) => ({
+                        ...current,
+                        unit: event.target.value,
+                      }))
+                    }
+                    placeholder="Unit"
+                    className="ims-control-md"
+                  />
+                </div>
+                <div className="flex items-end justify-between gap-3">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={newProduct.is_active}
+                      onChange={(event) =>
+                        setNewProduct((current) => ({
+                          ...current,
+                          is_active: event.target.checked,
+                        }))
+                      }
+                    />
+                    {newProduct.is_active ? "Active" : "Inactive"}
+                  </label>
+                  <Button
+                    className="ims-control-md"
+                    disabled={!canCreateProduct || createLoading || taxonomyLoading}
+                    onClick={() => createProduct()}
+                  >
+                    {createLoading ? "Saving..." : "Create"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </Card>
+        </div>
+      ) : null}
+
+      {!canCreateProductMaster ? (
+        <MasterCsvSync
+          entity="products"
+          canManage={canCreateProductMaster}
+          helperText="Reimport is strict SKU upsert. Category/subcategory codes must already exist."
+          title="Products"
+          filenameBase="products"
+          columns={PRODUCT_EXPORT_COLUMNS}
+          rows={products.map((product) => ({
+            sku: product.sku,
+            name: product.name,
+            barcode: product.barcode ?? "",
+            unit: product.unit,
+            is_active: product.is_active,
+            description: product.description ?? "",
+            category_code: product.category_code ?? "",
+            subcategory_code: product.subcategory_code ?? "",
+          }))}
+          filterSummary={[`Inactive included: ${showInactive ? "Yes" : "No"}`]}
+          onImported={async () => {
+            await loadProducts();
+            await loadTaxonomy();
+          }}
+        />
       ) : null}
 
       <section>
         <Card className="min-h-[24rem]">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-lg font-semibold">Product List</h2>
+            <div>
+              <h2 className="text-lg font-semibold">Product List</h2>
+              <p className="text-sm text-[var(--text-muted)]">
+                {showInactive ? "Showing active and archived products." : "Showing active products only."}
+              </p>
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <div className="relative">
                 <Button
                   variant="secondary"
-                  className="h-9 rounded-xl"
+                  className="ims-control-sm rounded-xl"
                   onClick={() => setColumnsPanelOpen((current) => !current)}
                   aria-expanded={columnsPanelOpen}
                 >
@@ -1081,42 +1421,6 @@ export default function ProductsPage() {
                   </div>
                 ) : null}
               </div>
-              {canCreateProductMaster ? (
-                <Button
-                  variant="secondary"
-                  className="h-9 rounded-xl"
-                  onClick={() => setQuickTaxonomyOpen((current) => !current)}
-                >
-                  {quickTaxonomyOpen ? "Hide Taxonomy" : "Quick Taxonomy"}
-                </Button>
-              ) : null}
-              {canCreateProductMaster ? (
-                <Button
-                  variant="secondary"
-                  className="h-9 w-9 rounded-full p-0 text-lg leading-none"
-                  aria-label={
-                    showCreateRow ? "Hide product create form" : "Show product create form"
-                  }
-                  onClick={() => setShowCreateRow((current) => !current)}
-                >
-                  {showCreateRow ? "X" : "+"}
-                </Button>
-              ) : null}
-              <label className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
-                Rows
-                <Select
-                  className="h-9 w-[5.5rem]"
-                  value={String(productRowLimit)}
-                  onChange={(event) =>
-                    setProductRowLimit(parseRowLimitOption(event.target.value))
-                  }
-                >
-                  <option value="10">10</option>
-                  <option value="50">50</option>
-                  <option value="100">100</option>
-                  <option value="all">All</option>
-                </Select>
-              </label>
               <label className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
                 <input
                   type="checkbox"
@@ -1128,250 +1432,23 @@ export default function ProductsPage() {
             </div>
           </div>
 
-          {canCreateProductMaster && quickTaxonomyOpen ? (
-            <div className="mt-4 rounded-2xl border border-[var(--line)] bg-[var(--surface-muted)] p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold">Quick Create Taxonomy</h3>
-                <span className="text-xs text-[var(--text-muted)]">
-                  {taxonomyLoading ? "Refreshing masters..." : `${categories.length} categories`}
-                </span>
-              </div>
-              <div className="mt-3 grid gap-4 lg:grid-cols-2">
-                <div className="space-y-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3">
-                  <p className="text-sm font-medium">Category</p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Input
-                      value={newCategory.name}
-                      placeholder="Category name"
-                      className="h-10 flex-1"
-                      onChange={(event) =>
-                        setNewCategory((current) => ({
-                          ...current,
-                          name: event.target.value,
-                        }))
-                      }
-                    />
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={newCategory.is_active}
-                        onChange={(event) =>
-                          setNewCategory((current) => ({
-                            ...current,
-                            is_active: event.target.checked,
-                          }))
-                        }
-                      />
-                      Active
-                    </label>
-                    <Button
-                      className="h-10"
-                      disabled={!canCreateCategory || taxonomySaving}
-                      onClick={() => createCategory()}
-                    >
-                      Add
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="space-y-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3">
-                  <p className="text-sm font-medium">Subcategory</p>
-                  <Select
-                    className="h-10"
-                    value={newSubcategory.category_id}
-                    onChange={(event) =>
-                      setNewSubcategory((current) => ({
-                        ...current,
-                        category_id: event.target.value,
-                      }))
-                    }
-                  >
-                    <option value="">Select category</option>
-                    {activeCategories.map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {category.code} - {category.name}
-                      </option>
-                    ))}
-                  </Select>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Input
-                      value={newSubcategory.name}
-                      placeholder="Subcategory name"
-                      className="h-10 flex-1"
-                      onChange={(event) =>
-                        setNewSubcategory((current) => ({
-                          ...current,
-                          name: event.target.value,
-                        }))
-                      }
-                    />
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={newSubcategory.is_active}
-                        onChange={(event) =>
-                          setNewSubcategory((current) => ({
-                            ...current,
-                            is_active: event.target.checked,
-                          }))
-                        }
-                      />
-                      Active
-                    </label>
-                    <Button
-                      className="h-10"
-                      disabled={!canCreateSubcategory || taxonomySaving}
-                      onClick={() => createSubcategory()}
-                    >
-                      Add
-                    </Button>
-                  </div>
-                  {activeCategories.length === 0 ? (
-                    <p className="ims-alert-warn text-xs">
-                      Create an active category first to add subcategories.
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          {canCreateProductMaster && showCreateRow ? (
-            <div className="mt-4 rounded-2xl border border-[var(--line)] bg-[var(--surface-muted)] p-4">
-              <h3 className="text-sm font-semibold">Create Product</h3>
-              <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                <div className="space-y-1">
-                  <label className="ims-field-label mb-0">Product name</label>
-                  <Input
-                    value={newProduct.name}
-                    onChange={(event) =>
-                      setNewProduct((current) => ({
-                        ...current,
-                        name: event.target.value,
-                      }))
-                    }
-                    placeholder="Product name"
-                    className="h-10"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="ims-field-label mb-0">Barcode</label>
-                  <Input
-                    value={newProduct.barcode}
-                    onChange={(event) =>
-                      setNewProduct((current) => ({
-                        ...current,
-                        barcode: event.target.value,
-                      }))
-                    }
-                    placeholder="Barcode"
-                    className="h-10"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="ims-field-label mb-0">Category</label>
-                  <Select
-                    className="h-10"
-                    value={newProduct.category_id}
-                    onChange={(event) =>
-                      setNewProduct((current) => ({
-                        ...current,
-                        category_id: event.target.value,
-                        subcategory_id:
-                          current.category_id === event.target.value
-                            ? current.subcategory_id
-                            : "",
-                      }))
-                    }
-                    disabled={taxonomyLoading || activeCategories.length === 0}
-                  >
-                    <option value="">Select category</option>
-                    {activeCategories.map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {category.code} - {category.name}
-                      </option>
-                    ))}
-                  </Select>
-                  {!taxonomyLoading && activeCategories.length === 0 ? (
-                    <p className="ims-alert-warn mt-1 text-xs">
-                      Create an active category first in Quick Taxonomy or Categories.
-                    </p>
-                  ) : null}
-                </div>
-                <div className="space-y-1">
-                  <label className="ims-field-label mb-0">Subcategory</label>
-                  <Select
-                    className="h-10"
-                    value={newProduct.subcategory_id}
-                    onChange={(event) =>
-                      setNewProduct((current) => ({
-                        ...current,
-                        subcategory_id: event.target.value,
-                      }))
-                    }
-                    disabled={!newProduct.category_id || createRowSubcategories.length === 0}
-                  >
-                    <option value="">Select subcategory</option>
-                    {createRowSubcategories.map((subcategory) => (
-                      <option key={subcategory.id} value={subcategory.id}>
-                        {subcategory.code} - {subcategory.name}
-                      </option>
-                    ))}
-                  </Select>
-                  {newProduct.category_id &&
-                  !taxonomyLoading &&
-                  createRowSubcategories.length === 0 ? (
-                    <p className="ims-alert-warn mt-1 text-xs">
-                      This category has no active subcategories. Create one first.
-                    </p>
-                  ) : null}
-                </div>
-                <div className="space-y-1">
-                  <label className="ims-field-label mb-0">Unit</label>
-                  <Input
-                    value={newProduct.unit}
-                    onChange={(event) =>
-                      setNewProduct((current) => ({
-                        ...current,
-                        unit: event.target.value,
-                      }))
-                    }
-                    placeholder="Unit"
-                    className="h-10"
-                  />
-                </div>
-                <div className="flex items-end justify-between gap-3">
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={newProduct.is_active}
-                      onChange={(event) =>
-                        setNewProduct((current) => ({
-                          ...current,
-                          is_active: event.target.checked,
-                        }))
-                      }
-                    />
-                    {newProduct.is_active ? "Active" : "Inactive"}
-                  </label>
-                  <Button
-                    className="h-10"
-                    disabled={!canCreateProduct || createLoading || taxonomyLoading}
-                    onClick={() => createProduct()}
-                  >
-                    {createLoading ? "Saving..." : "Create"}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
           <div className="mt-4 max-h-[36rem] overflow-auto">
             <table className="ims-table ims-table-products">
               <thead className="ims-table-head">
                 <tr>
                   {visibleColumns.map((column) => (
-                    <th key={column.key}>{column.label}</th>
+                    <th key={column.key}>
+                      {column.key === "action" ? (
+                        column.label
+                      ) : (
+                        <SortableTableHeader
+                          label={column.label}
+                          active={productSortKey === column.key}
+                          direction={productSortDirection}
+                          onClick={() => toggleProductSort(column.key)}
+                        />
+                      )}
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -1394,6 +1471,16 @@ export default function ProductsPage() {
               <p className="ims-empty mt-3">No products found.</p>
             ) : null}
           </div>
+          <MasterTablePagination
+            totalItems={sortedProducts.length}
+            currentPage={productPage}
+            rowLimit={productRowLimit}
+            onPageChange={setProductPage}
+            onRowLimitChange={(limit) => {
+              setProductRowLimit(limit);
+              setProductPage(1);
+            }}
+          />
         </Card>
       </section>
     </div>

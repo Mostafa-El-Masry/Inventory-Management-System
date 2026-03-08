@@ -72,7 +72,7 @@ export default function AdminSettingsPage() {
     <div className="space-y-6">
       <header>
         <p className="ims-kicker">Administration</p>
-        <h1 className="ims-title text-[2.1rem]">Settings</h1>
+        <h1 className="ims-title">Settings</h1>
         <p className="ims-subtitle">Manage global system configuration.</p>
       </header>
 
@@ -92,7 +92,7 @@ export default function AdminSettingsPage() {
                 onChange={(event) => setCompanyName(event.target.value)}
                 disabled={!canManageSystemSettings}
                 placeholder="Company name"
-                className="h-11"
+                className="ims-control-lg"
               />
             </label>
 
@@ -103,7 +103,7 @@ export default function AdminSettingsPage() {
             ) : null}
 
             {canManageSystemSettings ? (
-              <Button type="submit" disabled={saving} className="h-11 rounded-2xl">
+              <Button type="submit" disabled={saving} className="ims-control-lg rounded-2xl">
                 {saving ? "Saving..." : "Save Settings"}
               </Button>
             ) : (

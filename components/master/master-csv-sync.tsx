@@ -2,9 +2,11 @@
 
 import { useRef, useState } from "react";
 
+import { ExportActions } from "@/components/ui/export-actions";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { FilePicker } from "@/components/ui/file-picker";
+import type { ExportColumn, ExportRow } from "@/lib/export/contracts";
 import {
   MasterEntity,
   MasterImportSummary,
@@ -16,6 +18,11 @@ type MasterCsvSyncProps = {
   canManage: boolean;
   onImported?: () => Promise<void> | void;
   helperText?: string;
+  title: string;
+  filenameBase: string;
+  rows: ExportRow[];
+  columns: ExportColumn[];
+  filterSummary?: string[];
 };
 
 const ENTITY_LABELS: Record<MasterEntity, string> = {
@@ -31,16 +38,17 @@ export function MasterCsvSync({
   canManage,
   onImported,
   helperText,
+  title,
+  filenameBase,
+  rows,
+  columns,
+  filterSummary,
 }: MasterCsvSyncProps) {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  if (!canManage) {
-    return null;
-  }
 
   async function handleImport() {
     if (!file || loading) {
@@ -101,8 +109,8 @@ export function MasterCsvSync({
     <Card className="min-h-[11rem]">
       <h2 className="text-lg font-semibold">Export & Reimport ({ENTITY_LABELS[entity]})</h2>
       <p className="mt-2 text-sm text-[var(--text-muted)]">
-        Export current {ENTITY_LABELS[entity].toLowerCase()} into CSV, edit safely, then reimport
-        using strict key upsert.
+        Export current {ENTITY_LABELS[entity].toLowerCase()} into CSV, Excel, PDF, or print.
+        {canManage ? " CSV remains aligned to the reimport schema for strict key upsert." : ""}
       </p>
       {helperText ? <p className="mt-1 text-xs text-[var(--text-muted)]">{helperText}</p> : null}
 
@@ -110,37 +118,45 @@ export function MasterCsvSync({
       {message ? <p className="ims-alert-success mt-3">{message}</p> : null}
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        <a href={`/api/master/import/template?entity=${encodeURIComponent(entity)}`}>
-          <Button variant="secondary" className="h-10 rounded-2xl">
-            Download Template
-          </Button>
-        </a>
-
-        <a href={`/api/master/export?entity=${encodeURIComponent(entity)}&include_inactive=true`}>
-          <Button variant="secondary" className="h-10 rounded-2xl">
-            Export CSV
-          </Button>
-        </a>
-
-        <Input
-          ref={fileInputRef}
-          type="file"
-          accept=".csv,text/csv"
-          className="h-10 w-full max-w-xl"
-          onChange={(event) => {
-            setError(null);
-            setMessage(null);
-            setFile(event.target.files?.[0] ?? null);
-          }}
+        <ExportActions
+          title={title}
+          filenameBase={filenameBase}
+          columns={columns}
+          rows={rows}
+          filterSummary={filterSummary}
+          emptyMessage={`No ${ENTITY_LABELS[entity].toLowerCase()} available.`}
+          buttonClassName="ims-control-md rounded-2xl"
         />
 
-        <Button
-          className="h-10 rounded-2xl"
-          onClick={() => handleImport()}
-          disabled={loading || !file}
-        >
-          {loading ? "Reimporting..." : "Reimport CSV"}
-        </Button>
+        {canManage ? (
+          <>
+            <a href={`/api/master/import/template?entity=${encodeURIComponent(entity)}`}>
+              <Button variant="secondary" className="ims-control-md rounded-2xl">
+                Download Template
+              </Button>
+            </a>
+
+            <FilePicker
+              ref={fileInputRef}
+              accept=".csv,text/csv"
+              fileName={file?.name ?? null}
+              className="ims-control-md w-full max-w-xl"
+              onChange={(event) => {
+                setError(null);
+                setMessage(null);
+                setFile(event.target.files?.[0] ?? null);
+              }}
+            />
+
+            <Button
+              className="ims-control-md rounded-2xl"
+              onClick={() => handleImport()}
+              disabled={loading || !file}
+            >
+              {loading ? "Reimporting..." : "Reimport CSV"}
+            </Button>
+          </>
+        ) : null}
       </div>
     </Card>
   );
