@@ -1,6 +1,16 @@
 import { User } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
+import {
+  hasAnyMasterPermission,
+  hasMasterPermission as hasMasterPermissionValue,
+  isMissingMasterPermissionsColumnError,
+  type MasterPermissionAction,
+  type MasterPermissionEntity,
+  normalizeMasterPermissions,
+  PROFILE_SELECT_BASE,
+  PROFILE_SELECT_WITH_MASTER_PERMISSIONS,
+} from "@/lib/master-permissions";
 import { Profile, Role } from "@/lib/types/domain";
 import { AuthCapabilities } from "@/lib/types/api";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -13,20 +23,33 @@ export interface AuthContext {
   capabilities: AuthCapabilities;
 }
 
-export function getAuthCapabilities(role: Role): AuthCapabilities {
+export function getAuthCapabilities(role: Role, masterPermissionsInput?: unknown): AuthCapabilities {
   const isAdmin = role === "admin";
   const isManager = role === "manager";
+  const master = normalizeMasterPermissions(masterPermissionsInput, role);
 
   return {
     canManageUsers: isAdmin,
-    canCreateProductMaster: isAdmin,
-    canEditProductMaster: isAdmin,
-    canArchiveProducts: isAdmin,
-    canManageLocations: isAdmin,
-    canArchiveLocations: isAdmin,
-    canManageSuppliers: isAdmin,
+    canCreateProductMaster:
+      isAdmin ||
+      hasAnyMasterPermission(master, "products") ||
+      hasAnyMasterPermission(master, "categories", ["create", "import"]) ||
+      hasAnyMasterPermission(master, "subcategories", ["create", "import"]),
+    canEditProductMaster:
+      isAdmin ||
+      hasAnyMasterPermission(master, "products") ||
+      hasAnyMasterPermission(master, "categories") ||
+      hasAnyMasterPermission(master, "subcategories"),
+    canArchiveProducts:
+      isAdmin ||
+      hasAnyMasterPermission(master, "products", ["archive", "delete"]),
+    canManageLocations: isAdmin || hasAnyMasterPermission(master, "locations"),
+    canArchiveLocations:
+      isAdmin || hasAnyMasterPermission(master, "locations", ["archive"]),
+    canManageSuppliers: isAdmin || hasAnyMasterPermission(master, "suppliers"),
     canManageSystemSettings: isAdmin,
     canRecordSupplierPayments: isAdmin || isManager,
+    master,
   };
 }
 
@@ -50,6 +73,31 @@ export function assertRole(context: AuthContext, allowed: Role[]) {
   return NextResponse.json(
     {
       error: `Role '${context.profile.role}' is not authorized for this action.`,
+    },
+    { status: 403 },
+  );
+}
+
+export function hasMasterPermission<Entity extends MasterPermissionEntity>(
+  context: Pick<AuthContext, "capabilities">,
+  entity: Entity,
+  action: MasterPermissionAction<Entity>,
+) {
+  return hasMasterPermissionValue(context.capabilities.master, entity, action);
+}
+
+export function assertMasterPermission<Entity extends MasterPermissionEntity>(
+  context: Pick<AuthContext, "capabilities" | "profile">,
+  entity: Entity,
+  action: MasterPermissionAction<Entity>,
+) {
+  if (hasMasterPermission(context as Pick<AuthContext, "capabilities">, entity, action)) {
+    return null;
+  }
+
+  return NextResponse.json(
+    {
+      error: `${context.profile.role} is not authorized to ${String(action)} ${String(entity)}.`,
     },
     { status: 403 },
   );
@@ -84,18 +132,39 @@ export async function getAuthContext(): Promise<AuthContext | NextResponse> {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
-  const { data: rawProfile, error: profileError } = await supabase
+  type RawProfileRow = {
+    id: string;
+    full_name: string | null;
+    role: string;
+    is_active: boolean;
+    created_at: string | null;
+    updated_at: string | null;
+    master_permissions?: unknown;
+  };
+
+  type LegacyProfileRow = Omit<RawProfileRow, "master_permissions">;
+
+  let { data: rawProfile, error: profileError } = await supabase
     .from("profiles")
-    .select("id, full_name, role, is_active, created_at, updated_at")
+    .select(PROFILE_SELECT_WITH_MASTER_PERMISSIONS)
     .eq("id", user.id)
-    .maybeSingle<{
-      id: string;
-      full_name: string | null;
-      role: string;
-      is_active: boolean;
-      created_at: string | null;
-      updated_at: string | null;
-    }>();
+    .maybeSingle<RawProfileRow>();
+
+  if (profileError && isMissingMasterPermissionsColumnError(profileError)) {
+    const fallback = await supabase
+      .from("profiles")
+      .select(PROFILE_SELECT_BASE)
+      .eq("id", user.id)
+      .maybeSingle<LegacyProfileRow>();
+
+    rawProfile = fallback.data
+      ? {
+          ...fallback.data,
+          master_permissions: null,
+        }
+      : null;
+    profileError = fallback.error;
+  }
 
   if (profileError || !rawProfile) {
     return NextResponse.json(
@@ -113,6 +182,11 @@ export async function getAuthContext(): Promise<AuthContext | NextResponse> {
       ? rawProfile.role
       : "staff";
 
+  const masterPermissions = normalizeMasterPermissions(
+    rawProfile.master_permissions ?? null,
+    normalizedRole,
+  );
+
   const profile: Profile = {
     id: rawProfile.id,
     full_name: rawProfile.full_name ?? "",
@@ -120,6 +194,7 @@ export async function getAuthContext(): Promise<AuthContext | NextResponse> {
     is_active: Boolean(rawProfile.is_active),
     created_at: rawProfile.created_at ?? "",
     updated_at: rawProfile.updated_at ?? "",
+    master_permissions: masterPermissions,
   };
 
   if (!profile.is_active) {
@@ -146,6 +221,6 @@ export async function getAuthContext(): Promise<AuthContext | NextResponse> {
     user,
     profile,
     locationIds,
-    capabilities: getAuthCapabilities(profile.role),
+    capabilities: getAuthCapabilities(profile.role, profile.master_permissions),
   };
 }

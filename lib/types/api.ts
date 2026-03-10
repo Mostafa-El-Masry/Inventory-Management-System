@@ -1,3 +1,5 @@
+import type { MasterPermissions } from "@/lib/master-permissions";
+
 export interface AuthCapabilities {
   canManageUsers: boolean;
   canCreateProductMaster: boolean;
@@ -8,4 +10,5 @@ export interface AuthCapabilities {
   canManageSuppliers: boolean;
   canManageSystemSettings: boolean;
   canRecordSupplierPayments: boolean;
+  master: MasterPermissions;
 }

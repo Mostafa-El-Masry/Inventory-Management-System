@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 
 import { ExportActions } from "@/components/ui/export-actions";
 import { Button } from "@/components/ui/button";
@@ -17,12 +17,13 @@ type MasterCsvSyncProps = {
   entity: MasterEntity;
   canManage: boolean;
   onImported?: () => Promise<void> | void;
-  helperText?: string;
   title: string;
   filenameBase: string;
   rows: ExportRow[];
   columns: ExportColumn[];
   filterSummary?: string[];
+  children?: ReactNode;
+  secondaryActions?: ReactNode;
 };
 
 const ENTITY_LABELS: Record<MasterEntity, string> = {
@@ -37,12 +38,13 @@ export function MasterCsvSync({
   entity,
   canManage,
   onImported,
-  helperText,
   title,
   filenameBase,
   rows,
   columns,
   filterSummary,
+  children,
+  secondaryActions,
 }: MasterCsvSyncProps) {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
@@ -106,18 +108,17 @@ export function MasterCsvSync({
   }
 
   return (
-    <Card className="min-h-[11rem]">
-      <h2 className="text-lg font-semibold">Export & Reimport ({ENTITY_LABELS[entity]})</h2>
-      <p className="mt-2 text-sm text-[var(--text-muted)]">
-        Export current {ENTITY_LABELS[entity].toLowerCase()} into CSV, Excel, PDF, or print.
-        {canManage ? " CSV remains aligned to the reimport schema for strict key upsert." : ""}
-      </p>
-      {helperText ? <p className="mt-1 text-xs text-[var(--text-muted)]">{helperText}</p> : null}
+    <Card className="space-y-4">
+      {error ? <p className="ims-alert-danger">{error}</p> : null}
+      {message ? <p className="ims-alert-success">{message}</p> : null}
 
-      {error ? <p className="ims-alert-danger mt-3">{error}</p> : null}
-      {message ? <p className="ims-alert-success mt-3">{message}</p> : null}
+      {children ? <div>{children}</div> : null}
 
-      <div className="mt-4 flex flex-wrap items-center gap-3">
+      <div
+        className={`flex flex-wrap items-center gap-3 ${
+          children ? "border-t border-[var(--line)] pt-4" : ""
+        }`}
+      >
         <ExportActions
           title={title}
           filenameBase={filenameBase}
@@ -158,6 +159,10 @@ export function MasterCsvSync({
           </>
         ) : null}
       </div>
+
+      {secondaryActions ? (
+        <div className="border-t border-[var(--line)] pt-4">{secondaryActions}</div>
+      ) : null}
     </Card>
   );
 }

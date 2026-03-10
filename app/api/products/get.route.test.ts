@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   getAuthContextMock,
+  hasMasterPermissionMock,
   fromMock,
   productEqMock,
   productOrderMock,
@@ -10,6 +11,7 @@ const {
   productSelectMock,
 } = vi.hoisted(() => ({
   getAuthContextMock: vi.fn(),
+  hasMasterPermissionMock: vi.fn(),
   fromMock: vi.fn(),
   productEqMock: vi.fn(),
   productOrderMock: vi.fn(),
@@ -21,6 +23,7 @@ const {
 vi.mock("@/lib/auth/permissions", () => ({
   getAuthContext: getAuthContextMock,
   assertRole: vi.fn(),
+  hasMasterPermission: hasMasterPermissionMock,
 }));
 
 import { GET } from "@/app/api/products/route";
@@ -34,6 +37,7 @@ describe("GET /api/products", () => {
     linesInMock.mockReset();
     linesSelectMock.mockReset();
     productSelectMock.mockReset();
+    hasMasterPermissionMock.mockReset();
 
     productEqMock.mockResolvedValue({
       data: [
@@ -107,6 +111,7 @@ describe("GET /api/products", () => {
         from: fromMock,
       },
     });
+    hasMasterPermissionMock.mockReturnValue(true);
   });
 
   it("returns taxonomy labels and can_hard_delete for admin", async () => {

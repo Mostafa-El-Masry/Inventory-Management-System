@@ -3,18 +3,27 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
+import { MasterArchivedToggle } from "@/components/master/master-archived-toggle";
+import { MasterColumnsMenu } from "@/components/master/master-columns-menu";
 import { MasterCsvSync } from "@/components/master/master-csv-sync";
 import { MasterPageHeader } from "@/components/master/master-page-header";
+import { MasterPanelReveal } from "@/components/master/master-panel-reveal";
+import { MasterTableLoadingRows } from "@/components/master/master-table-loading";
 import {
   SortDirection,
   SortableTableHeader,
 } from "@/components/master/sortable-table-header";
+import {
+  buildDefaultColumnVisibility,
+  useMasterColumns,
+} from "@/components/master/use-master-columns";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { RowActionsMenu } from "@/components/ui/row-actions-menu";
 import { Select } from "@/components/ui/select";
 import type { ExportColumn } from "@/lib/export/contracts";
+import { hasAnyMasterPermission } from "@/lib/master-permissions";
 import {
   buildFilterStorageKey,
   readLocalFilterState,
@@ -24,6 +33,7 @@ import {
 import { compareTextValues } from "@/lib/utils/sort-values";
 import { fetchJson } from "@/lib/utils/fetch-json";
 import {
+  MasterRowLimitControl,
   MasterTablePagination,
   RowLimitOption,
   paginateRows,
@@ -61,6 +71,57 @@ const SUBCATEGORY_EXPORT_COLUMNS: ExportColumn[] = [
   { key: "is_active", label: "Active" },
 ];
 
+const CATEGORY_COLUMN_DEFINITIONS = [
+  { key: "code", label: "Code" },
+  { key: "name", label: "Name" },
+  { key: "active", label: "Active" },
+  { key: "action", label: "Action" },
+] as const;
+
+const SUBCATEGORY_COLUMN_DEFINITIONS = [
+  { key: "parent", label: "Parent Category" },
+  { key: "code", label: "Code" },
+  { key: "name", label: "Name" },
+  { key: "active", label: "Active" },
+  { key: "action", label: "Action" },
+] as const;
+
+type CategoryColumnKey = (typeof CATEGORY_COLUMN_DEFINITIONS)[number]["key"];
+type SubcategoryColumnKey = (typeof SUBCATEGORY_COLUMN_DEFINITIONS)[number]["key"];
+
+const CATEGORY_DEFAULT_COLUMN_ORDER: CategoryColumnKey[] = [
+  "code",
+  "name",
+  "active",
+  "action",
+];
+
+const SUBCATEGORY_DEFAULT_COLUMN_ORDER: SubcategoryColumnKey[] = [
+  "parent",
+  "code",
+  "name",
+  "active",
+  "action",
+];
+
+const CATEGORY_DEFAULT_COLUMN_VISIBILITY = buildDefaultColumnVisibility(
+  CATEGORY_DEFAULT_COLUMN_ORDER,
+);
+
+const SUBCATEGORY_DEFAULT_COLUMN_VISIBILITY = buildDefaultColumnVisibility(
+  SUBCATEGORY_DEFAULT_COLUMN_ORDER,
+);
+
+function isCategorySortableColumn(key: CategoryColumnKey): key is CategorySortKey {
+  return key !== "action";
+}
+
+function isSubcategorySortableColumn(
+  key: SubcategoryColumnKey,
+): key is SubcategorySortKey {
+  return key !== "action";
+}
+
 export function TaxonomySection({ section }: { section: "categories" | "subcategories" }) {
   const { userId: authUserId, capabilities } = useDashboardSession();
   const [categories, setCategories] = useState<ProductCategory[]>([]);
@@ -96,6 +157,20 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
     is_active: true,
   });
   const archivedFilterStorageKey = buildFilterStorageKey(authUserId, "master", section);
+  const categoryColumns = useMasterColumns({
+    userId: authUserId,
+    storageKey: `ims:categories:columns:categories:${authUserId}`,
+    columns: CATEGORY_COLUMN_DEFINITIONS,
+    defaultOrder: CATEGORY_DEFAULT_COLUMN_ORDER,
+    defaultVisibility: CATEGORY_DEFAULT_COLUMN_VISIBILITY,
+  });
+  const subcategoryColumns = useMasterColumns({
+    userId: authUserId,
+    storageKey: `ims:categories:columns:subcategories:${authUserId}`,
+    columns: SUBCATEGORY_COLUMN_DEFINITIONS,
+    defaultOrder: SUBCATEGORY_DEFAULT_COLUMN_ORDER,
+    defaultVisibility: SUBCATEGORY_DEFAULT_COLUMN_VISIBILITY,
+  });
 
   const loadTaxonomy = useCallback(async (signal?: AbortSignal) => {
     setTaxonomyLoading(true);
@@ -241,7 +316,21 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
     }
   }, [authUserId, subcategoryLimitPrefsLoaded, subcategoryRowLimit]);
 
-  const canManageTaxonomy = capabilities.canCreateProductMaster;
+  const canCreateCategoryPermission = capabilities.master.categories.create;
+  const canImportCategories = capabilities.master.categories.import;
+  const canArchiveCategories = capabilities.master.categories.archive;
+  const canDeleteCategories = capabilities.master.categories.delete;
+  const canCreateSubcategoryPermission = capabilities.master.subcategories.create;
+  const canImportSubcategories = capabilities.master.subcategories.import;
+  const canArchiveSubcategories = capabilities.master.subcategories.archive;
+  const canDeleteSubcategories = capabilities.master.subcategories.delete;
+  const isCategoriesSection = section === "categories";
+  const canShowTaxonomyPanel = isCategoriesSection
+    ? hasAnyMasterPermission(capabilities.master, "categories", ["create", "import"])
+    : hasAnyMasterPermission(capabilities.master, "subcategories", ["create", "import"]);
+  const canImportTaxonomy = isCategoriesSection
+    ? canImportCategories
+    : canImportSubcategories;
 
   const activeCategories = useMemo(
     () => categories.filter((category) => category.is_active),
@@ -347,7 +436,7 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
     newSubcategory.category_id.length > 0;
 
   async function createCategory() {
-    if (!canManageTaxonomy || !canCreateCategory) {
+    if (!canCreateCategoryPermission || !canCreateCategory) {
       return;
     }
 
@@ -382,7 +471,7 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
   }
 
   async function createSubcategory() {
-    if (!canManageTaxonomy || !canCreateSubcategory) {
+    if (!canCreateSubcategoryPermission || !canCreateSubcategory) {
       return;
     }
 
@@ -419,7 +508,7 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
   }
 
   async function setCategoryActive(categoryId: string, active: boolean) {
-    if (!canManageTaxonomy) {
+    if (!canArchiveCategories) {
       return;
     }
 
@@ -448,7 +537,7 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
   }
 
   async function hardDeleteCategory(category: ProductCategory) {
-    if (!canManageTaxonomy) {
+    if (!canDeleteCategories) {
       return;
     }
 
@@ -483,7 +572,7 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
   }
 
   async function setSubcategoryActive(subcategoryId: string, active: boolean) {
-    if (!canManageTaxonomy) {
+    if (!canArchiveSubcategories) {
       return;
     }
 
@@ -512,7 +601,7 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
   }
 
   async function hardDeleteSubcategory(subcategory: ProductSubcategory) {
-    if (!canManageTaxonomy) {
+    if (!canDeleteSubcategories) {
       return;
     }
 
@@ -560,6 +649,101 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
     setSubcategorySortKey(nextKey);
   }
 
+  function renderCategoryCell(category: ProductCategory, columnKey: CategoryColumnKey) {
+    if (columnKey === "code") {
+      return <span className="font-medium">{category.code}</span>;
+    }
+
+    if (columnKey === "name") {
+      return category.name;
+    }
+
+    if (columnKey === "active") {
+      return category.is_active ? "Yes" : "No";
+    }
+
+    const actionItems = [];
+
+    if (canArchiveCategories) {
+      actionItems.push({
+        label: category.is_active ? "Archive" : "Activate",
+        onSelect: () => setCategoryActive(category.id, !category.is_active),
+      });
+    }
+
+    if (canDeleteCategories) {
+      actionItems.push({
+        label: "Delete",
+        destructive: true,
+        onSelect: () => hardDeleteCategory(category),
+      });
+    }
+
+    if (actionItems.length === 0) {
+      return <span className="text-xs text-[var(--text-muted)]">--</span>;
+    }
+
+    return (
+      <RowActionsMenu
+        label={`Open actions for ${category.name}`}
+        disabled={actionLoading}
+        items={actionItems}
+      />
+    );
+  }
+
+  function renderSubcategoryCell(
+    subcategory: ProductSubcategory,
+    columnKey: SubcategoryColumnKey,
+  ) {
+    const parent = categoriesById.get(subcategory.category_id);
+
+    if (columnKey === "parent") {
+      return parent ? `${parent.code} - ${parent.name}` : "--";
+    }
+
+    if (columnKey === "code") {
+      return <span className="font-medium">{subcategory.code}</span>;
+    }
+
+    if (columnKey === "name") {
+      return subcategory.name;
+    }
+
+    if (columnKey === "active") {
+      return subcategory.is_active ? "Yes" : "No";
+    }
+
+    const actionItems = [];
+
+    if (canArchiveSubcategories) {
+      actionItems.push({
+        label: subcategory.is_active ? "Archive" : "Activate",
+        onSelect: () => setSubcategoryActive(subcategory.id, !subcategory.is_active),
+      });
+    }
+
+    if (canDeleteSubcategories) {
+      actionItems.push({
+        label: "Delete",
+        destructive: true,
+        onSelect: () => hardDeleteSubcategory(subcategory),
+      });
+    }
+
+    if (actionItems.length === 0) {
+      return <span className="text-xs text-[var(--text-muted)]">--</span>;
+    }
+
+    return (
+      <RowActionsMenu
+        label={`Open actions for ${subcategory.name}`}
+        disabled={actionLoading}
+        items={actionItems}
+      />
+    );
+  }
+
   useEffect(() => {
     if (!archivedFilterHydrated) {
       return;
@@ -573,19 +757,18 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
     writeLocalFilterState(archivedFilterStorageKey, { showInactive: true });
   }, [archivedFilterHydrated, archivedFilterStorageKey, showInactive]);
 
-  const isCategoriesSection = section === "categories";
+  const showTaxonomyLoadingRows = !archivedFilterHydrated || taxonomyLoading;
 
   return (
     <div className="space-y-6">
       <MasterPageHeader
-        kicker="Master Data"
         title={isCategoriesSection ? "Categories" : "Subcategories"}
         subtitle={
           isCategoriesSection
             ? "Manage product categories."
             : "Manage product subcategories."
         }
-        showAction={canManageTaxonomy}
+        showAction={canShowTaxonomyPanel}
         panelOpen={masterPanelOpen}
         onTogglePanel={() => setMasterPanelOpen((current) => !current)}
         openLabel={
@@ -603,12 +786,11 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
       {error ? <p className="ims-alert-danger">{error}</p> : null}
       {message ? <p className="ims-alert-success">{message}</p> : null}
 
-      {canManageTaxonomy ? (
-        masterPanelOpen ? (
-          <div className="space-y-4">
+      {canShowTaxonomyPanel ? (
+          <MasterPanelReveal open={masterPanelOpen} className="space-y-4">
             <MasterCsvSync
               entity={isCategoriesSection ? "categories" : "subcategories"}
-              canManage={canManageTaxonomy}
+              canManage={canImportTaxonomy}
               title={isCategoriesSection ? "Categories" : "Subcategories"}
               filenameBase={isCategoriesSection ? "categories" : "subcategories"}
               columns={isCategoriesSection ? CATEGORY_EXPORT_COLUMNS : SUBCATEGORY_EXPORT_COLUMNS}
@@ -626,21 +808,13 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
                       is_active: subcategory.is_active,
                     }))
               }
-              helperText={
-                isCategoriesSection
-                  ? "Keys by category code (2 digits)."
-                  : "Keys by category_code + subcategory code (2 + 3 digits)."
-              }
-              filterSummary={[`Archived included: ${showInactive ? "Yes" : "No"}`]}
+              filterSummary={[`Disabled included: ${showInactive ? "Yes" : "No"}`]}
               onImported={async () => {
                 await loadTaxonomy();
               }}
-            />
-
-            {isCategoriesSection ? (
-              <Card className="min-h-[12rem]">
-                <h2 className="text-lg font-semibold">Create Category</h2>
-                <div className="mt-4 flex flex-wrap items-center gap-2">
+            >
+              {isCategoriesSection && canCreateCategoryPermission ? (
+                <div className="flex flex-wrap items-center gap-2">
                   <Input
                     value={newCategory.name}
                     placeholder="Category name"
@@ -673,11 +847,8 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
                     Add
                   </Button>
                 </div>
-              </Card>
-            ) : (
-              <Card className="min-h-[12rem]">
-                <h2 className="text-lg font-semibold">Create Subcategory</h2>
-                <div className="mt-4 space-y-2">
+              ) : !isCategoriesSection && canCreateSubcategoryPermission ? (
+                <div className="space-y-2">
                   <Select
                     className="ims-control-md"
                     value={newSubcategory.category_id}
@@ -734,14 +905,13 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
                     </p>
                   ) : null}
                 </div>
-              </Card>
-            )}
-          </div>
-        ) : null
+              ) : null}
+            </MasterCsvSync>
+          </MasterPanelReveal>
       ) : (
         <MasterCsvSync
           entity={isCategoriesSection ? "categories" : "subcategories"}
-          canManage={canManageTaxonomy}
+          canManage={canImportTaxonomy}
           title={isCategoriesSection ? "Categories" : "Subcategories"}
           filenameBase={isCategoriesSection ? "categories" : "subcategories"}
           columns={isCategoriesSection ? CATEGORY_EXPORT_COLUMNS : SUBCATEGORY_EXPORT_COLUMNS}
@@ -759,12 +929,7 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
                   is_active: subcategory.is_active,
                 }))
           }
-          helperText={
-            isCategoriesSection
-              ? "Keys by category code (2 digits)."
-              : "Keys by category_code + subcategory code (2 + 3 digits)."
-          }
-          filterSummary={[`Archived included: ${showInactive ? "Yes" : "No"}`]}
+          filterSummary={[`Disabled included: ${showInactive ? "Yes" : "No"}`]}
           onImported={async () => {
             await loadTaxonomy();
           }}
@@ -775,86 +940,76 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
         <section>
           <Card className="min-h-[28rem]">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-lg font-semibold">Categories</h2>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-[var(--text-muted)]">
-                  {taxonomyLoading ? "Refreshing..." : `${filteredCategories.length} total`}
-                </span>
-                <label className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
-                  <input
-                    type="checkbox"
-                    checked={showInactive}
-                    onChange={(event) => setShowInactive(event.target.checked)}
-                  />
-                  Show archived
-                </label>
+              <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3">
+                <MasterRowLimitControl
+                  value={categoryRowLimit}
+                  onChange={(limit) => {
+                    setCategoryRowLimit(limit);
+                    setCategoryPage(1);
+                  }}
+                />
+                <h2 className="min-w-0 text-lg font-semibold">Categories</h2>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {taxonomyLoading ? (
+                  <span className="text-xs text-[var(--text-muted)]">Refreshing...</span>
+                ) : null}
+                <MasterColumnsMenu
+                  orderedColumns={categoryColumns.orderedColumns}
+                  columnVisibility={categoryColumns.columnVisibility}
+                  onToggleColumn={categoryColumns.toggleColumnVisibility}
+                  onMoveColumn={categoryColumns.moveColumn}
+                  onReset={categoryColumns.resetColumnPreferences}
+                  helperText="Toggle and reorder category columns."
+                />
+                <MasterArchivedToggle
+                  pressed={showInactive}
+                  onPressedChange={(pressed) => setShowInactive(pressed)}
+                />
               </div>
             </div>
 
-            <div className="mt-4 max-h-[23rem] overflow-auto">
-              <table className="ims-table">
+          <div className="mt-4 overflow-visible">
+              <table className="ims-table" aria-busy={showTaxonomyLoadingRows}>
                 <thead className="ims-table-head">
                   <tr>
-                    <th>
-                      <SortableTableHeader
-                        label="Code"
-                        active={categorySortKey === "code"}
-                        direction={categorySortDirection}
-                        onClick={() => toggleCategorySort("code")}
-                      />
-                    </th>
-                    <th>
-                      <SortableTableHeader
-                        label="Name"
-                        active={categorySortKey === "name"}
-                        direction={categorySortDirection}
-                        onClick={() => toggleCategorySort("name")}
-                      />
-                    </th>
-                    <th>
-                      <SortableTableHeader
-                        label="Active"
-                        active={categorySortKey === "active"}
-                        direction={categorySortDirection}
-                        onClick={() => toggleCategorySort("active")}
-                      />
-                    </th>
-                    <th>Action</th>
+                    {categoryColumns.visibleColumns.map((column) => (
+                      <th key={column.key}>
+                        {!isCategorySortableColumn(column.key) ? column.label : (() => {
+                          const sortKey = column.key;
+                          return (
+                            <SortableTableHeader
+                              label={column.label}
+                              active={categorySortKey === sortKey}
+                              direction={categorySortDirection}
+                              onClick={() => toggleCategorySort(sortKey)}
+                            />
+                          );
+                        })()}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
-                <tbody>
-                  {visibleCategories.map((category) => (
-                    <tr key={category.id} className="ims-table-row">
-                      <td className="font-medium">{category.code}</td>
-                      <td>{category.name}</td>
-                      <td>{category.is_active ? "Yes" : "No"}</td>
-                      <td>
-                        {canManageTaxonomy ? (
-                          <RowActionsMenu
-                            label={`Open actions for ${category.name}`}
-                            disabled={actionLoading}
-                            items={[
-                              {
-                                label: category.is_active ? "Archive" : "Activate",
-                                onSelect: () =>
-                                  setCategoryActive(category.id, !category.is_active),
-                              },
-                              {
-                                label: "Delete",
-                                destructive: true,
-                                onSelect: () => hardDeleteCategory(category),
-                              },
-                            ]}
-                          />
-                        ) : (
-                          <span className="text-xs text-[var(--text-muted)]">restricted</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
+                {showTaxonomyLoadingRows ? (
+                  <MasterTableLoadingRows
+                    columns={categoryColumns.visibleColumns}
+                    rowLimit={categoryRowLimit}
+                  />
+                ) : (
+                  <tbody>
+                    {visibleCategories.map((category) => (
+                      <tr key={category.id} className="ims-table-row">
+                        {categoryColumns.visibleColumns.map((column) => (
+                          <td key={`${category.id}-${column.key}`}>
+                            {renderCategoryCell(category, column.key)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                )}
               </table>
-              {categories.length === 0 ? (
+              {!showTaxonomyLoadingRows && !error && categories.length === 0 ? (
                 <p className="ims-empty mt-3">No categories yet.</p>
               ) : null}
             </div>
@@ -864,10 +1019,7 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
               currentPage={categoryPage}
               rowLimit={categoryRowLimit}
               onPageChange={setCategoryPage}
-              onRowLimitChange={(limit) => {
-                setCategoryRowLimit(limit);
-                setCategoryPage(1);
-              }}
+              loading={showTaxonomyLoadingRows}
             />
           </Card>
         </section>
@@ -875,101 +1027,76 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
         <section>
           <Card className="min-h-[28rem]">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-lg font-semibold">Subcategories</h2>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-[var(--text-muted)]">
-                  {taxonomyLoading ? "Refreshing..." : `${filteredSubcategories.length} total`}
-                </span>
-                <label className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
-                  <input
-                    type="checkbox"
-                    checked={showInactive}
-                    onChange={(event) => setShowInactive(event.target.checked)}
-                  />
-                  Show archived
-                </label>
+              <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3">
+                <MasterRowLimitControl
+                  value={subcategoryRowLimit}
+                  onChange={(limit) => {
+                    setSubcategoryRowLimit(limit);
+                    setSubcategoryPage(1);
+                  }}
+                />
+                <h2 className="min-w-0 text-lg font-semibold">Subcategories</h2>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {taxonomyLoading ? (
+                  <span className="text-xs text-[var(--text-muted)]">Refreshing...</span>
+                ) : null}
+                <MasterColumnsMenu
+                  orderedColumns={subcategoryColumns.orderedColumns}
+                  columnVisibility={subcategoryColumns.columnVisibility}
+                  onToggleColumn={subcategoryColumns.toggleColumnVisibility}
+                  onMoveColumn={subcategoryColumns.moveColumn}
+                  onReset={subcategoryColumns.resetColumnPreferences}
+                  helperText="Toggle and reorder subcategory columns."
+                />
+                <MasterArchivedToggle
+                  pressed={showInactive}
+                  onPressedChange={(pressed) => setShowInactive(pressed)}
+                />
               </div>
             </div>
 
-            <div className="mt-4 max-h-[23rem] overflow-auto">
-              <table className="ims-table">
+          <div className="mt-4 overflow-visible">
+              <table className="ims-table" aria-busy={showTaxonomyLoadingRows}>
                 <thead className="ims-table-head">
                   <tr>
-                    <th>
-                      <SortableTableHeader
-                        label="Parent Category"
-                        active={subcategorySortKey === "parent"}
-                        direction={subcategorySortDirection}
-                        onClick={() => toggleSubcategorySort("parent")}
-                      />
-                    </th>
-                    <th>
-                      <SortableTableHeader
-                        label="Code"
-                        active={subcategorySortKey === "code"}
-                        direction={subcategorySortDirection}
-                        onClick={() => toggleSubcategorySort("code")}
-                      />
-                    </th>
-                    <th>
-                      <SortableTableHeader
-                        label="Name"
-                        active={subcategorySortKey === "name"}
-                        direction={subcategorySortDirection}
-                        onClick={() => toggleSubcategorySort("name")}
-                      />
-                    </th>
-                    <th>
-                      <SortableTableHeader
-                        label="Active"
-                        active={subcategorySortKey === "active"}
-                        direction={subcategorySortDirection}
-                        onClick={() => toggleSubcategorySort("active")}
-                      />
-                    </th>
-                    <th>Action</th>
+                    {subcategoryColumns.visibleColumns.map((column) => (
+                      <th key={column.key}>
+                        {!isSubcategorySortableColumn(column.key) ? column.label : (() => {
+                          const sortKey = column.key;
+                          return (
+                            <SortableTableHeader
+                              label={column.label}
+                              active={subcategorySortKey === sortKey}
+                              direction={subcategorySortDirection}
+                              onClick={() => toggleSubcategorySort(sortKey)}
+                            />
+                          );
+                        })()}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
-                <tbody>
-                  {visibleSubcategories.map((subcategory) => {
-                    const parent = categoriesById.get(subcategory.category_id);
-                    return (
+                {showTaxonomyLoadingRows ? (
+                  <MasterTableLoadingRows
+                    columns={subcategoryColumns.visibleColumns}
+                    rowLimit={subcategoryRowLimit}
+                  />
+                ) : (
+                  <tbody>
+                    {visibleSubcategories.map((subcategory) => (
                       <tr key={subcategory.id} className="ims-table-row">
-                        <td>{parent ? `${parent.code} - ${parent.name}` : "--"}</td>
-                        <td className="font-medium">{subcategory.code}</td>
-                        <td>{subcategory.name}</td>
-                        <td>{subcategory.is_active ? "Yes" : "No"}</td>
-                        <td>
-                          {canManageTaxonomy ? (
-                            <RowActionsMenu
-                              label={`Open actions for ${subcategory.name}`}
-                              disabled={actionLoading}
-                              items={[
-                                {
-                                  label: subcategory.is_active ? "Archive" : "Activate",
-                                  onSelect: () =>
-                                    setSubcategoryActive(
-                                      subcategory.id,
-                                      !subcategory.is_active,
-                                    ),
-                                },
-                                {
-                                  label: "Delete",
-                                  destructive: true,
-                                  onSelect: () => hardDeleteSubcategory(subcategory),
-                                },
-                              ]}
-                            />
-                          ) : (
-                            <span className="text-xs text-[var(--text-muted)]">restricted</span>
-                          )}
-                        </td>
+                        {subcategoryColumns.visibleColumns.map((column) => (
+                          <td key={`${subcategory.id}-${column.key}`}>
+                            {renderSubcategoryCell(subcategory, column.key)}
+                          </td>
+                        ))}
                       </tr>
-                    );
-                  })}
-                </tbody>
+                    ))}
+                  </tbody>
+                )}
               </table>
-              {subcategories.length === 0 ? (
+              {!showTaxonomyLoadingRows && !error && subcategories.length === 0 ? (
                 <p className="ims-empty mt-3">No subcategories yet.</p>
               ) : null}
             </div>
@@ -979,10 +1106,7 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
               currentPage={subcategoryPage}
               rowLimit={subcategoryRowLimit}
               onPageChange={setSubcategoryPage}
-              onRowLimitChange={(limit) => {
-                setSubcategoryRowLimit(limit);
-                setSubcategoryPage(1);
-              }}
+              loading={showTaxonomyLoadingRows}
             />
           </Card>
         </section>

@@ -1,4 +1,4 @@
-import { assertRole, getAuthContext } from "@/lib/auth/permissions";
+import { assertMasterPermission, getAuthContext } from "@/lib/auth/permissions";
 import { buildProductImportTemplateCsv } from "@/lib/products/import";
 
 export async function GET() {
@@ -7,9 +7,9 @@ export async function GET() {
     return context;
   }
 
-  const roleError = assertRole(context, ["admin"]);
-  if (roleError) {
-    return roleError;
+  const permissionError = assertMasterPermission(context, "products", "import");
+  if (permissionError) {
+    return permissionError;
   }
 
   const csv = buildProductImportTemplateCsv();

@@ -313,11 +313,11 @@ function DesktopRail({
 
   return (
     <aside className="sticky top-[var(--dashboard-topbar-h)] hidden h-[calc(100dvh-var(--dashboard-topbar-h))] w-[4.1rem] shrink-0 border-e border-[var(--line)] bg-[var(--surface)] text-[var(--text-strong)] md:flex md:flex-col xl:w-[5.5rem]">
-      <div className="px-[var(--space-1)] pt-[var(--space-3)] xl:px-[var(--space-2)] xl:pt-[var(--space-4)]">
+      <div className="px-[var(--space-1)] pt-[var(--space-2)] xl:px-[var(--space-2)] xl:pt-[var(--space-3)]">
         <button
           type="button"
           onClick={onToggle}
-          className="flex min-h-[3.35rem] w-full flex-col items-center justify-center gap-0.5 rounded-[var(--radius-lg)] px-1 py-1 text-[var(--text-muted)] transition hover:bg-[var(--surface-muted)] hover:text-[var(--text-strong)] xl:min-h-[4.35rem] xl:gap-1 xl:rounded-[var(--radius-xl)] xl:py-2"
+          className="flex min-h-[2.9rem] w-full flex-col items-center justify-center gap-0.5 rounded-[var(--radius-lg)] px-1 py-1 text-[var(--text-muted)] transition hover:bg-[var(--surface-muted)] hover:text-[var(--text-strong)] xl:min-h-[3.8rem] xl:gap-0.75 xl:rounded-[var(--radius-xl)] xl:py-1.5"
           aria-label={collapsed ? "Expand navigation panel" : "Collapse navigation panel"}
           title={collapsed ? "Expand navigation panel" : "Collapse navigation panel"}
         >
@@ -335,7 +335,7 @@ function DesktopRail({
         </button>
       </div>
 
-      <nav className="mt-[var(--space-3)] flex-1 space-y-[var(--space-1)] px-[var(--space-1)] xl:mt-[var(--space-4)] xl:space-y-[var(--space-2)] xl:px-[var(--space-2)]">
+      <nav className="mt-[var(--space-2)] flex-1 space-y-0.5 px-[var(--space-1)] xl:mt-[var(--space-3)] xl:space-y-1 xl:px-[var(--space-2)]">
         {links.map((link) => {
           const Icon = link.icon;
           const active = isLinkActive(pathname, link);
@@ -345,7 +345,7 @@ function DesktopRail({
               key={link.href}
               href={link.href}
               className={cn(
-                "flex min-h-[3.7rem] w-full flex-col items-center justify-center gap-0.5 rounded-[var(--radius-lg)] px-1 py-1 text-[var(--text-strong)] transition xl:min-h-[4.9rem] xl:gap-1 xl:rounded-[var(--radius-xl)] xl:py-2",
+                "flex min-h-[3rem] w-full flex-col items-center justify-center gap-0.5 rounded-[var(--radius-lg)] px-1 py-0.75 text-[var(--text-strong)] transition xl:min-h-[3.95rem] xl:gap-0.75 xl:rounded-[var(--radius-xl)] xl:py-1.5",
                 active
                   ? "bg-[color:color-mix(in_srgb,var(--brand-primary)_12%,var(--surface)_88%)] text-[var(--brand-primary-hover)]"
                   : "bg-transparent hover:bg-[var(--surface-muted)]",
@@ -363,10 +363,10 @@ function DesktopRail({
         })}
       </nav>
 
-      <form action="/api/auth/logout" method="post" className="px-[var(--space-1)] pb-[var(--space-3)] xl:px-[var(--space-2)] xl:pb-[var(--space-4)]">
+      <form action="/api/auth/logout" method="post" className="px-[var(--space-1)] pb-[var(--space-2)] xl:px-[var(--space-2)] xl:pb-[var(--space-3)]">
         <button
           type="submit"
-          className="flex min-h-[3.7rem] w-full flex-col items-center justify-center gap-0.5 rounded-[var(--radius-lg)] px-1 py-1 text-[var(--text-muted)] transition hover:bg-[var(--surface-muted)] hover:text-[var(--text-strong)] xl:min-h-[4.9rem] xl:gap-1 xl:rounded-[var(--radius-xl)] xl:py-2"
+          className="flex min-h-[3rem] w-full flex-col items-center justify-center gap-0.5 rounded-[var(--radius-lg)] px-1 py-0.75 text-[var(--text-muted)] transition hover:bg-[var(--surface-muted)] hover:text-[var(--text-strong)] xl:min-h-[3.95rem] xl:gap-0.75 xl:rounded-[var(--radius-xl)] xl:py-1.5"
           aria-label="Logout"
           title="Logout"
         >
@@ -381,14 +381,11 @@ function DesktopRail({
 }
 
 function SectionPanel({
-  companyName,
   section,
 }: {
-  companyName: string;
   section: NavLink;
 }) {
   const pathname = usePathname();
-  const SectionIcon = section.icon;
   const activeItem =
     section.items.find(
       (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
@@ -396,39 +393,20 @@ function SectionPanel({
 
   return (
     <>
-      <div className="mb-[var(--space-4)] rounded-[1.15rem] border border-[var(--line)] bg-[var(--surface-soft)] px-[var(--space-3)] py-[var(--space-3)] lg:mb-[var(--space-5)] lg:px-[var(--space-2)] lg:py-[var(--space-2)] xl:mb-[var(--space-5)] xl:rounded-[var(--radius-xl)] xl:px-[var(--space-3)] xl:py-[var(--space-3)]">
-        <p className="text-[0.7rem] uppercase tracking-[0.16em] text-[var(--text-muted)]">ICE</p>
-        <p className="mt-[var(--space-1)] text-[0.82rem] font-semibold text-[var(--text-strong)] lg:text-[0.8rem] xl:mt-[var(--space-1)] xl:text-[0.88rem]">{companyName}</p>
-
-        <div className="mt-[var(--space-3)] flex items-center gap-[var(--space-2)] rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] px-[var(--space-2)] py-[var(--space-2)] lg:mt-[var(--space-2)] lg:gap-[var(--space-1)] lg:px-[var(--space-1)] lg:py-[var(--space-2)] xl:mt-[var(--space-3)] xl:gap-[var(--space-2)] xl:rounded-[var(--radius-lg)] xl:px-[var(--space-2)] xl:py-[var(--space-2)]">
-          <span className="flex ims-icon-btn-md shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--brand-primary-soft)] text-[var(--brand-primary-hover)] xl:h-[var(--icon-btn-lg)] xl:w-[var(--icon-btn-lg)] xl:rounded-[var(--radius-lg)]">
-            <SectionIcon className="h-4 w-4 xl:h-5 xl:w-5" />
-          </span>
-          <div className="min-w-0">
-            <p className="text-[0.82rem] font-semibold text-[var(--text-strong)] lg:text-[0.8rem] xl:text-[0.9rem]">{section.label}</p>
-            <p className="text-[0.72rem] text-[var(--text-muted)] lg:text-[0.68rem] xl:text-[0.72rem]">Section navigation</p>
-          </div>
-        </div>
-      </div>
-
       <div>
-        <p className="mb-[var(--space-2)] px-[var(--space-1)] text-[0.6rem] uppercase tracking-[0.1em] text-[var(--text-muted)] lg:mb-[var(--space-2)] lg:text-[0.58rem] xl:mb-[var(--space-3)] xl:text-[0.64rem] xl:tracking-[0.12em]">
-          Pages
-        </p>
-
-        <nav className="space-y-[var(--space-2)]">
+        <nav className="space-y-[var(--space-1)]">
           {section.items.map((item) => {
             const active = activeItem.href === item.href;
 
             return (
-              <Link
+            <Link
               key={item.href}
               href={item.href}
               className={cn(
-                "group relative block rounded-[var(--radius-md)] border px-[var(--space-3)] py-[var(--space-2)] text-[0.82rem] font-semibold transition lg:px-[var(--space-2)] lg:py-[var(--space-2)] lg:text-[0.78rem] xl:rounded-[1.15rem] xl:px-[var(--space-3)] xl:py-[var(--space-2)] xl:text-[clamp(0.84rem,0.82rem+0.08vw,0.92rem)]",
+                "group relative block rounded-[var(--radius-md)] px-[var(--space-3)] py-[var(--space-1)] text-[0.82rem] font-semibold transition lg:px-[var(--space-2)] lg:py-[var(--space-1)] lg:text-[0.78rem] xl:rounded-[1.15rem] xl:px-[var(--space-3)] xl:py-[var(--space-1)] xl:text-[clamp(0.84rem,0.82rem+0.08vw,0.92rem)]",
                 active
-                  ? "border-transparent bg-[color:color-mix(in_srgb,var(--brand-primary)_12%,var(--surface)_88%)] text-[var(--brand-primary-hover)]"
-                  : "border-transparent bg-transparent text-[var(--text-strong)] hover:bg-[var(--surface-muted)]",
+                  ? "bg-[color:color-mix(in_srgb,var(--brand-primary)_12%,var(--surface)_88%)] text-[var(--brand-primary-hover)]"
+                  : "bg-transparent text-[var(--text-strong)] hover:bg-[var(--surface-muted)]",
                 )}
                 aria-current={active ? "page" : undefined}
               >
@@ -522,17 +500,18 @@ export function DashboardNav({ companyName }: { companyName: string }) {
 
         <aside
           className={cn(
-            "sticky top-[var(--dashboard-topbar-h)] hidden h-[calc(100dvh-var(--dashboard-topbar-h))] shrink-0 overflow-hidden bg-[var(--surface)] text-[var(--text-strong)] transition-[width,padding,opacity,border-color] duration-200 md:block",
+            "sticky top-[var(--dashboard-topbar-h)] hidden h-[calc(100dvh-var(--dashboard-topbar-h))] shrink-0 overflow-hidden bg-[var(--surface)] text-[var(--text-strong)] transition-[width,padding,opacity] duration-200 md:block",
             collapsed
-              ? "w-0 border-e-0 px-0 py-0 opacity-0"
-              : "w-[10.75rem] border-e border-[var(--line)] p-[var(--space-2)] opacity-100 lg:w-[11.75rem] lg:p-[var(--space-2)] xl:w-[14.5rem] xl:p-[var(--space-3)]",
+              ? "w-0 px-0 py-0 opacity-0"
+              : "w-[10.75rem] p-[var(--space-2)] opacity-100 lg:w-[11.75rem] lg:p-[var(--space-2)] xl:w-[14.5rem] xl:p-[var(--space-3)]",
           )}
         >
           {collapsed ? null : (
-            <SectionPanel companyName={companyName} section={activeLink} />
+            <SectionPanel section={activeLink} />
           )}
         </aside>
       </div>
     </>
   );
 }
+

@@ -1,5 +1,6 @@
-import { getAuthContext, assertRole } from "@/lib/auth/permissions";
+import { assertMasterPermission, assertRole, getAuthContext } from "@/lib/auth/permissions";
 import { deriveNamePrefix, nextPrefixedCode } from "@/lib/locations/code";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   locationCreateSchema,
   locationPatchSchema,
@@ -46,10 +47,11 @@ export async function POST(request: Request) {
     return context;
   }
 
-  const roleError = assertRole(context, ["admin"]);
-  if (roleError) {
-    return roleError;
+  const permissionError = assertMasterPermission(context, "locations", "create");
+  if (permissionError) {
+    return permissionError;
   }
+  const writeClient = context.profile.role === "admin" ? context.supabase : supabaseAdmin;
 
   const payload = await parseBody(request, locationCreateSchema);
   if ("error" in payload) {
@@ -61,7 +63,7 @@ export async function POST(request: Request) {
   const maxAttempts = 5;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const { data: existingRows, error: listError } = await context.supabase
+    const { data: existingRows, error: listError } = await writeClient
       .from("locations")
       .select("code")
       .like("code", `${prefix}-%`);
@@ -73,7 +75,7 @@ export async function POST(request: Request) {
     const existingCodes = (existingRows ?? []).map((row: { code: string }) => row.code);
     const code = nextPrefixedCode(prefix, existingCodes);
 
-    const { data, error } = await context.supabase
+    const { data, error } = await writeClient
       .from("locations")
       .insert({
         code,

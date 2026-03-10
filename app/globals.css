@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 :root {
+  color-scheme: light;
   --canvas: #f2f6fb;
   --surface: #ffffff;
   --surface-muted: #eef4fb;
@@ -57,6 +58,29 @@
   --brand-accent-soft: var(--brand-primary-soft);
 }
 
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #0d1823;
+  --surface: #142332;
+  --surface-muted: #1a2d40;
+  --surface-soft: #20364a;
+  --text-strong: #edf6ff;
+  --text-muted: #9ab0c4;
+  --line: #2d465d;
+  --brand-primary: #67c2f7;
+  --brand-primary-hover: #94d9ff;
+  --brand-primary-soft: #1c4158;
+  --status-danger-bg: #3a1d25;
+  --status-danger-fg: #ffb9c3;
+  --status-warn-bg: #3a2c17;
+  --status-warn-fg: #ffd28a;
+  --status-success-bg: #183527;
+  --status-success-fg: #9ee4b8;
+  --shadow-sm: 0 0.0625rem 0.2rem color-mix(in srgb, #02070c 52%, transparent);
+  --shadow-md: 0 0.5rem 1.2rem color-mix(in srgb, #02070c 58%, transparent);
+  --shadow-lg: 0 0.9rem 1.9rem color-mix(in srgb, #02070c 64%, transparent);
+}
+
 @theme inline {
   --color-background: var(--canvas);
   --color-foreground: var(--text-strong);
@@ -82,7 +106,7 @@ body {
   min-height: 100dvh;
   background: linear-gradient(
     180deg,
-    color-mix(in srgb, var(--canvas) 93%, #fff 7%) 0%,
+    color-mix(in srgb, var(--canvas) 93%, var(--surface-soft) 7%) 0%,
     var(--canvas) 100%
   );
   color: var(--text-strong);
@@ -131,6 +155,175 @@ h6 {
 
 .ims-dashboard-topbar {
   z-index: var(--dashboard-shell-z);
+}
+
+.ims-theme-toggle {
+  --theme-toggle-thumb-size: clamp(2.12rem, 2.04rem + 0.22vw, 2.3rem);
+  position: relative;
+  display: inline-flex;
+  min-width: clamp(6rem, 6rem + 0.44vw, 7.28rem);
+  height: clamp(2.72rem, 2.64rem + 0.2vw, 2.88rem);
+  align-items: center;
+  justify-content: flex-start;
+  overflow: visible;
+  border-radius: 999rem;
+  border: var(--line-1) solid transparent;
+  background: transparent;
+  padding-inline: clamp(0.54rem, 0.51rem + 0.08vw, 0.64rem);
+  outline: none;
+  isolation: isolate;
+  transition:
+    box-shadow 220ms ease,
+    color 220ms ease;
+}
+
+.ims-theme-toggle:hover {
+  transform: none;
+}
+
+.ims-theme-toggle::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  border: inherit;
+  pointer-events: none;
+  transition:
+    background 220ms ease,
+    border-color 220ms ease,
+    box-shadow 220ms ease;
+}
+
+.ims-theme-toggle:focus-visible {
+  box-shadow:
+    0 0 0 var(--ring-width) color-mix(in srgb, var(--brand-primary) 28%, transparent),
+    var(--shadow-md);
+}
+
+.ims-theme-toggle[data-mode="light"] {
+  color: #6d7682;
+}
+
+.ims-theme-toggle[data-mode="light"]::before {
+  border-color: color-mix(in srgb, #cfd6de 80%, white 20%);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, #f2f4f7 88%, white 12%) 0%,
+      color-mix(in srgb, #dfe5ec 92%, #f7f9fb 8%) 100%
+    );
+  box-shadow:
+    inset 0 0.14rem 0.24rem color-mix(in srgb, white 68%, transparent),
+    inset 0 0.03rem 0.05rem color-mix(in srgb, white 54%, transparent),
+    inset 0 -0.24rem 0.46rem color-mix(in srgb, #adb8c5 36%, transparent),
+    inset 0.1rem 0 0.18rem color-mix(in srgb, white 16%, transparent),
+    inset -0.1rem 0 0.18rem color-mix(in srgb, #b5bfcb 14%, transparent),
+    0 0.08rem 0.16rem color-mix(in srgb, #7f8b98 10%, transparent);
+}
+
+.ims-theme-toggle[data-mode="dark"] {
+  color: #e8eef5;
+}
+
+.ims-theme-toggle[data-mode="dark"]::before {
+  border-color: color-mix(in srgb, #515b68 74%, #8a97a7 26%);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, #495562 78%, #313b46 22%) 0%,
+      color-mix(in srgb, #313a45 86%, #202730 14%) 100%
+    );
+  box-shadow:
+    inset 0 0.14rem 0.24rem color-mix(in srgb, #aab6c3 22%, transparent),
+    inset 0 0.03rem 0.05rem color-mix(in srgb, #cad5e2 10%, transparent),
+    inset 0 -0.26rem 0.48rem color-mix(in srgb, #0a1017 48%, transparent),
+    inset 0.1rem 0 0.18rem color-mix(in srgb, #5d6977 10%, transparent),
+    inset -0.1rem 0 0.18rem color-mix(in srgb, #0f151d 20%, transparent),
+    0 0.08rem 0.16rem color-mix(in srgb, #0a0f15 12%, transparent);
+}
+
+.ims-theme-toggle-copy {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-size: clamp(0.62rem, 0.59rem + 0.1vw, 0.72rem);
+  font-weight: 800;
+  transition: padding 300ms ease, opacity 220ms ease;
+}
+
+.ims-theme-toggle-copy-text {
+  display: grid;
+  line-height: 0.9;
+  text-align: center;
+}
+
+.ims-theme-toggle[data-mode="light"] .ims-theme-toggle-copy {
+  padding-right: calc(var(--theme-toggle-thumb-size) + 0.18rem);
+  padding-left: 0.04rem;
+}
+
+.ims-theme-toggle[data-mode="dark"] .ims-theme-toggle-copy {
+  padding-left: calc(var(--theme-toggle-thumb-size) + 0.18rem);
+  padding-right: 0.04rem;
+}
+
+.ims-theme-toggle-thumb {
+  position: absolute;
+  left: -0.08rem;
+  top: 50%;
+  z-index: 2;
+  display: inline-flex;
+  height: var(--theme-toggle-thumb-size);
+  width: var(--theme-toggle-thumb-size);
+  align-items: center;
+  justify-content: center;
+  border-radius: 999rem;
+  transform: translateY(-50%);
+  transition:
+    left 300ms ease,
+    transform 300ms ease,
+    background 220ms ease,
+    color 220ms ease,
+    box-shadow 220ms ease;
+}
+
+.ims-theme-toggle[data-mode="light"] .ims-theme-toggle-thumb {
+  color: #98a3b0;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, white 90%, #eef2f6 10%) 0%,
+      color-mix(in srgb, #e2e7ed 94%, #f8fafb 6%) 100%
+    );
+  box-shadow:
+    0 0.4rem 0.74rem color-mix(in srgb, #98a3af 38%, transparent),
+    0 0.14rem 0.26rem color-mix(in srgb, #7f8b98 22%, transparent),
+    0 0.03rem 0.08rem color-mix(in srgb, white 40%, transparent),
+    inset 0 0.1rem 0.16rem color-mix(in srgb, white 62%, transparent),
+    inset 0 -0.08rem 0.14rem color-mix(in srgb, #c7d0db 18%, transparent);
+  left: calc(100% - var(--theme-toggle-thumb-size) + 0.08rem);
+}
+
+.ims-theme-toggle[data-mode="dark"] .ims-theme-toggle-thumb {
+  color: #c8d2de;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, #f1f4f7 94%, white 6%) 0%,
+      color-mix(in srgb, #d5dde6 96%, #eef3f7 4%) 100%
+    );
+  box-shadow:
+    0 0.42rem 0.78rem color-mix(in srgb, #10151c 42%, transparent),
+    0 0.14rem 0.26rem color-mix(in srgb, #0d131a 24%, transparent),
+    0 0.03rem 0.08rem color-mix(in srgb, white 28%, transparent),
+    inset 0 0.1rem 0.16rem color-mix(in srgb, white 70%, transparent),
+    inset 0 -0.08rem 0.14rem color-mix(in srgb, #b8c2ce 14%, transparent);
 }
 
 .ims-content {
@@ -250,7 +443,7 @@ h6 {
   align-items: center;
   justify-content: center;
   min-height: calc(var(--control-h-md) - 0.5rem);
-  border-radius: 9999px;
+  border-radius: 999rem;
   border: var(--line-1) solid var(--line);
   background: var(--surface-muted);
   padding: 0 var(--control-px);
@@ -345,6 +538,28 @@ h6 {
   }
   100% {
     background-position: -100% 0;
+  }
+}
+
+@keyframes ims-master-panel-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(-0.75rem) scale(0.985);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes ims-master-panel-exit {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-0.75rem) scale(0.985);
   }
 }
 

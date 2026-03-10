@@ -1,8 +1,9 @@
-import { assertRole, getAuthContext } from "@/lib/auth/permissions";
+import { assertMasterPermission, getAuthContext } from "@/lib/auth/permissions";
 import {
   nextSubcategoryCode,
   normalizeTaxonomyName,
 } from "@/lib/products/taxonomy";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { productSubcategoryCreateSchema } from "@/lib/validation";
 import { fail, ok, parseBody } from "@/lib/utils/http";
 
@@ -61,10 +62,11 @@ export async function POST(request: Request) {
     return context;
   }
 
-  const roleError = assertRole(context, ["admin"]);
-  if (roleError) {
-    return roleError;
+  const permissionError = assertMasterPermission(context, "subcategories", "create");
+  if (permissionError) {
+    return permissionError;
   }
+  const writeClient = context.profile.role === "admin" ? context.supabase : supabaseAdmin;
 
   const payload = await parseBody(request, productSubcategoryCreateSchema);
   if ("error" in payload) {
@@ -74,7 +76,7 @@ export async function POST(request: Request) {
   const normalizedName = normalizeTaxonomyName(payload.data.name);
   const categoryId = payload.data.category_id;
 
-  const { data: category, error: categoryError } = await context.supabase
+  const { data: category, error: categoryError } = await writeClient
     .from("product_categories")
     .select("id")
     .eq("id", categoryId)
@@ -86,7 +88,7 @@ export async function POST(request: Request) {
     return fail("Category not found.", 404);
   }
 
-  const { data: existingRows, error: existingError } = await context.supabase
+  const { data: existingRows, error: existingError } = await writeClient
     .from("product_subcategories")
     .select("id, code, name")
     .eq("category_id", categoryId);
@@ -109,7 +111,7 @@ export async function POST(request: Request) {
     return fail("Subcategory code space exhausted for this category.", 409);
   }
 
-  const { data, error } = await context.supabase
+  const { data, error } = await writeClient
     .from("product_subcategories")
     .insert({
       category_id: categoryId,

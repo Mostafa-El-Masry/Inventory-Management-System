@@ -1,4 +1,5 @@
-import { assertRole, getAuthContext } from "@/lib/auth/permissions";
+import { assertMasterPermission, getAuthContext } from "@/lib/auth/permissions";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { fail, ok } from "@/lib/utils/http";
 
 export async function POST(
@@ -10,14 +11,15 @@ export async function POST(
     return context;
   }
 
-  const roleError = assertRole(context, ["admin"]);
-  if (roleError) {
-    return roleError;
+  const permissionError = assertMasterPermission(context, "suppliers", "delete");
+  if (permissionError) {
+    return permissionError;
   }
+  const writeClient = context.profile.role === "admin" ? context.supabase : supabaseAdmin;
 
   const { id } = await params;
 
-  const { count: documentCount, error: documentCountError } = await context.supabase
+  const { count: documentCount, error: documentCountError } = await writeClient
     .from("supplier_documents")
     .select("id", { count: "exact", head: true })
     .eq("supplier_id", id);
@@ -33,7 +35,7 @@ export async function POST(
     });
   }
 
-  const { data, error } = await context.supabase
+  const { data, error } = await writeClient
     .from("suppliers")
     .delete()
     .eq("id", id)

@@ -1,3 +1,5 @@
+import type { MasterPermissions } from "@/lib/master-permissions";
+
 export type Role = "admin" | "manager" | "staff";
 
 export type TransactionType =
@@ -36,4 +38,5 @@ export interface Profile {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  master_permissions: MasterPermissions;
 }

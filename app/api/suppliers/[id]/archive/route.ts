@@ -1,4 +1,5 @@
-import { assertRole, getAuthContext } from "@/lib/auth/permissions";
+import { assertMasterPermission, getAuthContext } from "@/lib/auth/permissions";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { fail, ok } from "@/lib/utils/http";
 
 export async function POST(
@@ -10,13 +11,14 @@ export async function POST(
     return context;
   }
 
-  const roleError = assertRole(context, ["admin"]);
-  if (roleError) {
-    return roleError;
+  const permissionError = assertMasterPermission(context, "suppliers", "archive");
+  if (permissionError) {
+    return permissionError;
   }
+  const writeClient = context.profile.role === "admin" ? context.supabase : supabaseAdmin;
 
   const { id } = await params;
-  const { data, error } = await context.supabase
+  const { data, error } = await writeClient
     .from("suppliers")
     .update({ is_active: false })
     .eq("id", id)

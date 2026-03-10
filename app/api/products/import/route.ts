@@ -1,4 +1,4 @@
-import { assertRole, getAuthContext } from "@/lib/auth/permissions";
+import { assertMasterPermission, getAuthContext } from "@/lib/auth/permissions";
 import { createProductWithGeneratedSku } from "@/lib/products/create";
 import {
   parseProductImportCsv,
@@ -8,6 +8,7 @@ import {
 } from "@/lib/products/import";
 import { normalizeTaxonomyName } from "@/lib/products/taxonomy";
 import { normalizeProductName } from "@/lib/products/uniqueness";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { productImportSchema } from "@/lib/validation";
 import { fail, ok, parseBody } from "@/lib/utils/http";
 
@@ -30,10 +31,11 @@ export async function POST(request: Request) {
     return context;
   }
 
-  const roleError = assertRole(context, ["admin"]);
-  if (roleError) {
-    return roleError;
+  const permissionError = assertMasterPermission(context, "products", "import");
+  if (permissionError) {
+    return permissionError;
   }
+  const writeClient = context.profile.role === "admin" ? context.supabase : supabaseAdmin;
 
   const payload = await parseBody(request, productImportSchema);
   if ("error" in payload) {
@@ -50,7 +52,7 @@ export async function POST(request: Request) {
     return fail("Failed to parse CSV import payload.", 422);
   }
 
-  const { count, error: countError } = await context.supabase
+  const { count, error: countError } = await writeClient
     .from("products")
     .select("id", { count: "exact", head: true });
   if (countError) {
@@ -65,21 +67,21 @@ export async function POST(request: Request) {
     });
   }
 
-  const { data: existingRows, error: existingError } = await context.supabase
+  const { data: existingRows, error: existingError } = await writeClient
     .from("products")
     .select("id, name, barcode");
   if (existingError) {
     return fail(existingError.message, 400);
   }
 
-  const { data: categoryRows, error: categoryError } = await context.supabase
+  const { data: categoryRows, error: categoryError } = await writeClient
     .from("product_categories")
     .select("id, name, is_active");
   if (categoryError) {
     return fail(categoryError.message, 400);
   }
 
-  const { data: subcategoryRows, error: subcategoryError } = await context.supabase
+  const { data: subcategoryRows, error: subcategoryError } = await writeClient
     .from("product_subcategories")
     .select("id, category_id, name, is_active");
   if (subcategoryError) {
@@ -256,7 +258,7 @@ export async function POST(request: Request) {
       continue;
     }
 
-    const created = await createProductWithGeneratedSku(context.supabase, {
+    const created = await createProductWithGeneratedSku(writeClient, {
       name: row.name.trim(),
       barcode: row.barcode,
       description: row.description,

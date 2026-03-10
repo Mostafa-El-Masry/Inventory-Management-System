@@ -27,6 +27,7 @@ const {
 vi.mock("@/lib/auth/permissions", () => ({
   getAuthContext: getAuthContextMock,
   assertRole: assertRoleMock,
+  assertMasterPermission: assertRoleMock,
 }));
 
 vi.mock("@/lib/products/create", () => ({

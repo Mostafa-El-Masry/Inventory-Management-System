@@ -1,8 +1,9 @@
-import { assertRole, getAuthContext } from "@/lib/auth/permissions";
+import { assertMasterPermission, getAuthContext } from "@/lib/auth/permissions";
 import {
   nextCategoryCode,
   normalizeTaxonomyName,
 } from "@/lib/products/taxonomy";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { productCategoryCreateSchema } from "@/lib/validation";
 import { fail, ok, parseBody } from "@/lib/utils/http";
 
@@ -30,10 +31,11 @@ export async function POST(request: Request) {
     return context;
   }
 
-  const roleError = assertRole(context, ["admin"]);
-  if (roleError) {
-    return roleError;
+  const permissionError = assertMasterPermission(context, "categories", "create");
+  if (permissionError) {
+    return permissionError;
   }
+  const writeClient = context.profile.role === "admin" ? context.supabase : supabaseAdmin;
 
   const payload = await parseBody(request, productCategoryCreateSchema);
   if ("error" in payload) {
@@ -42,7 +44,7 @@ export async function POST(request: Request) {
 
   const normalizedName = normalizeTaxonomyName(payload.data.name);
 
-  const { data: existingRows, error: existingError } = await context.supabase
+  const { data: existingRows, error: existingError } = await writeClient
     .from("product_categories")
     .select("id, code, name");
   if (existingError) {
@@ -64,7 +66,7 @@ export async function POST(request: Request) {
     return fail("Category code space exhausted.", 409);
   }
 
-  const { data, error } = await context.supabase
+  const { data, error } = await writeClient
     .from("product_categories")
     .insert({
       code: nextCode,

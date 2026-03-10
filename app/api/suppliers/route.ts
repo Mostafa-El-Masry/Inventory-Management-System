@@ -1,5 +1,6 @@
-import { assertRole, getAuthContext } from "@/lib/auth/permissions";
+import { assertMasterPermission, getAuthContext } from "@/lib/auth/permissions";
 import { deriveNamePrefix, nextPrefixedCode } from "@/lib/locations/code";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { supplierCreateSchema, supplierUpdateSchema } from "@/lib/validation";
 import { fail, ok, parseBody } from "@/lib/utils/http";
 
@@ -43,10 +44,11 @@ export async function POST(request: Request) {
     return context;
   }
 
-  const roleError = assertRole(context, ["admin"]);
-  if (roleError) {
-    return roleError;
+  const permissionError = assertMasterPermission(context, "suppliers", "create");
+  if (permissionError) {
+    return permissionError;
   }
+  const writeClient = context.profile.role === "admin" ? context.supabase : supabaseAdmin;
 
   const payload = await parseBody(request, supplierCreateSchema);
   if ("error" in payload) {
@@ -59,7 +61,7 @@ export async function POST(request: Request) {
   const normalizedEmail = payload.data.email?.trim().toLowerCase() || null;
   const normalizedCode = payload.data.code?.trim().toUpperCase() || null;
 
-  const { data: existingRows, error: existingError } = await context.supabase
+  const { data: existingRows, error: existingError } = await writeClient
     .from("suppliers")
     .select("id, name");
   if (existingError) {
@@ -75,7 +77,7 @@ export async function POST(request: Request) {
   }
 
   if (normalizedCode) {
-    const { data, error } = await context.supabase
+    const { data, error } = await writeClient
       .from("suppliers")
       .insert({
         code: normalizedCode,
@@ -101,7 +103,7 @@ export async function POST(request: Request) {
   const maxAttempts = 5;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const { data: codeRows, error: codeRowsError } = await context.supabase
+    const { data: codeRows, error: codeRowsError } = await writeClient
       .from("suppliers")
       .select("code")
       .like("code", `${prefix}-%`);
@@ -114,7 +116,7 @@ export async function POST(request: Request) {
       (codeRows ?? []).map((row: { code: string }) => row.code),
     );
 
-    const { data, error } = await context.supabase
+    const { data, error } = await writeClient
       .from("suppliers")
       .insert({
         code: nextCode,
@@ -146,10 +148,11 @@ export async function PATCH(request: Request) {
     return context;
   }
 
-  const roleError = assertRole(context, ["admin"]);
-  if (roleError) {
-    return roleError;
+  const permissionError = assertMasterPermission(context, "suppliers", "edit");
+  if (permissionError) {
+    return permissionError;
   }
+  const writeClient = context.profile.role === "admin" ? context.supabase : supabaseAdmin;
 
   const payload = await parseBody(request, supplierUpdateSchema);
   if ("error" in payload) {
@@ -159,7 +162,7 @@ export async function PATCH(request: Request) {
   const normalizedName = normalizeStoredSupplierName(payload.data.name);
   const normalizedNameKey = normalizeSupplierName(normalizedName);
 
-  const { data: existingRows, error: existingError } = await context.supabase
+  const { data: existingRows, error: existingError } = await writeClient
     .from("suppliers")
     .select("id, name");
   if (existingError) {
@@ -175,7 +178,7 @@ export async function PATCH(request: Request) {
     return fail("Supplier name already exists.", 409);
   }
 
-  const { data, error } = await context.supabase
+  const { data, error } = await writeClient
     .from("suppliers")
     .update({
       name: normalizedName,

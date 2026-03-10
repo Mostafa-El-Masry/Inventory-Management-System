@@ -1,7 +1,8 @@
-import { assertRole, getAuthContext } from "@/lib/auth/permissions";
+import { assertMasterPermission, getAuthContext } from "@/lib/auth/permissions";
 import { MASTER_ENTITIES, type MasterEntity } from "@/lib/master-sync/contracts";
 import { MasterCsvImportError, parseMasterImportCsv } from "@/lib/master-sync/parse";
 import { upsertMasterRows } from "@/lib/master-sync/upsert";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { masterImportSchema } from "@/lib/validation";
 import { fail, ok, parseBody } from "@/lib/utils/http";
 
@@ -19,11 +20,6 @@ export async function POST(request: Request) {
     return context;
   }
 
-  const roleError = assertRole(context, ["admin"]);
-  if (roleError) {
-    return roleError;
-  }
-
   const entity = parseEntity(new URL(request.url).searchParams.get("entity"));
   if (!entity) {
     return fail(
@@ -31,6 +27,12 @@ export async function POST(request: Request) {
       422,
     );
   }
+
+  const permissionError = assertMasterPermission(context, entity, "import");
+  if (permissionError) {
+    return permissionError;
+  }
+  const writeClient = context.profile.role === "admin" ? context.supabase : supabaseAdmin;
 
   const payload = await parseBody(request, masterImportSchema);
   if ("error" in payload) {
@@ -48,7 +50,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const summary = await upsertMasterRows(context.supabase, parsed);
+    const summary = await upsertMasterRows(writeClient, parsed);
     return ok(summary, summary.inserted_count > 0 ? 201 : 200);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Master import failed.";

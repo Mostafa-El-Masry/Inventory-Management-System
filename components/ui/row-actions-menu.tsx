@@ -26,7 +26,6 @@ export function RowActionsMenu({
   disabled = false,
 }: RowActionsMenuProps) {
   const [open, setOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -57,15 +56,9 @@ export function RowActionsMenu({
   }, [items.length]);
 
   useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
     if (!open) {
       return;
     }
-
-    updatePosition();
 
     function handlePointerDown(event: PointerEvent) {
       const target = event.target as Node;
@@ -103,23 +96,42 @@ export function RowActionsMenu({
     return null;
   }
 
+  const portalTarget = typeof document !== "undefined" ? document.body : null;
+
   return (
     <>
       <Button
         ref={buttonRef}
-        variant="secondary"
-        className="h-8 w-8 rounded-full p-0 text-sm leading-none"
+        variant="ghost"
+        className="h-8 w-8 rounded-full border-0 bg-transparent p-0 text-sm leading-none shadow-none hover:bg-transparent"
         disabled={disabled}
         aria-label={label}
         aria-haspopup="menu"
         aria-controls={open ? menuId : undefined}
         aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() =>
+          setOpen((current) => {
+            const next = !current;
+            if (next && typeof window !== "undefined") {
+              window.requestAnimationFrame(updatePosition);
+            }
+            return next;
+          })
+        }
       >
-        ...
+        <svg
+          viewBox="0 0 20 20"
+          fill="currentColor"
+          aria-hidden="true"
+          className="h-4 w-4"
+        >
+          <circle cx="10" cy="4.5" r="1.4" />
+          <circle cx="10" cy="10" r="1.4" />
+          <circle cx="10" cy="15.5" r="1.4" />
+        </svg>
       </Button>
 
-      {mounted && open
+      {portalTarget && open
         ? createPortal(
             <div
               id={menuId}
@@ -154,7 +166,7 @@ export function RowActionsMenu({
                 </button>
               ))}
             </div>,
-            document.body,
+            portalTarget,
           )
         : null}
     </>

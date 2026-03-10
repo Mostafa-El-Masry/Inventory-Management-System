@@ -3,9 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
+import { MasterArchivedToggle } from "@/components/master/master-archived-toggle";
+import { MasterColumnsMenu } from "@/components/master/master-columns-menu";
 import { MasterCsvSync } from "@/components/master/master-csv-sync";
 import { MasterPageHeader } from "@/components/master/master-page-header";
+import { MasterPanelReveal } from "@/components/master/master-panel-reveal";
+import { MasterTableLoadingRows } from "@/components/master/master-table-loading";
 import {
+  MasterRowLimitControl,
   MasterTablePagination,
   RowLimitOption,
   paginateRows,
@@ -14,9 +19,14 @@ import {
   SortDirection,
   SortableTableHeader,
 } from "@/components/master/sortable-table-header";
+import {
+  buildDefaultColumnVisibility,
+  useMasterColumns,
+} from "@/components/master/use-master-columns";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { RowActionsMenu } from "@/components/ui/row-actions-menu";
 import type { ExportColumn } from "@/lib/export/contracts";
 import {
   buildFilterStorageKey,
@@ -35,7 +45,32 @@ type Location = {
   is_active: boolean;
 };
 
-type LocationSortKey = "code" | "name" | "timezone" | "active";
+const LOCATION_COLUMN_DEFINITIONS = [
+  { key: "code", label: "Code" },
+  { key: "name", label: "Name" },
+  { key: "timezone", label: "Timezone" },
+  { key: "active", label: "Active" },
+  { key: "action", label: "Action" },
+] as const;
+
+type LocationColumnKey = (typeof LOCATION_COLUMN_DEFINITIONS)[number]["key"];
+type LocationSortKey = Exclude<LocationColumnKey, "action">;
+
+function isLocationSortableColumn(key: LocationColumnKey): key is LocationSortKey {
+  return key !== "action";
+}
+
+const LOCATION_DEFAULT_COLUMN_ORDER: LocationColumnKey[] = [
+  "code",
+  "name",
+  "timezone",
+  "active",
+  "action",
+];
+
+const LOCATION_DEFAULT_COLUMN_VISIBILITY = buildDefaultColumnVisibility(
+  LOCATION_DEFAULT_COLUMN_ORDER,
+);
 
 const LOCATION_EXPORT_COLUMNS: ExportColumn[] = [
   { key: "code", label: "Code" },
@@ -49,6 +84,7 @@ export default function LocationsPage() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [showInactive, setShowInactive] = useState(false);
   const [archivedFilterHydrated, setArchivedFilterHydrated] = useState(false);
+  const [locationsLoading, setLocationsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
   const [stateLoading, setStateLoading] = useState(false);
@@ -64,6 +100,20 @@ export default function LocationsPage() {
     is_active: true,
   });
   const archivedFilterStorageKey = buildFilterStorageKey(authUserId, "master", "locations");
+  const {
+    orderedColumns: orderedLocationColumns,
+    visibleColumns: visibleLocationColumns,
+    columnVisibility: locationColumnVisibility,
+    toggleColumnVisibility: toggleLocationColumnVisibility,
+    moveColumn: moveLocationColumn,
+    resetColumnPreferences: resetLocationColumnPreferences,
+  } = useMasterColumns({
+    userId: authUserId,
+    storageKey: `ims:locations:columns:${authUserId}`,
+    columns: LOCATION_COLUMN_DEFINITIONS,
+    defaultOrder: LOCATION_DEFAULT_COLUMN_ORDER,
+    defaultVisibility: LOCATION_DEFAULT_COLUMN_VISIBILITY,
+  });
 
   const loadLocations = useCallback(async (signal?: AbortSignal) => {
     const result = await fetchJson<{ items?: Location[] }>(
@@ -97,11 +147,32 @@ export default function LocationsPage() {
     }
 
     const controller = new AbortController();
-    loadLocations(controller.signal).catch(() => setError("Failed to load locations."));
-    return () => controller.abort();
+    let cancelled = false;
+
+    setLocationsLoading(true);
+    loadLocations(controller.signal)
+      .catch(() => {
+        if (!cancelled) {
+          setError("Failed to load locations.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLocationsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [archivedFilterHydrated, loadLocations]);
 
-  const canManageLocations = capabilities.canManageLocations;
+  const canCreateLocation = capabilities.master.locations.create;
+  const canImportLocations = capabilities.master.locations.import;
+  const canArchiveLocation = capabilities.master.locations.archive;
+  const canShowLocationPanel = canCreateLocation || canImportLocations;
+  const showLocationLoadingRows = !archivedFilterHydrated || locationsLoading;
   const canCreate =
     newLocation.name.trim().length >= 2 && newLocation.timezone.trim().length >= 3;
   const sortedLocations = useMemo(() => {
@@ -144,7 +215,7 @@ export default function LocationsPage() {
   }, [locationPagination.totalPages]);
 
   async function handleCreate() {
-    if (!canManageLocations || !canCreate) {
+    if (!canCreateLocation || !canCreate) {
       return;
     }
 
@@ -181,6 +252,10 @@ export default function LocationsPage() {
   }
 
   async function setLocationActive(locationId: string, active: boolean) {
+    if (!canArchiveLocation) {
+      return;
+    }
+
     setStateLoading(true);
     setError(null);
     try {
@@ -211,13 +286,47 @@ export default function LocationsPage() {
     setLocationSortKey(nextKey);
   }
 
+  function renderLocationCell(location: Location, columnKey: LocationColumnKey) {
+    if (columnKey === "code") {
+      return <span className="font-medium">{location.code}</span>;
+    }
+
+    if (columnKey === "name") {
+      return location.name;
+    }
+
+    if (columnKey === "timezone") {
+      return location.timezone;
+    }
+
+    if (columnKey === "active") {
+      return location.is_active ? "Yes" : "No";
+    }
+
+    if (!canArchiveLocation) {
+      return <span className="text-xs text-[var(--text-muted)]">--</span>;
+    }
+
+    return (
+      <RowActionsMenu
+        label={`Open actions for ${location.name}`}
+        disabled={stateLoading}
+        items={[
+          {
+            label: location.is_active ? "Archive" : "Activate",
+            onSelect: () => setLocationActive(location.id, !location.is_active),
+          },
+        ]}
+      />
+    );
+  }
+
   return (
     <div className="space-y-6">
       <MasterPageHeader
-        kicker="Master Data"
         title="Locations"
         subtitle="Archive-first location lifecycle with timezone management."
-        showAction={canManageLocations}
+        showAction={canShowLocationPanel}
         panelOpen={masterPanelOpen}
         onTogglePanel={() => setMasterPanelOpen((current) => !current)}
         openLabel="Open location actions"
@@ -226,13 +335,11 @@ export default function LocationsPage() {
 
       {error ? <p className="ims-alert-danger">{error}</p> : null}
 
-      {canManageLocations ? (
-        masterPanelOpen ? (
-          <div className="space-y-4">
+      {canShowLocationPanel ? (
+          <MasterPanelReveal open={masterPanelOpen} className="space-y-4">
             <MasterCsvSync
               entity="locations"
-              canManage={canManageLocations}
-              helperText="Keys by location code. Rows missing from file are left unchanged."
+              canManage={canImportLocations}
               title="Locations"
               filenameBase="locations"
               columns={LOCATION_EXPORT_COLUMNS}
@@ -242,68 +349,65 @@ export default function LocationsPage() {
                 timezone: location.timezone,
                 is_active: location.is_active,
               }))}
-              filterSummary={[`Archived included: ${showInactive ? "Yes" : "No"}`]}
+              filterSummary={[`Disabled included: ${showInactive ? "Yes" : "No"}`]}
               onImported={async () => {
                 await loadLocations();
               }}
-            />
-
-            <Card className="min-h-[12rem]">
-              <h2 className="text-lg font-semibold">Create Location</h2>
-              <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                <Input
-                  value={newLocation.name}
-                  onChange={(event) =>
-                    setNewLocation((current) => ({
-                      ...current,
-                      name: event.target.value,
-                    }))
-                  }
-                  placeholder="Location name"
-                  className="ims-control-md"
-                />
-                <Input
-                  value={newLocation.timezone}
-                  onChange={(event) =>
-                    setNewLocation((current) => ({
-                      ...current,
-                      timezone: event.target.value,
-                    }))
-                  }
-                  placeholder="Timezone"
-                  className="ims-control-md"
-                />
-                <div className="flex items-center justify-between gap-3 lg:col-span-2">
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={newLocation.is_active}
-                      onChange={(event) =>
-                        setNewLocation((current) => ({
-                          ...current,
-                          is_active: event.target.checked,
-                        }))
-                      }
-                    />
-                    {newLocation.is_active ? "Active" : "Inactive"}
-                  </label>
-                  <Button
+            >
+              {canCreateLocation ? (
+                <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto] lg:items-end">
+                  <Input
+                    value={newLocation.name}
+                    onChange={(event) =>
+                      setNewLocation((current) => ({
+                        ...current,
+                        name: event.target.value,
+                      }))
+                    }
+                    placeholder="Location name"
                     className="ims-control-md"
-                    disabled={!canCreate || createLoading}
-                    onClick={() => handleCreate()}
-                  >
-                    {createLoading ? "Creating..." : "Create"}
-                  </Button>
+                  />
+                  <Input
+                    value={newLocation.timezone}
+                    onChange={(event) =>
+                      setNewLocation((current) => ({
+                        ...current,
+                        timezone: event.target.value,
+                      }))
+                    }
+                    placeholder="Timezone"
+                    className="ims-control-md"
+                  />
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={newLocation.is_active}
+                        onChange={(event) =>
+                          setNewLocation((current) => ({
+                            ...current,
+                            is_active: event.target.checked,
+                          }))
+                        }
+                      />
+                      {newLocation.is_active ? "Active" : "Inactive"}
+                    </label>
+                    <Button
+                      className="ims-control-md"
+                      disabled={!canCreate || createLoading}
+                      onClick={() => handleCreate()}
+                    >
+                      {createLoading ? "Creating..." : "Create"}
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            </Card>
-          </div>
-        ) : null
+              ) : null}
+            </MasterCsvSync>
+          </MasterPanelReveal>
       ) : (
         <MasterCsvSync
           entity="locations"
-          canManage={canManageLocations}
-          helperText="Keys by location code. Rows missing from file are left unchanged."
+          canManage={canImportLocations}
           title="Locations"
           filenameBase="locations"
           columns={LOCATION_EXPORT_COLUMNS}
@@ -313,7 +417,7 @@ export default function LocationsPage() {
             timezone: location.timezone,
             is_active: location.is_active,
           }))}
-          filterSummary={[`Archived included: ${showInactive ? "Yes" : "No"}`]}
+          filterSummary={[`Disabled included: ${showInactive ? "Yes" : "No"}`]}
           onImported={async () => {
             await loadLocations();
           }}
@@ -323,109 +427,86 @@ export default function LocationsPage() {
       <section>
         <Card className="min-h-[24rem]">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-lg font-semibold">Location List</h2>
-            <label className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
-              <input
-                type="checkbox"
-                checked={showInactive}
-                onChange={(event) => setShowInactive(event.target.checked)}
+            <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3">
+              <MasterRowLimitControl
+                value={locationRowLimit}
+                onChange={(limit) => {
+                  setLocationRowLimit(limit);
+                  setLocationPage(1);
+                }}
               />
-              Show archived
-            </label>
+              <h2 className="min-w-0 text-lg font-semibold">Location List</h2>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <MasterColumnsMenu
+                orderedColumns={orderedLocationColumns}
+                columnVisibility={locationColumnVisibility}
+                onToggleColumn={toggleLocationColumnVisibility}
+                onMoveColumn={moveLocationColumn}
+                onReset={resetLocationColumnPreferences}
+                helperText="Toggle and reorder location columns."
+              />
+              <MasterArchivedToggle
+                pressed={showInactive}
+                onPressedChange={(pressed) => setShowInactive(pressed)}
+              />
+            </div>
           </div>
 
-          <div className="mt-4 max-h-[32rem] overflow-auto">
-            <table className="ims-table">
+          <div className="mt-4 overflow-visible">
+            <table className="ims-table" aria-busy={showLocationLoadingRows}>
               <thead className="ims-table-head">
                 <tr>
-                  <th>
-                    <SortableTableHeader
-                      label="Code"
-                      active={locationSortKey === "code"}
-                      direction={locationSortDirection}
-                      onClick={() => toggleLocationSort("code")}
-                    />
-                  </th>
-                  <th>
-                    <SortableTableHeader
-                      label="Name"
-                      active={locationSortKey === "name"}
-                      direction={locationSortDirection}
-                      onClick={() => toggleLocationSort("name")}
-                    />
-                  </th>
-                  <th>
-                    <SortableTableHeader
-                      label="Timezone"
-                      active={locationSortKey === "timezone"}
-                      direction={locationSortDirection}
-                      onClick={() => toggleLocationSort("timezone")}
-                    />
-                  </th>
-                  <th>
-                    <SortableTableHeader
-                      label="Active"
-                      active={locationSortKey === "active"}
-                      direction={locationSortDirection}
-                      onClick={() => toggleLocationSort("active")}
-                    />
-                  </th>
-                  <th>Action</th>
+                  {visibleLocationColumns.map((column) => (
+                    <th key={column.key}>
+                      {!isLocationSortableColumn(column.key) ? column.label : (() => {
+                        const sortKey = column.key;
+                        return (
+                          <SortableTableHeader
+                            label={column.label}
+                            active={locationSortKey === sortKey}
+                            direction={locationSortDirection}
+                            onClick={() => toggleLocationSort(sortKey)}
+                          />
+                        );
+                      })()}
+                    </th>
+                  ))}
                 </tr>
-            </thead>
-            <tbody>
-                {locationPagination.items.map((location) => (
-                  <tr key={location.id} className="ims-table-row">
-                    <td className="font-medium">{location.code}</td>
-                    <td>{location.name}</td>
-                    <td>{location.timezone}</td>
-                    <td>{location.is_active ? "Yes" : "No"}</td>
-                    <td>
-                      {capabilities?.canArchiveLocations ? (
-                        location.is_active ? (
-                          <Button
-                            variant="secondary"
-                            className="ims-control-sm"
-                            disabled={stateLoading}
-                            onClick={() => setLocationActive(location.id, false)}
-                          >
-                            Archive
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="secondary"
-                            className="ims-control-sm"
-                            disabled={stateLoading}
-                            onClick={() => setLocationActive(location.id, true)}
-                          >
-                            Activate
-                          </Button>
-                        )
-                      ) : (
-                        <span className="text-xs text-[var(--text-muted)]">restricted</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-          {locations.length === 0 ? (
-            <p className="ims-empty mt-3">No locations found.</p>
-          ) : null}
-        </div>
+              </thead>
+              {showLocationLoadingRows ? (
+                <MasterTableLoadingRows
+                  columns={visibleLocationColumns}
+                  rowLimit={locationRowLimit}
+                />
+              ) : (
+                <tbody>
+                  {locationPagination.items.map((location) => (
+                    <tr key={location.id} className="ims-table-row">
+                      {visibleLocationColumns.map((column) => (
+                        <td key={`${location.id}-${column.key}`}>
+                          {renderLocationCell(location, column.key)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              )}
+            </table>
+            {!showLocationLoadingRows && !error && locations.length === 0 ? (
+              <p className="ims-empty mt-3">No locations found.</p>
+            ) : null}
+          </div>
 
-        <MasterTablePagination
-          totalItems={locations.length}
-          currentPage={locationPage}
-          rowLimit={locationRowLimit}
-          onPageChange={setLocationPage}
-          onRowLimitChange={(limit) => {
-            setLocationRowLimit(limit);
-            setLocationPage(1);
-          }}
-        />
-      </Card>
-    </section>
-  </div>
+          <MasterTablePagination
+            totalItems={locations.length}
+            currentPage={locationPage}
+            rowLimit={locationRowLimit}
+            onPageChange={setLocationPage}
+            loading={showLocationLoadingRows}
+          />
+        </Card>
+      </section>
+    </div>
   );
 }

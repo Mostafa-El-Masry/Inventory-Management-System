@@ -3,9 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
+import { MasterArchivedToggle } from "@/components/master/master-archived-toggle";
+import { MasterColumnsMenu } from "@/components/master/master-columns-menu";
 import { MasterPageHeader } from "@/components/master/master-page-header";
 import { MasterCsvSync } from "@/components/master/master-csv-sync";
+import { MasterPanelReveal } from "@/components/master/master-panel-reveal";
+import { MasterTableLoadingRows } from "@/components/master/master-table-loading";
 import {
+  MasterRowLimitControl,
   MasterTablePagination,
   RowLimitOption,
   paginateRows,
@@ -15,6 +20,10 @@ import {
   SortDirection,
   SortableTableHeader,
 } from "@/components/master/sortable-table-header";
+import {
+  buildDefaultColumnVisibility,
+  useMasterColumns,
+} from "@/components/master/use-master-columns";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FilePicker } from "@/components/ui/file-picker";
@@ -30,10 +39,6 @@ import {
 } from "@/lib/utils/local-filter-storage";
 import { compareTextValues } from "@/lib/utils/sort-values";
 import { fetchJson } from "@/lib/utils/fetch-json";
-import {
-  PRODUCT_IMPORT_MAX_ROWS,
-  PRODUCT_MAX_COUNT,
-} from "@/lib/products/import";
 
 const PRODUCT_COLUMN_DEFINITIONS = [
   { key: "name", label: "Name" },
@@ -47,11 +52,6 @@ const PRODUCT_COLUMN_DEFINITIONS = [
 ] as const;
 
 type ProductColumnKey = (typeof PRODUCT_COLUMN_DEFINITIONS)[number]["key"];
-type ProductColumnDefinition = (typeof PRODUCT_COLUMN_DEFINITIONS)[number];
-
-const PRODUCT_COLUMN_KEY_SET = new Set<ProductColumnKey>(
-  PRODUCT_COLUMN_DEFINITIONS.map((column) => column.key),
-);
 
 const DEFAULT_PRODUCT_COLUMN_ORDER: ProductColumnKey[] = [
   "name",
@@ -64,16 +64,10 @@ const DEFAULT_PRODUCT_COLUMN_ORDER: ProductColumnKey[] = [
   "action",
 ];
 
-const DEFAULT_PRODUCT_COLUMN_VISIBILITY: Record<ProductColumnKey, boolean> = {
-  name: true,
-  barcode: true,
-  sku: false,
-  category: false,
-  subcategory: false,
-  unit: false,
-  active: false,
-  action: false,
-};
+const DEFAULT_PRODUCT_COLUMN_VISIBILITY = buildDefaultColumnVisibility(
+  DEFAULT_PRODUCT_COLUMN_ORDER,
+  ["name", "barcode"],
+);
 
 const PRODUCT_EXPORT_COLUMNS: ExportColumn[] = [
   { key: "sku", label: "SKU" },
@@ -85,67 +79,6 @@ const PRODUCT_EXPORT_COLUMNS: ExportColumn[] = [
   { key: "category_code", label: "Category Code" },
   { key: "subcategory_code", label: "Subcategory Code" },
 ];
-
-function getDefaultProductColumnOrder() {
-  return [...DEFAULT_PRODUCT_COLUMN_ORDER];
-}
-
-function getDefaultProductColumnVisibility(): Record<ProductColumnKey, boolean> {
-  return { ...DEFAULT_PRODUCT_COLUMN_VISIBILITY };
-}
-
-function isProductColumnKey(value: unknown): value is ProductColumnKey {
-  return typeof value === "string" && PRODUCT_COLUMN_KEY_SET.has(value as ProductColumnKey);
-}
-
-function normalizeProductColumnOrder(raw: unknown): ProductColumnKey[] {
-  if (!Array.isArray(raw)) {
-    return getDefaultProductColumnOrder();
-  }
-
-  const ordered: ProductColumnKey[] = [];
-  for (const value of raw) {
-    if (!isProductColumnKey(value)) {
-      continue;
-    }
-    if (ordered.includes(value)) {
-      continue;
-    }
-    ordered.push(value);
-  }
-
-  for (const value of DEFAULT_PRODUCT_COLUMN_ORDER) {
-    if (!ordered.includes(value)) {
-      ordered.push(value);
-    }
-  }
-
-  return ordered;
-}
-
-function normalizeProductColumnVisibility(raw: unknown): Record<ProductColumnKey, boolean> {
-  const next = getDefaultProductColumnVisibility();
-  if (!raw || typeof raw !== "object") {
-    return next;
-  }
-
-  for (const key of DEFAULT_PRODUCT_COLUMN_ORDER) {
-    const value = (raw as Record<string, unknown>)[key];
-    if (typeof value === "boolean") {
-      next[key] = value;
-    }
-  }
-
-  const visibleCount = DEFAULT_PRODUCT_COLUMN_ORDER.reduce(
-    (count, key) => count + (next[key] ? 1 : 0),
-    0,
-  );
-  if (visibleCount === 0) {
-    return getDefaultProductColumnVisibility();
-  }
-
-  return next;
-}
 
 type Product = {
   id: string;
@@ -179,12 +112,17 @@ type ProductSubcategory = {
 
 type ProductSortKey = Exclude<ProductColumnKey, "action">;
 
+function isProductSortableColumn(key: ProductColumnKey): key is ProductSortKey {
+  return key !== "action";
+}
+
 export default function ProductsPage() {
   const { capabilities, userId: authUserId } = useDashboardSession();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [subcategories, setSubcategories] = useState<ProductSubcategory[]>([]);
   const [showInactive, setShowInactive] = useState(false);
+  const [productsLoading, setProductsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
   const [stateLoading, setStateLoading] = useState(false);
@@ -195,8 +133,6 @@ export default function ProductsPage() {
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const [taxonomyMessage, setTaxonomyMessage] = useState<string | null>(null);
   const [masterPanelOpen, setMasterPanelOpen] = useState(false);
-  const [columnsPanelOpen, setColumnsPanelOpen] = useState(false);
-  const [columnPrefsLoaded, setColumnPrefsLoaded] = useState(false);
   const [productRowLimit, setProductRowLimit] = useState<RowLimitOption>(10);
   const [productRowLimitPrefsLoaded, setProductRowLimitPrefsLoaded] = useState(false);
   const [productPage, setProductPage] = useState(1);
@@ -204,15 +140,6 @@ export default function ProductsPage() {
   const [productSortKey, setProductSortKey] = useState<ProductSortKey>("name");
   const [productSortDirection, setProductSortDirection] =
     useState<SortDirection>("asc");
-  const [columnOrder, setColumnOrder] = useState<ProductColumnKey[]>(() =>
-    getDefaultProductColumnOrder(),
-  );
-  const [columnVisibility, setColumnVisibility] = useState<
-    Record<ProductColumnKey, boolean>
-  >(() => getDefaultProductColumnVisibility());
-  const [openActionMenuProductId, setOpenActionMenuProductId] = useState<string | null>(
-    null,
-  );
   const [newProduct, setNewProduct] = useState({
     name: "",
     category_id: "",
@@ -231,9 +158,21 @@ export default function ProductsPage() {
     is_active: true,
   });
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
-  const actionMenuRef = useRef<HTMLDivElement | null>(null);
-  const columnsPanelRef = useRef<HTMLDivElement | null>(null);
   const archivedFilterStorageKey = buildFilterStorageKey(authUserId, "master", "products");
+  const {
+    orderedColumns,
+    visibleColumns,
+    columnVisibility,
+    toggleColumnVisibility,
+    moveColumn,
+    resetColumnPreferences,
+  } = useMasterColumns({
+    userId: authUserId,
+    storageKey: `ims:products:columns:${authUserId}`,
+    columns: PRODUCT_COLUMN_DEFINITIONS,
+    defaultOrder: DEFAULT_PRODUCT_COLUMN_ORDER,
+    defaultVisibility: DEFAULT_PRODUCT_COLUMN_VISIBILITY,
+  });
 
   const loadProducts = useCallback(async (signal?: AbortSignal) => {
     const result = await fetchJson<{ items?: Product[] }>(
@@ -252,7 +191,6 @@ export default function ProductsPage() {
     }
 
     setError(null);
-    setOpenActionMenuProductId(null);
     setProducts(result.data.items ?? []);
   }, [showInactive]);
 
@@ -305,57 +243,58 @@ export default function ProductsPage() {
     }
 
     const controller = new AbortController();
-    loadProducts(controller.signal).catch(() => setError("Failed to load products."));
-    return () => controller.abort();
+    let cancelled = false;
+
+    setProductsLoading(true);
+    loadProducts(controller.signal)
+      .catch(() => {
+        if (!cancelled) {
+          setError("Failed to load products.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setProductsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [archivedFilterHydrated, loadProducts]);
 
-  const canCreateProductMaster = capabilities.canCreateProductMaster;
+  const canCreateProductPermission = capabilities.master.products.create;
+  const canImportProducts = capabilities.master.products.import;
+  const canArchiveProducts = capabilities.master.products.archive;
+  const canDeleteProducts = capabilities.master.products.delete;
+  const canCreateCategoryPermission = capabilities.master.categories.create;
+  const canCreateSubcategoryPermission = capabilities.master.subcategories.create;
+  const canShowProductPanel =
+    canCreateProductPermission ||
+    canImportProducts ||
+    canCreateCategoryPermission ||
+    canCreateSubcategoryPermission;
+  const needsTaxonomyForPanel =
+    canCreateProductPermission ||
+    canCreateCategoryPermission ||
+    canCreateSubcategoryPermission;
+  const showProductLoadingRows = !archivedFilterHydrated || productsLoading;
 
   useEffect(() => {
-    if (!canCreateProductMaster) {
+    if (!canShowProductPanel) {
       setMasterPanelOpen(false);
     }
-  }, [canCreateProductMaster]);
+  }, [canShowProductPanel]);
 
   useEffect(() => {
-    if (!canCreateProductMaster) {
+    if (!needsTaxonomyForPanel) {
       return;
     }
     const controller = new AbortController();
     loadTaxonomy(controller.signal).catch(() => setError("Failed to load product taxonomy."));
     return () => controller.abort();
-  }, [canCreateProductMaster, loadTaxonomy]);
-
-  useEffect(() => {
-    if (!authUserId) {
-      setColumnPrefsLoaded(false);
-      return;
-    }
-
-    setColumnPrefsLoaded(false);
-    const storageKey = `ims:products:columns:${authUserId}`;
-    try {
-      const raw = window.localStorage.getItem(storageKey);
-      if (!raw) {
-        setColumnOrder(getDefaultProductColumnOrder());
-        setColumnVisibility(getDefaultProductColumnVisibility());
-        setColumnPrefsLoaded(true);
-        return;
-      }
-
-      const parsed = JSON.parse(raw) as {
-        order?: unknown;
-        visibility?: unknown;
-      };
-      setColumnOrder(normalizeProductColumnOrder(parsed.order));
-      setColumnVisibility(normalizeProductColumnVisibility(parsed.visibility));
-      setColumnPrefsLoaded(true);
-    } catch {
-      setColumnOrder(getDefaultProductColumnOrder());
-      setColumnVisibility(getDefaultProductColumnVisibility());
-      setColumnPrefsLoaded(true);
-    }
-  }, [authUserId]);
+  }, [loadTaxonomy, needsTaxonomyForPanel]);
 
   useEffect(() => {
     if (!authUserId) {
@@ -389,25 +328,6 @@ export default function ProductsPage() {
   }, [authUserId]);
 
   useEffect(() => {
-    if (!authUserId || !columnPrefsLoaded) {
-      return;
-    }
-
-    const storageKey = `ims:products:columns:${authUserId}`;
-    const payload = {
-      version: 1,
-      order: columnOrder,
-      visibility: columnVisibility,
-    };
-
-    try {
-      window.localStorage.setItem(storageKey, JSON.stringify(payload));
-    } catch {
-      // Ignore localStorage quota or privacy-mode write errors.
-    }
-  }, [authUserId, columnPrefsLoaded, columnOrder, columnVisibility]);
-
-  useEffect(() => {
     if (!authUserId || !productRowLimitPrefsLoaded) {
       return;
     }
@@ -437,70 +357,6 @@ export default function ProductsPage() {
     writeLocalFilterState(archivedFilterStorageKey, { showInactive: true });
   }, [archivedFilterHydrated, archivedFilterStorageKey, showInactive]);
 
-  useEffect(() => {
-    if (!columnsPanelOpen) {
-      return;
-    }
-
-    function handlePointerDown(event: PointerEvent) {
-      if (!columnsPanelRef.current) {
-        return;
-      }
-      if (!columnsPanelRef.current.contains(event.target as Node)) {
-        setColumnsPanelOpen(false);
-      }
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setColumnsPanelOpen(false);
-      }
-    }
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [columnsPanelOpen]);
-
-  useEffect(() => {
-    if (!openActionMenuProductId) {
-      return;
-    }
-
-    function handlePointerDown(event: PointerEvent) {
-      if (!actionMenuRef.current) {
-        return;
-      }
-      if (!actionMenuRef.current.contains(event.target as Node)) {
-        setOpenActionMenuProductId(null);
-      }
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setOpenActionMenuProductId(null);
-      }
-    }
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [openActionMenuProductId]);
-
-  useEffect(() => {
-    if (!columnVisibility.action && openActionMenuProductId) {
-      setOpenActionMenuProductId(null);
-    }
-  }, [columnVisibility.action, openActionMenuProductId]);
-
   const activeCategories = useMemo(
     () => categories.filter((category) => category.is_active),
     [categories],
@@ -515,29 +371,16 @@ export default function ProductsPage() {
     [subcategories, newProduct.category_id],
   );
 
-  const canCreateProduct =
+  const canCreateProductForm =
     newProduct.name.trim().length >= 2 &&
     newProduct.unit.trim().length >= 1 &&
     newProduct.category_id.length > 0 &&
     newProduct.subcategory_id.length > 0;
 
-  const canCreateCategory = newCategory.name.trim().length >= 2;
-  const canCreateSubcategory =
+  const canCreateCategoryForm = newCategory.name.trim().length >= 2;
+  const canCreateSubcategoryForm =
     newSubcategory.name.trim().length >= 2 &&
     newSubcategory.category_id.length > 0;
-
-  const orderedColumns = useMemo(
-    () =>
-      columnOrder
-        .map((key) => PRODUCT_COLUMN_DEFINITIONS.find((column) => column.key === key))
-        .filter((column): column is ProductColumnDefinition => column !== undefined),
-    [columnOrder],
-  );
-
-  const visibleColumns = useMemo(
-    () => orderedColumns.filter((column) => columnVisibility[column.key]),
-    [orderedColumns, columnVisibility],
-  );
   const sortedProducts = useMemo(() => {
     const next = [...products];
     next.sort((left, right) => {
@@ -580,49 +423,6 @@ export default function ProductsPage() {
     }
   }, [productPage, productPagination.totalPages]);
 
-  function toggleColumnVisibility(columnKey: ProductColumnKey) {
-    setColumnVisibility((current) => {
-      if (current[columnKey]) {
-        const visibleCount = DEFAULT_PRODUCT_COLUMN_ORDER.reduce(
-          (count, key) => count + (current[key] ? 1 : 0),
-          0,
-        );
-        if (visibleCount <= 1) {
-          return current;
-        }
-      }
-
-      return {
-        ...current,
-        [columnKey]: !current[columnKey],
-      };
-    });
-  }
-
-  function moveColumn(columnKey: ProductColumnKey, direction: -1 | 1) {
-    setColumnOrder((current) => {
-      const index = current.indexOf(columnKey);
-      if (index < 0) {
-        return current;
-      }
-
-      const nextIndex = index + direction;
-      if (nextIndex < 0 || nextIndex >= current.length) {
-        return current;
-      }
-
-      const next = [...current];
-      const [moved] = next.splice(index, 1);
-      next.splice(nextIndex, 0, moved);
-      return next;
-    });
-  }
-
-  function resetColumnPreferences() {
-    setColumnOrder(getDefaultProductColumnOrder());
-    setColumnVisibility(getDefaultProductColumnVisibility());
-  }
-
   function toggleProductSort(nextKey: ProductSortKey) {
     setProductSortDirection((current) =>
       productSortKey === nextKey ? (current === "asc" ? "desc" : "asc") : "asc",
@@ -631,7 +431,7 @@ export default function ProductsPage() {
   }
 
   async function createProduct() {
-    if (!canCreateProductMaster || !canCreateProduct) {
+    if (!canCreateProductPermission || !canCreateProductForm) {
       return;
     }
 
@@ -675,7 +475,7 @@ export default function ProductsPage() {
   }
 
   async function createCategory() {
-    if (!canCreateProductMaster || !canCreateCategory) {
+    if (!canCreateCategoryPermission || !canCreateCategoryForm) {
       return;
     }
 
@@ -710,7 +510,7 @@ export default function ProductsPage() {
   }
 
   async function createSubcategory() {
-    if (!canCreateProductMaster || !canCreateSubcategory) {
+    if (!canCreateSubcategoryPermission || !canCreateSubcategoryForm) {
       return;
     }
 
@@ -747,7 +547,7 @@ export default function ProductsPage() {
   }
 
   async function importProductsFromCsv() {
-    if (!canCreateProductMaster || !importFile) {
+    if (!canImportProducts || !importFile) {
       return;
     }
 
@@ -857,6 +657,10 @@ export default function ProductsPage() {
   }
 
   async function setProductActive(productId: string, active: boolean) {
+    if (!canArchiveProducts) {
+      return;
+    }
+
     setStateLoading(true);
     setError(null);
     try {
@@ -880,6 +684,10 @@ export default function ProductsPage() {
   }
 
   async function hardDeleteProduct(product: Product) {
+    if (!canDeleteProducts) {
+      return;
+    }
+
     const confirmed = confirm(
       `Hard delete product "${product.name}"? This cannot be undone.`,
     );
@@ -942,38 +750,32 @@ export default function ProductsPage() {
     }
 
     if (columnKey === "action") {
-      if (!capabilities.canArchiveProducts) {
-        return <span className="text-xs text-[var(--text-muted)]">restricted</span>;
+      const actionItems = [];
+
+      if (canArchiveProducts) {
+        actionItems.push({
+          label: product.is_active ? "Archive" : "Activate",
+          onSelect: () => setProductActive(product.id, !product.is_active),
+        });
       }
 
-      if (!product.can_hard_delete) {
-        return (
-          <Button
-            variant="secondary"
-            className="ims-control-sm"
-            disabled={stateLoading}
-            onClick={() => setProductActive(product.id, !product.is_active)}
-          >
-            {product.is_active ? "Archive" : "Activate"}
-          </Button>
-        );
+      if (canDeleteProducts && product.can_hard_delete) {
+        actionItems.push({
+          label: "Delete",
+          destructive: true,
+          onSelect: () => hardDeleteProduct(product),
+        });
+      }
+
+      if (actionItems.length === 0) {
+        return <span className="text-xs text-[var(--text-muted)]">--</span>;
       }
 
       return (
         <RowActionsMenu
           label={`Open actions for ${product.name}`}
           disabled={stateLoading}
-          items={[
-            {
-              label: product.is_active ? "Archive" : "Activate",
-              onSelect: () => setProductActive(product.id, !product.is_active),
-            },
-            {
-              label: "Delete",
-              destructive: true,
-              onSelect: () => hardDeleteProduct(product),
-            },
-          ]}
+          items={actionItems}
         />
       );
     }
@@ -984,12 +786,11 @@ export default function ProductsPage() {
   return (
     <div className="space-y-6">
       <MasterPageHeader
-        kicker="MASTER DATA"
         title="Products"
         subtitle="Product master is admin-managed."
-        showAction={canCreateProductMaster}
+        showAction={canShowProductPanel}
         panelOpen={masterPanelOpen}
-        onTogglePanel={canCreateProductMaster ? () => setMasterPanelOpen((current) => !current) : undefined}
+        onTogglePanel={canShowProductPanel ? () => setMasterPanelOpen((current) => !current) : undefined}
         openLabel="Show product actions"
         closeLabel="Hide product actions"
       />
@@ -998,12 +799,11 @@ export default function ProductsPage() {
       {importMessage ? <p className="ims-alert-success">{importMessage}</p> : null}
       {taxonomyMessage ? <p className="ims-alert-success">{taxonomyMessage}</p> : null}
 
-      {canCreateProductMaster && masterPanelOpen ? (
-        <div className="space-y-4">
+      {canShowProductPanel ? (
+        <MasterPanelReveal open={masterPanelOpen} className="space-y-4">
           <MasterCsvSync
             entity="products"
-            canManage={canCreateProductMaster}
-            helperText="Reimport is strict SKU upsert. Category/subcategory codes must already exist."
+            canManage={canImportProducts}
             title="Products"
             filenameBase="products"
             columns={PRODUCT_EXPORT_COLUMNS}
@@ -1022,52 +822,165 @@ export default function ProductsPage() {
               await loadProducts();
               await loadTaxonomy();
             }}
-          />
+            secondaryActions={canImportProducts ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <a href="/api/products/import/template">
+                  <Button variant="secondary" className="ims-control-lg rounded-2xl">
+                    Download Import Template
+                  </Button>
+                </a>
 
-          <Card className="min-h-[12rem]">
-            <h2 className="text-lg font-semibold">Bulk Import</h2>
-            <p className="mt-2 text-sm text-[var(--text-muted)]">
-              Download the product CSV template, fill rows, then upload to import products in
-              bulk.
-            </p>
-            <p className="mt-1 text-xs text-[var(--text-muted)]">
-              Required columns include <code>name</code>, <code>category_name</code>,{" "}
-              <code>subcategory_name</code>, and <code>unit</code>.
-            </p>
-            <p className="mt-1 text-xs text-[var(--text-muted)]">
-              Max rows per import: {PRODUCT_IMPORT_MAX_ROWS}. Max total products:{" "}
-              {PRODUCT_MAX_COUNT}.
-            </p>
+                <FilePicker
+                  ref={importFileInputRef}
+                  accept=".csv,text/csv"
+                  fileName={importFile?.name ?? null}
+                  className="ims-control-lg w-full max-w-xl"
+                  onChange={(event) => {
+                    setImportMessage(null);
+                    setImportFile(event.target.files?.[0] ?? null);
+                  }}
+                />
 
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <a href="/api/products/import/template">
-                <Button variant="secondary" className="ims-control-lg rounded-2xl">
-                  Download Template
+                <Button
+                  className="ims-control-lg rounded-2xl"
+                  onClick={() => importProductsFromCsv()}
+                  disabled={importLoading || !importFile}
+                >
+                  {importLoading ? "Importing..." : "Import CSV"}
                 </Button>
-              </a>
+              </div>
+            ) : null}
+          >
+            {canCreateProductPermission ? (
+              <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+              <div className="space-y-1">
+                <label className="ims-field-label mb-0">Product name</label>
+                <Input
+                  value={newProduct.name}
+                  onChange={(event) =>
+                    setNewProduct((current) => ({
+                      ...current,
+                      name: event.target.value,
+                    }))
+                  }
+                  placeholder="Product name"
+                  className="ims-control-md"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="ims-field-label mb-0">Barcode</label>
+                <Input
+                  value={newProduct.barcode}
+                  onChange={(event) =>
+                    setNewProduct((current) => ({
+                      ...current,
+                      barcode: event.target.value,
+                    }))
+                  }
+                  placeholder="Barcode"
+                  className="ims-control-md"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="ims-field-label mb-0">Category</label>
+                <Select
+                  className="ims-control-md"
+                  value={newProduct.category_id}
+                  onChange={(event) =>
+                    setNewProduct((current) => ({
+                      ...current,
+                      category_id: event.target.value,
+                      subcategory_id:
+                        current.category_id === event.target.value
+                          ? current.subcategory_id
+                          : "",
+                    }))
+                  }
+                  disabled={taxonomyLoading || activeCategories.length === 0}
+                >
+                  <option value="">Select category</option>
+                  {activeCategories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.code} - {category.name}
+                    </option>
+                  ))}
+                </Select>
+                {!taxonomyLoading && activeCategories.length === 0 ? (
+                  <p className="ims-alert-warn mt-1 text-xs">
+                    Create an active category first in taxonomy or categories.
+                  </p>
+                ) : null}
+              </div>
+              <div className="space-y-1">
+                <label className="ims-field-label mb-0">Subcategory</label>
+                <Select
+                  className="ims-control-md"
+                  value={newProduct.subcategory_id}
+                  onChange={(event) =>
+                    setNewProduct((current) => ({
+                      ...current,
+                      subcategory_id: event.target.value,
+                    }))
+                  }
+                  disabled={!newProduct.category_id || createRowSubcategories.length === 0}
+                >
+                  <option value="">Select subcategory</option>
+                  {createRowSubcategories.map((subcategory) => (
+                    <option key={subcategory.id} value={subcategory.id}>
+                      {subcategory.code} - {subcategory.name}
+                    </option>
+                  ))}
+                </Select>
+                {newProduct.category_id &&
+                !taxonomyLoading &&
+                createRowSubcategories.length === 0 ? (
+                  <p className="ims-alert-warn mt-1 text-xs">
+                    This category has no active subcategories. Create one first.
+                  </p>
+                ) : null}
+              </div>
+              <div className="space-y-1">
+                <label className="ims-field-label mb-0">Unit</label>
+                <Input
+                  value={newProduct.unit}
+                  onChange={(event) =>
+                    setNewProduct((current) => ({
+                      ...current,
+                      unit: event.target.value,
+                    }))
+                  }
+                  placeholder="Unit"
+                  className="ims-control-md"
+                />
+              </div>
+              <div className="flex items-end justify-between gap-3">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={newProduct.is_active}
+                    onChange={(event) =>
+                      setNewProduct((current) => ({
+                        ...current,
+                        is_active: event.target.checked,
+                      }))
+                    }
+                  />
+                  {newProduct.is_active ? "Active" : "Inactive"}
+                </label>
+                <Button
+                  className="ims-control-md"
+                  disabled={!canCreateProductForm || createLoading || taxonomyLoading}
+                  onClick={() => createProduct()}
+                >
+                  {createLoading ? "Saving..." : "Create"}
+                </Button>
+              </div>
+              </div>
+            ) : null}
+          </MasterCsvSync>
 
-              <FilePicker
-                ref={importFileInputRef}
-                accept=".csv,text/csv"
-                fileName={importFile?.name ?? null}
-                className="ims-control-lg w-full max-w-xl"
-                onChange={(event) => {
-                  setImportMessage(null);
-                  setImportFile(event.target.files?.[0] ?? null);
-                }}
-              />
-
-              <Button
-                className="ims-control-lg rounded-2xl"
-                onClick={() => importProductsFromCsv()}
-                disabled={importLoading || !importFile}
-              >
-                {importLoading ? "Importing..." : "Import CSV"}
-              </Button>
-            </div>
-          </Card>
-
-          <Card className="space-y-4">
+          {canCreateCategoryPermission || canCreateSubcategoryPermission ? (
+            <Card className="space-y-4">
             <div className="space-y-1">
               <h2 className="text-lg font-semibold">Quick Taxonomy</h2>
               <p className="text-sm text-[var(--text-muted)]">
@@ -1081,7 +994,14 @@ export default function ProductsPage() {
                   {taxonomyLoading ? "Refreshing masters..." : `${categories.length} categories`}
                 </span>
               </div>
-              <div className="mt-3 grid gap-4 lg:grid-cols-2">
+              <div
+                className={`mt-3 grid gap-4 ${
+                  canCreateCategoryPermission && canCreateSubcategoryPermission
+                    ? "lg:grid-cols-2"
+                    : "lg:grid-cols-1"
+                }`}
+              >
+                {canCreateCategoryPermission ? (
                 <div className="space-y-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3">
                   <p className="text-sm font-medium">Category</p>
                   <div className="flex flex-wrap items-center gap-2">
@@ -1111,14 +1031,16 @@ export default function ProductsPage() {
                     </label>
                     <Button
                       className="ims-control-md"
-                      disabled={!canCreateCategory || taxonomySaving}
+                      disabled={!canCreateCategoryForm || taxonomySaving}
                       onClick={() => createCategory()}
                     >
                       Add
                     </Button>
                   </div>
                 </div>
+                ) : null}
 
+                {canCreateSubcategoryPermission ? (
                 <div className="space-y-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3">
                   <p className="text-sm font-medium">Subcategory</p>
                   <Select
@@ -1165,7 +1087,7 @@ export default function ProductsPage() {
                     </label>
                     <Button
                       className="ims-control-md"
-                      disabled={!canCreateSubcategory || taxonomySaving}
+                      disabled={!canCreateSubcategoryForm || taxonomySaving}
                       onClick={() => createSubcategory()}
                     >
                       Add
@@ -1177,152 +1099,19 @@ export default function ProductsPage() {
                     </p>
                   ) : null}
                 </div>
+                ) : null}
               </div>
             </div>
-          </Card>
+            </Card>
+          ) : null}
 
-          <Card className="space-y-4">
-            <div className="space-y-1">
-              <h2 className="text-lg font-semibold">Create Product</h2>
-              <p className="text-sm text-[var(--text-muted)]">
-                Add a new product directly from the master screen.
-              </p>
-            </div>
-            <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface-muted)] p-4">
-              <div className="grid gap-3 lg:grid-cols-2">
-                <div className="space-y-1">
-                  <label className="ims-field-label mb-0">Product name</label>
-                  <Input
-                    value={newProduct.name}
-                    onChange={(event) =>
-                      setNewProduct((current) => ({
-                        ...current,
-                        name: event.target.value,
-                      }))
-                    }
-                    placeholder="Product name"
-                    className="ims-control-md"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="ims-field-label mb-0">Barcode</label>
-                  <Input
-                    value={newProduct.barcode}
-                    onChange={(event) =>
-                      setNewProduct((current) => ({
-                        ...current,
-                        barcode: event.target.value,
-                      }))
-                    }
-                    placeholder="Barcode"
-                    className="ims-control-md"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="ims-field-label mb-0">Category</label>
-                  <Select
-                    className="ims-control-md"
-                    value={newProduct.category_id}
-                    onChange={(event) =>
-                      setNewProduct((current) => ({
-                        ...current,
-                        category_id: event.target.value,
-                        subcategory_id:
-                          current.category_id === event.target.value
-                            ? current.subcategory_id
-                            : "",
-                      }))
-                    }
-                    disabled={taxonomyLoading || activeCategories.length === 0}
-                  >
-                    <option value="">Select category</option>
-                    {activeCategories.map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {category.code} - {category.name}
-                      </option>
-                    ))}
-                  </Select>
-                  {!taxonomyLoading && activeCategories.length === 0 ? (
-                    <p className="ims-alert-warn mt-1 text-xs">
-                      Create an active category first in taxonomy or categories.
-                    </p>
-                  ) : null}
-                </div>
-                <div className="space-y-1">
-                  <label className="ims-field-label mb-0">Subcategory</label>
-                  <Select
-                    className="ims-control-md"
-                    value={newProduct.subcategory_id}
-                    onChange={(event) =>
-                      setNewProduct((current) => ({
-                        ...current,
-                        subcategory_id: event.target.value,
-                      }))
-                    }
-                    disabled={!newProduct.category_id || createRowSubcategories.length === 0}
-                  >
-                    <option value="">Select subcategory</option>
-                    {createRowSubcategories.map((subcategory) => (
-                      <option key={subcategory.id} value={subcategory.id}>
-                        {subcategory.code} - {subcategory.name}
-                      </option>
-                    ))}
-                  </Select>
-                  {newProduct.category_id &&
-                  !taxonomyLoading &&
-                  createRowSubcategories.length === 0 ? (
-                    <p className="ims-alert-warn mt-1 text-xs">
-                      This category has no active subcategories. Create one first.
-                    </p>
-                  ) : null}
-                </div>
-                <div className="space-y-1">
-                  <label className="ims-field-label mb-0">Unit</label>
-                  <Input
-                    value={newProduct.unit}
-                    onChange={(event) =>
-                      setNewProduct((current) => ({
-                        ...current,
-                        unit: event.target.value,
-                      }))
-                    }
-                    placeholder="Unit"
-                    className="ims-control-md"
-                  />
-                </div>
-                <div className="flex items-end justify-between gap-3">
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={newProduct.is_active}
-                      onChange={(event) =>
-                        setNewProduct((current) => ({
-                          ...current,
-                          is_active: event.target.checked,
-                        }))
-                      }
-                    />
-                    {newProduct.is_active ? "Active" : "Inactive"}
-                  </label>
-                  <Button
-                    className="ims-control-md"
-                    disabled={!canCreateProduct || createLoading || taxonomyLoading}
-                    onClick={() => createProduct()}
-                  >
-                    {createLoading ? "Saving..." : "Create"}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </Card>
-        </div>
+        </MasterPanelReveal>
       ) : null}
 
-      {!canCreateProductMaster ? (
+      {!canShowProductPanel ? (
         <MasterCsvSync
           entity="products"
-          canManage={canCreateProductMaster}
-          helperText="Reimport is strict SKU upsert. Category/subcategory codes must already exist."
+          canManage={canImportProducts}
           title="Products"
           filenameBase="products"
           columns={PRODUCT_EXPORT_COLUMNS}
@@ -1347,127 +1136,84 @@ export default function ProductsPage() {
       <section>
         <Card className="min-h-[24rem]">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 className="text-lg font-semibold">Product List</h2>
-              <p className="text-sm text-[var(--text-muted)]">
-                {showInactive ? "Showing active and archived products." : "Showing active products only."}
-              </p>
+            <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-1">
+              <MasterRowLimitControl
+                value={productRowLimit}
+                onChange={(limit) => {
+                  setProductRowLimit(limit);
+                  setProductPage(1);
+                }}
+              />
+              <div className="min-w-0 space-y-1">
+                <h2 className="text-lg font-semibold">Product List</h2>
+                <p className="text-sm text-[var(--text-muted)]">
+                  {showInactive ? "Showing active and disabled products." : "Showing active products only."}
+                </p>
+              </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <div className="relative">
-                <Button
-                  variant="secondary"
-                  className="ims-control-sm rounded-xl"
-                  onClick={() => setColumnsPanelOpen((current) => !current)}
-                  aria-expanded={columnsPanelOpen}
-                >
-                  Columns
-                </Button>
-                {columnsPanelOpen ? (
-                  <div
-                    ref={columnsPanelRef}
-                    className="absolute right-0 top-[calc(100%+0.35rem)] z-20 w-[17.5rem] rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] p-3 shadow-[var(--shadow-md)]"
-                  >
-                    <div className="mb-2 flex items-center justify-between">
-                      <p className="text-sm font-semibold">Visible Columns</p>
-                      <Button
-                        variant="ghost"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => resetColumnPreferences()}
-                      >
-                        Reset
-                      </Button>
-                    </div>
-                    <div className="space-y-2">
-                      {orderedColumns.map((column, index) => (
-                        <div
-                          key={column.key}
-                          className="flex items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--surface-soft)] px-2 py-1.5"
-                        >
-                          <label className="flex items-center gap-2 text-sm">
-                            <input
-                              type="checkbox"
-                              checked={columnVisibility[column.key]}
-                              onChange={() => toggleColumnVisibility(column.key)}
-                            />
-                            {column.label}
-                          </label>
-                          <div className="flex items-center gap-1">
-                            <Button
-                              variant="secondary"
-                              className="h-7 w-7 rounded-md p-0 text-xs"
-                              disabled={index === 0}
-                              aria-label={`Move ${column.label} up`}
-                              onClick={() => moveColumn(column.key, -1)}
-                            >
-                              ^
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              className="h-7 w-7 rounded-md p-0 text-xs"
-                              disabled={index === orderedColumns.length - 1}
-                              aria-label={`Move ${column.label} down`}
-                              onClick={() => moveColumn(column.key, 1)}
-                            >
-                              v
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <p className="mt-2 text-xs text-[var(--text-muted)]">
-                      Default view shows Name and Barcode only.
-                    </p>
-                  </div>
-                ) : null}
-              </div>
-              <label className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
-                <input
-                  type="checkbox"
-                  checked={showInactive}
-                  onChange={(event) => setShowInactive(event.target.checked)}
-                />
-                Show archived
-              </label>
+              <MasterColumnsMenu
+                orderedColumns={orderedColumns}
+                columnVisibility={columnVisibility}
+                onToggleColumn={toggleColumnVisibility}
+                onMoveColumn={moveColumn}
+                onReset={resetColumnPreferences}
+                helperText="Default view shows Name and Barcode only."
+              />
+              <MasterArchivedToggle
+                pressed={showInactive}
+                onPressedChange={(pressed) => setShowInactive(pressed)}
+              />
             </div>
           </div>
 
-          <div className="mt-4 max-h-[36rem] overflow-auto">
-            <table className="ims-table ims-table-products">
+          <div className="mt-4 overflow-visible">
+            <table
+              className="ims-table ims-table-products"
+              aria-busy={showProductLoadingRows}
+            >
               <thead className="ims-table-head">
                 <tr>
                   {visibleColumns.map((column) => (
                     <th key={column.key}>
-                      {column.key === "action" ? (
-                        column.label
-                      ) : (
-                        <SortableTableHeader
-                          label={column.label}
-                          active={productSortKey === column.key}
-                          direction={productSortDirection}
-                          onClick={() => toggleProductSort(column.key)}
-                        />
-                      )}
+                      {!isProductSortableColumn(column.key) ? column.label : (() => {
+                        const sortKey = column.key;
+                        return (
+                          <SortableTableHeader
+                            label={column.label}
+                            active={productSortKey === sortKey}
+                            direction={productSortDirection}
+                            onClick={() => toggleProductSort(sortKey)}
+                          />
+                        );
+                      })()}
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody>
-                {visibleProducts.map((product) => (
-                  <tr key={product.id} className="ims-table-row">
-                    {visibleColumns.map((column) => (
-                      <td
-                        key={`${product.id}-${column.key}`}
-                        className={column.key === "action" ? "relative" : undefined}
-                      >
-                        {renderProductCell(product, column.key)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
+              {showProductLoadingRows ? (
+                <MasterTableLoadingRows
+                  columns={visibleColumns}
+                  rowLimit={productRowLimit}
+                />
+              ) : (
+                <tbody>
+                  {visibleProducts.map((product) => (
+                    <tr key={product.id} className="ims-table-row">
+                      {visibleColumns.map((column) => (
+                        <td
+                          key={`${product.id}-${column.key}`}
+                          className={column.key === "action" ? "relative" : undefined}
+                        >
+                          {renderProductCell(product, column.key)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              )}
             </table>
-            {products.length === 0 ? (
+            {!showProductLoadingRows && !error && products.length === 0 ? (
               <p className="ims-empty mt-3">No products found.</p>
             ) : null}
           </div>
@@ -1476,10 +1222,7 @@ export default function ProductsPage() {
             currentPage={productPage}
             rowLimit={productRowLimit}
             onPageChange={setProductPage}
-            onRowLimitChange={(limit) => {
-              setProductRowLimit(limit);
-              setProductPage(1);
-            }}
+            loading={showProductLoadingRows}
           />
         </Card>
       </section>

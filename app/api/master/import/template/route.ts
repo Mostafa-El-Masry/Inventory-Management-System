@@ -1,4 +1,4 @@
-import { assertRole, getAuthContext } from "@/lib/auth/permissions";
+import { assertMasterPermission, getAuthContext } from "@/lib/auth/permissions";
 import { MASTER_ENTITIES, MASTER_IMPORT_HEADERS, type MasterEntity } from "@/lib/master-sync/contracts";
 import { fail } from "@/lib/utils/http";
 
@@ -16,17 +16,17 @@ export async function GET(request: Request) {
     return context;
   }
 
-  const roleError = assertRole(context, ["admin"]);
-  if (roleError) {
-    return roleError;
-  }
-
   const entity = parseEntity(new URL(request.url).searchParams.get("entity"));
   if (!entity) {
     return fail(
       "Invalid entity. Use one of: locations, products, categories, subcategories, suppliers.",
       422,
     );
+  }
+
+  const permissionError = assertMasterPermission(context, entity, "import");
+  if (permissionError) {
+    return permissionError;
   }
 
   const csv = `${MASTER_IMPORT_HEADERS[entity].join(",")}\n`;

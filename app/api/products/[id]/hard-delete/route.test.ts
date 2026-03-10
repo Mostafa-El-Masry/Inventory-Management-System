@@ -21,6 +21,7 @@ const {
 vi.mock("@/lib/auth/permissions", () => ({
   getAuthContext: getAuthContextMock,
   assertRole: assertRoleMock,
+  assertMasterPermission: assertRoleMock,
 }));
 
 import { POST } from "@/app/api/products/[id]/hard-delete/route";

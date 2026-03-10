@@ -56,15 +56,37 @@ type MasterTablePaginationProps = {
   currentPage: number;
   rowLimit: RowLimitOption;
   onPageChange: (page: number) => void;
-  onRowLimitChange: (limit: RowLimitOption) => void;
+  loading?: boolean;
 };
+
+export function MasterRowLimitControl({
+  value,
+  onChange,
+}: {
+  value: RowLimitOption;
+  onChange: (limit: RowLimitOption) => void;
+}) {
+  return (
+    <Select
+      className="ims-control-sm w-[4.5rem] shrink-0 appearance-none bg-none"
+      aria-label="Page size"
+      value={String(value)}
+      onChange={(event) => onChange(parseRowLimitOption(event.target.value))}
+    >
+      <option value="10">10</option>
+      <option value="25">25</option>
+      <option value="50">50</option>
+      <option value="all">All</option>
+    </Select>
+  );
+}
 
 export function MasterTablePagination({
   totalItems,
   currentPage,
   rowLimit,
   onPageChange,
-  onRowLimitChange,
+  loading = false,
 }: MasterTablePaginationProps) {
   const totalPages =
     rowLimit === "all" ? 1 : Math.max(1, Math.ceil(totalItems / rowLimit));
@@ -84,26 +106,12 @@ export function MasterTablePagination({
   const pages = Array.from({ length: totalPages }, (_, index) => index + 1);
 
   return (
-    <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto_1fr] md:items-center">
-      <div className="flex items-center justify-center gap-2 text-sm text-[var(--text-muted)] md:justify-start">
-        <span>Rows</span>
-        <Select
-          className="ims-control-sm w-[5.5rem]"
-          value={String(rowLimit)}
-          onChange={(event) => onRowLimitChange(parseRowLimitOption(event.target.value))}
-        >
-          <option value="10">10</option>
-          <option value="25">25</option>
-          <option value="50">50</option>
-          <option value="all">All</option>
-        </Select>
-      </div>
-
+    <div className="mt-4 grid gap-3 md:grid-cols-[auto_1fr] md:items-center">
       <div className="flex flex-wrap items-center justify-center gap-1.5">
         <Button
           variant="secondary"
           className="ims-control-sm rounded-xl px-3"
-          disabled={safePage <= 1}
+          disabled={loading || safePage <= 1}
           onClick={() => onPageChange(safePage - 1)}
         >
           Prev
@@ -114,6 +122,7 @@ export function MasterTablePagination({
             key={page}
             variant={page === safePage ? "primary" : "secondary"}
             className="ims-control-sm min-w-8 rounded-xl px-2"
+            disabled={loading}
             onClick={() => onPageChange(page)}
           >
             {page}
@@ -123,7 +132,7 @@ export function MasterTablePagination({
         <Button
           variant="secondary"
           className="ims-control-sm rounded-xl px-3"
-          disabled={safePage >= totalPages}
+          disabled={loading || safePage >= totalPages}
           onClick={() => onPageChange(safePage + 1)}
         >
           Next
@@ -131,7 +140,11 @@ export function MasterTablePagination({
       </div>
 
       <p className="text-center text-xs text-[var(--text-muted)] md:text-right">
-        {totalItems === 0 ? "No records" : `Showing ${start}-${end} of ${totalItems}`}
+        {loading
+          ? "Loading..."
+          : totalItems === 0
+            ? "No records"
+            : `Showing ${start}-${end} of ${totalItems}`}
       </p>
     </div>
   );

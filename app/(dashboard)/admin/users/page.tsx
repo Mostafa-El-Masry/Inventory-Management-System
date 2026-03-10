@@ -2,10 +2,17 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
+import { MasterPermissionsMatrix } from "@/components/admin/master-permissions-matrix";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import {
+  createEmptyMasterPermissions,
+  type MasterPermissionEntity,
+  type MasterPermissionGridAction,
+  type MasterPermissions,
+} from "@/lib/master-permissions";
 import { fetchJson } from "@/lib/utils/fetch-json";
 
 type UserRow = {
@@ -15,6 +22,7 @@ type UserRow = {
   role: "admin" | "manager" | "staff";
   is_active: boolean;
   created_at: string;
+  master_permissions: MasterPermissions;
 };
 
 type LocationRow = {
@@ -31,27 +39,49 @@ type UserCreateConfig = {
   mode: ProvisionMode;
   password: string;
   location_ids: string[];
+  master_permissions: MasterPermissions;
 };
 
-const DEFAULT_USER_CREATE_CONFIG: UserCreateConfig = {
-  role: "staff",
-  mode: "invite",
-  password: "",
-  location_ids: [],
-};
+function createDefaultUserCreateConfig(): UserCreateConfig {
+  return {
+    role: "staff",
+    mode: "invite",
+    password: "",
+    location_ids: [],
+    master_permissions: createEmptyMasterPermissions(),
+  };
+}
+
+function togglePermissionValue(
+  permissions: MasterPermissions,
+  entity: MasterPermissionEntity,
+  action: MasterPermissionGridAction,
+) {
+  return {
+    ...permissions,
+    [entity]: {
+      ...permissions[entity],
+      [action]: !(permissions[entity] as Record<string, boolean>)[action],
+    },
+  };
+}
 
 export default function UsersAdminPage() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [locations, setLocations] = useState<LocationRow[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([]);
+  const [userRoleValues, setUserRoleValues] = useState<Record<string, UserRole>>({});
+  const [userPermissionValues, setUserPermissionValues] = useState<
+    Record<string, MasterPermissions>
+  >({});
   const [newUser, setNewUser] = useState({
     full_name: "",
     email: "",
   });
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [advancedConfig, setAdvancedConfig] = useState<UserCreateConfig>(
-    DEFAULT_USER_CREATE_CONFIG,
+    createDefaultUserCreateConfig,
   );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -134,6 +164,19 @@ export default function UsersAdminPage() {
     }
   }, [selectedUserId, loadUserLocations]);
 
+  useEffect(() => {
+    const nextRoles: Record<string, UserRole> = {};
+    const nextPermissions: Record<string, MasterPermissions> = {};
+
+    for (const user of users) {
+      nextRoles[user.id] = user.role;
+      nextPermissions[user.id] = user.master_permissions;
+    }
+
+    setUserRoleValues(nextRoles);
+    setUserPermissionValues(nextPermissions);
+  }, [users]);
+
   const canSubmitBase =
     newUser.full_name.trim().length > 0 && newUser.email.trim().length > 0;
   const canSubmitAdvanced =
@@ -156,6 +199,7 @@ export default function UsersAdminPage() {
         mode: config.mode,
         password: config.mode === "password" ? config.password : undefined,
         location_ids: config.location_ids,
+        master_permissions: config.master_permissions,
       };
 
       const result = await fetchJson<{ id?: string; error?: string }>("/api/admin/users", {
@@ -173,7 +217,7 @@ export default function UsersAdminPage() {
         full_name: "",
         email: "",
       });
-      setAdvancedConfig(DEFAULT_USER_CREATE_CONFIG);
+      setAdvancedConfig(createDefaultUserCreateConfig());
       setAdvancedOpen(false);
 
       await loadUsers();
@@ -187,7 +231,7 @@ export default function UsersAdminPage() {
   }
 
   async function createUserNow() {
-    await createUserWithConfig(DEFAULT_USER_CREATE_CONFIG);
+    await createUserWithConfig(createDefaultUserCreateConfig());
   }
 
   async function createUserAdvanced() {
@@ -201,11 +245,14 @@ export default function UsersAdminPage() {
 
     try {
       const formData = new FormData(event.currentTarget);
+      const userId = String(formData.get("id") ?? "");
       const payload = {
-        id: String(formData.get("id") ?? ""),
+        id: userId,
         full_name: String(formData.get("full_name") ?? ""),
-        role: String(formData.get("role") ?? "staff"),
+        role: (userRoleValues[userId] ?? "staff") as UserRole,
         is_active: formData.get("is_active") === "on",
+        master_permissions:
+          userPermissionValues[userId] ?? createEmptyMasterPermissions(),
       };
 
       const result = await fetchJson<{ error?: string }>("/api/admin/users", {
@@ -314,8 +361,33 @@ export default function UsersAdminPage() {
     }));
   }
 
+  function toggleAdvancedMasterPermission(
+    entity: MasterPermissionEntity,
+    action: MasterPermissionGridAction,
+  ) {
+    setAdvancedConfig((current) => ({
+      ...current,
+      master_permissions: togglePermissionValue(current.master_permissions, entity, action),
+    }));
+  }
+
+  function toggleUserMasterPermission(
+    userId: string,
+    entity: MasterPermissionEntity,
+    action: MasterPermissionGridAction,
+  ) {
+    setUserPermissionValues((current) => {
+      const existing = current[userId] ?? createEmptyMasterPermissions();
+
+      return {
+        ...current,
+        [userId]: togglePermissionValue(existing, entity, action),
+      };
+    });
+  }
+
   function openAdvancedDrawer() {
-    setAdvancedConfig(DEFAULT_USER_CREATE_CONFIG);
+    setAdvancedConfig(createDefaultUserCreateConfig());
     setAdvancedOpen(true);
   }
 
@@ -411,11 +483,39 @@ export default function UsersAdminPage() {
                     defaultValue={user.full_name}
                     className="ims-control-md rounded-xl"
                   />
-                  <Select name="role" defaultValue={user.role} className="ims-control-md rounded-xl">
+                  <Select
+                    name="role"
+                    value={userRoleValues[user.id] ?? user.role}
+                    className="ims-control-md rounded-xl"
+                    onChange={(event) =>
+                      setUserRoleValues((current) => ({
+                        ...current,
+                        [user.id]: event.target.value as UserRole,
+                      }))
+                    }
+                  >
                     <option value="admin">admin</option>
                     <option value="manager">manager</option>
                     <option value="staff">staff</option>
                   </Select>
+                </div>
+
+                <div className="space-y-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-medium">Master permissions</p>
+                    {userRoleValues[user.id] === "admin" ? (
+                      <span className="text-xs text-[var(--text-muted)]">
+                        Admins always have full master access.
+                      </span>
+                    ) : null}
+                  </div>
+                  <MasterPermissionsMatrix
+                    value={userPermissionValues[user.id] ?? user.master_permissions}
+                    onToggle={(entity, action) =>
+                      toggleUserMasterPermission(user.id, entity, action)
+                    }
+                    disabled={saving || userRoleValues[user.id] === "admin"}
+                  />
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
@@ -609,6 +709,22 @@ export default function UsersAdminPage() {
                   ))}
                 </div>
               </div>
+
+              <div className="space-y-2 rounded-xl border border-[var(--line)] bg-[var(--surface-muted)] p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="ims-kicker text-[0.68rem]">Master permissions</p>
+                  {advancedConfig.role === "admin" ? (
+                    <span className="text-xs text-[var(--text-muted)]">
+                      Admins always receive all master permissions.
+                    </span>
+                  ) : null}
+                </div>
+                <MasterPermissionsMatrix
+                  value={advancedConfig.master_permissions}
+                  onToggle={toggleAdvancedMasterPermission}
+                  disabled={saving || advancedConfig.role === "admin"}
+                />
+              </div>
             </div>
 
             <div className="mt-4 flex flex-wrap justify-end gap-2">
@@ -618,7 +734,7 @@ export default function UsersAdminPage() {
                 className="ims-control-md rounded-xl"
                 disabled={saving}
                 onClick={() => {
-                  setAdvancedConfig(DEFAULT_USER_CREATE_CONFIG);
+                  setAdvancedConfig(createDefaultUserCreateConfig());
                   closeAdvancedDrawer();
                 }}
               >

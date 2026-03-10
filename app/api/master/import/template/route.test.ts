@@ -11,6 +11,7 @@ const {
 vi.mock("@/lib/auth/permissions", () => ({
   getAuthContext: getAuthContextMock,
   assertRole: assertRoleMock,
+  assertMasterPermission: assertRoleMock,
 }));
 
 import { GET } from "@/app/api/master/import/template/route";

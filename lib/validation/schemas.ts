@@ -3,6 +3,51 @@ import { z } from "zod";
 const uuid = z.string().uuid();
 const isoDate = z.string().date();
 
+const masterPermissionsSchema = z
+  .object({
+    suppliers: z
+      .object({
+        create: z.boolean().optional(),
+        import: z.boolean().optional(),
+        edit: z.boolean().optional(),
+        archive: z.boolean().optional(),
+        delete: z.boolean().optional(),
+      })
+      .optional(),
+    locations: z
+      .object({
+        create: z.boolean().optional(),
+        import: z.boolean().optional(),
+        archive: z.boolean().optional(),
+      })
+      .optional(),
+    products: z
+      .object({
+        create: z.boolean().optional(),
+        import: z.boolean().optional(),
+        archive: z.boolean().optional(),
+        delete: z.boolean().optional(),
+      })
+      .optional(),
+    categories: z
+      .object({
+        create: z.boolean().optional(),
+        import: z.boolean().optional(),
+        archive: z.boolean().optional(),
+        delete: z.boolean().optional(),
+      })
+      .optional(),
+    subcategories: z
+      .object({
+        create: z.boolean().optional(),
+        import: z.boolean().optional(),
+        archive: z.boolean().optional(),
+        delete: z.boolean().optional(),
+      })
+      .optional(),
+  })
+  .strict();
+
 export const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1).max(128),
@@ -208,6 +253,7 @@ export const userPatchSchema = z.object({
   full_name: z.string().min(1).max(120).optional(),
   role: z.enum(["admin", "manager", "staff"]).optional(),
   is_active: z.boolean().optional(),
+  master_permissions: masterPermissionsSchema.optional(),
 });
 
 export const userCreateSchema = z
@@ -218,6 +264,7 @@ export const userCreateSchema = z
     mode: z.enum(["invite", "password"]),
     password: passwordSchema.optional(),
     location_ids: z.array(uuid).default([]),
+    master_permissions: masterPermissionsSchema.default({}),
   })
   .superRefine((value, ctx) => {
     if (value.mode === "password" && !value.password) {

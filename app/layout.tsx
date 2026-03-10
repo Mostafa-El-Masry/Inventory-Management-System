@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Inter, Manrope } from "next/font/google";
+
+import { THEME_STORAGE_KEY } from "@/lib/theme";
 import "./globals.css";
 
 const heading = Manrope({
@@ -25,13 +27,28 @@ export const metadata: Metadata = {
   description: "Multi-location inventory with expiry, transactions, and transfer workflows.",
 };
 
+const themeBootScript = `
+(() => {
+  try {
+    const stored = window.localStorage.getItem(${JSON.stringify(THEME_STORAGE_KEY)});
+    const theme = stored === "dark" ? "dark" : "light";
+    document.documentElement.dataset.theme = theme;
+  } catch {
+    document.documentElement.dataset.theme = "light";
+  }
+})();
+`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" data-theme="light" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
+      </head>
       <body className={`${heading.variable} ${body.variable} ${mono.variable} antialiased`}>
         {children}
       </body>

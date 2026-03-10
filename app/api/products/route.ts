@@ -1,9 +1,15 @@
-import { assertRole, getAuthContext } from "@/lib/auth/permissions";
+import {
+  assertMasterPermission,
+  assertRole,
+  getAuthContext,
+  hasMasterPermission,
+} from "@/lib/auth/permissions";
 import { createProductWithGeneratedSku } from "@/lib/products/create";
 import {
   findConflictingProduct,
   mapProductUniqueViolation,
 } from "@/lib/products/uniqueness";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { productCreateSchema, productPatchSchema } from "@/lib/validation";
 import { fail, ok, parseBody } from "@/lib/utils/http";
 
@@ -90,12 +96,13 @@ export async function GET(request: Request) {
   },
   );
 
-  if (context.profile.role !== "admin" || items.length === 0) {
+  if (!hasMasterPermission(context, "products", "delete") || items.length === 0) {
     return ok({ items });
   }
+  const metadataClient = context.profile.role === "admin" ? context.supabase : supabaseAdmin;
 
   const productIds = items.map((item) => String(item.id));
-  const { data: linkedRows, error: linkedError } = await context.supabase
+  const { data: linkedRows, error: linkedError } = await metadataClient
     .from("inventory_transaction_lines")
     .select("product_id")
     .in("product_id", productIds);
@@ -122,10 +129,11 @@ export async function POST(request: Request) {
     return context;
   }
 
-  const roleError = assertRole(context, ["admin"]);
-  if (roleError) {
-    return roleError;
+  const permissionError = assertMasterPermission(context, "products", "create");
+  if (permissionError) {
+    return permissionError;
   }
+  const writeClient = context.profile.role === "admin" ? context.supabase : supabaseAdmin;
 
   const payload = await parseBody(request, productCreateSchema);
   if ("error" in payload) {
@@ -137,7 +145,7 @@ export async function POST(request: Request) {
   const normalizedName = name.trim();
   const normalizedUnit = unit.trim();
 
-  const nameConflict = await findConflictingProduct(context.supabase, {
+  const nameConflict = await findConflictingProduct(writeClient, {
     name: normalizedName,
   });
   if (nameConflict.error) {
@@ -151,7 +159,7 @@ export async function POST(request: Request) {
     });
   }
 
-  const created = await createProductWithGeneratedSku(context.supabase, {
+  const created = await createProductWithGeneratedSku(writeClient, {
     name: normalizedName,
     barcode: barcode ?? null,
     description: description ?? null,

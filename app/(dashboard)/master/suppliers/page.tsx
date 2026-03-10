@@ -3,18 +3,26 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
+import { MasterArchivedToggle } from "@/components/master/master-archived-toggle";
+import { MasterColumnsMenu } from "@/components/master/master-columns-menu";
 import { MasterCsvSync } from "@/components/master/master-csv-sync";
 import { MasterPageHeader } from "@/components/master/master-page-header";
+import { MasterPanelReveal } from "@/components/master/master-panel-reveal";
+import { MasterTableLoadingRows } from "@/components/master/master-table-loading";
 import {
+  MasterRowLimitControl,
   MasterTablePagination,
   RowLimitOption,
   paginateRows,
-  parseRowLimitOption,
 } from "@/components/master/master-table-pagination";
 import {
   SortDirection,
   SortableTableHeader,
 } from "@/components/master/sortable-table-header";
+import {
+  buildDefaultColumnVisibility,
+  useMasterColumns,
+} from "@/components/master/use-master-columns";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -38,7 +46,34 @@ type Supplier = {
   is_active: boolean;
 };
 
-type SupplierSortKey = "code" | "name" | "phone" | "email" | "active";
+const SUPPLIER_COLUMN_DEFINITIONS = [
+  { key: "code", label: "Code" },
+  { key: "name", label: "Name" },
+  { key: "phone", label: "Phone" },
+  { key: "email", label: "Email" },
+  { key: "active", label: "Active" },
+  { key: "action", label: "Action" },
+] as const;
+
+type SupplierColumnKey = (typeof SUPPLIER_COLUMN_DEFINITIONS)[number]["key"];
+type SupplierSortKey = Exclude<SupplierColumnKey, "action">;
+
+function isSupplierSortableColumn(key: SupplierColumnKey): key is SupplierSortKey {
+  return key !== "action";
+}
+
+const SUPPLIER_DEFAULT_COLUMN_ORDER: SupplierColumnKey[] = [
+  "code",
+  "name",
+  "phone",
+  "email",
+  "active",
+  "action",
+];
+
+const SUPPLIER_DEFAULT_COLUMN_VISIBILITY = buildDefaultColumnVisibility(
+  SUPPLIER_DEFAULT_COLUMN_ORDER,
+);
 
 const SUPPLIER_EXPORT_COLUMNS: ExportColumn[] = [
   { key: "code", label: "Code" },
@@ -53,6 +88,7 @@ export default function MasterSuppliersPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [showInactive, setShowInactive] = useState(false);
   const [archivedFilterHydrated, setArchivedFilterHydrated] = useState(false);
+  const [suppliersLoading, setSuppliersLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
@@ -72,6 +108,20 @@ export default function MasterSuppliersPage() {
     is_active: true,
   });
   const archivedFilterStorageKey = buildFilterStorageKey(authUserId, "master", "suppliers");
+  const {
+    orderedColumns: orderedSupplierColumns,
+    visibleColumns: visibleSupplierColumns,
+    columnVisibility: supplierColumnVisibility,
+    toggleColumnVisibility: toggleSupplierColumnVisibility,
+    moveColumn: moveSupplierColumn,
+    resetColumnPreferences: resetSupplierColumnPreferences,
+  } = useMasterColumns({
+    userId: authUserId,
+    storageKey: `ims:suppliers:columns:${authUserId}`,
+    columns: SUPPLIER_COLUMN_DEFINITIONS,
+    defaultOrder: SUPPLIER_DEFAULT_COLUMN_ORDER,
+    defaultVisibility: SUPPLIER_DEFAULT_COLUMN_VISIBILITY,
+  });
 
   const loadSuppliers = useCallback(async (signal?: AbortSignal) => {
     const result = await fetchJson<{ items?: Supplier[] }>(
@@ -104,13 +154,36 @@ export default function MasterSuppliersPage() {
     }
 
     const controller = new AbortController();
-    loadSuppliers(controller.signal).catch(() => setError("Failed to load suppliers."));
-    return () => controller.abort();
+    let cancelled = false;
+
+    setSuppliersLoading(true);
+    loadSuppliers(controller.signal)
+      .catch(() => {
+        if (!cancelled) {
+          setError("Failed to load suppliers.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setSuppliersLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [archivedFilterHydrated, loadSuppliers]);
 
-  const canManageSuppliers = capabilities.canManageSuppliers;
+  const canCreateSupplier = capabilities.master.suppliers.create;
+  const canImportSuppliers = capabilities.master.suppliers.import;
+  const canEditSupplier = capabilities.master.suppliers.edit;
+  const canArchiveSupplier = capabilities.master.suppliers.archive;
+  const canDeleteSupplier = capabilities.master.suppliers.delete;
+  const canShowSupplierPanel = canCreateSupplier || canImportSuppliers;
   const canCreate = newSupplier.name.trim().length >= 2;
-  const canSaveEditedSupplierName = editingSupplierName.trim().length >= 2;
+  const canSaveEditedSupplierName =
+    canEditSupplier && editingSupplierName.trim().length >= 2;
   const sortedSuppliers = useMemo(() => {
     const next = [...suppliers];
     next.sort((left, right) => {
@@ -152,8 +225,16 @@ export default function MasterSuppliersPage() {
     setSupplierPage((current) => Math.min(current, supplierPagination.totalPages));
   }, [supplierPagination.totalPages]);
 
+  useEffect(() => {
+    if ((!supplierColumnVisibility.action || !canEditSupplier) && editingSupplierId) {
+      cancelEditingSupplier();
+    }
+  }, [canEditSupplier, editingSupplierId, supplierColumnVisibility.action]);
+
+  const showSupplierLoadingRows = !archivedFilterHydrated || suppliersLoading;
+
   async function createSupplier() {
-    if (!canManageSuppliers || !canCreate) {
+    if (!canCreateSupplier || !canCreate) {
       return;
     }
 
@@ -192,7 +273,7 @@ export default function MasterSuppliersPage() {
   }
 
   async function setSupplierActive(supplierId: string, active: boolean) {
-    if (!canManageSuppliers) {
+    if (!canArchiveSupplier) {
       return;
     }
 
@@ -221,7 +302,7 @@ export default function MasterSuppliersPage() {
   }
 
   async function hardDeleteSupplier(supplier: Supplier) {
-    if (!canManageSuppliers) {
+    if (!canDeleteSupplier) {
       return;
     }
 
@@ -268,7 +349,7 @@ export default function MasterSuppliersPage() {
   }
 
   async function saveSupplierName(supplierId: string) {
-    if (!canManageSuppliers || !canSaveEditedSupplierName) {
+    if (!canEditSupplier || !canSaveEditedSupplierName) {
       return;
     }
 
@@ -305,13 +386,100 @@ export default function MasterSuppliersPage() {
     setSupplierSortKey(nextKey);
   }
 
+  function renderSupplierCell(supplier: Supplier, columnKey: SupplierColumnKey) {
+    if (columnKey === "code") {
+      return <span className="font-medium">{supplier.code}</span>;
+    }
+
+    if (columnKey === "name") {
+      if (editingSupplierId === supplier.id) {
+        return (
+          <Input
+            value={editingSupplierName}
+            onChange={(event) => setEditingSupplierName(event.target.value)}
+            placeholder="Supplier name"
+            className="ims-control-sm"
+          />
+        );
+      }
+
+      return supplier.name;
+    }
+
+    if (columnKey === "phone") {
+      return supplier.phone ?? "-";
+    }
+
+    if (columnKey === "email") {
+      return supplier.email ?? "-";
+    }
+
+    if (columnKey === "active") {
+      return supplier.is_active ? "Yes" : "No";
+    }
+
+    const actionItems = [];
+
+    if (canEditSupplier) {
+      actionItems.push({
+        label: "Edit name",
+        onSelect: () => startEditingSupplier(supplier),
+      });
+    }
+
+    if (canArchiveSupplier) {
+      actionItems.push({
+        label: supplier.is_active ? "Archive" : "Activate",
+        onSelect: () => setSupplierActive(supplier.id, !supplier.is_active),
+      });
+    }
+
+    if (canDeleteSupplier) {
+      actionItems.push({
+        label: "Delete",
+        destructive: true,
+        onSelect: () => hardDeleteSupplier(supplier),
+      });
+    }
+
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        {editingSupplierId === supplier.id && canEditSupplier ? (
+          <>
+            <Button
+              className="ims-control-sm"
+              disabled={!canSaveEditedSupplierName || stateLoading}
+              onClick={() => saveSupplierName(supplier.id)}
+            >
+              Save
+            </Button>
+            <Button
+              variant="ghost"
+              className="ims-control-sm"
+              disabled={stateLoading}
+              onClick={() => cancelEditingSupplier()}
+            >
+              Cancel
+            </Button>
+          </>
+        ) : actionItems.length > 0 ? (
+          <RowActionsMenu
+            label={`Open actions for ${supplier.name}`}
+            disabled={stateLoading}
+            items={actionItems}
+          />
+        ) : (
+          <span className="text-xs text-[var(--text-muted)]">--</span>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <MasterPageHeader
-        kicker="Master Data"
         title="Suppliers"
-        subtitle="Supplier master and payable document ownership."
-        showAction={canManageSuppliers}
+        showAction={canShowSupplierPanel}
         panelOpen={masterPanelOpen}
         onTogglePanel={() => setMasterPanelOpen((current) => !current)}
         openLabel="Open supplier actions"
@@ -321,13 +489,11 @@ export default function MasterSuppliersPage() {
       {error ? <p className="ims-alert-danger">{error}</p> : null}
       {message ? <p className="ims-alert-success">{message}</p> : null}
 
-      {canManageSuppliers ? (
-        masterPanelOpen ? (
-          <div className="space-y-4">
+      {canShowSupplierPanel ? (
+          <MasterPanelReveal open={masterPanelOpen} className="space-y-4">
             <MasterCsvSync
               entity="suppliers"
-              canManage={canManageSuppliers}
-              helperText="Keys by supplier code. Reimport updates matching codes and inserts missing ones."
+              canManage={canImportSuppliers}
               title="Suppliers"
               filenameBase="suppliers"
               columns={SUPPLIER_EXPORT_COLUMNS}
@@ -338,79 +504,76 @@ export default function MasterSuppliersPage() {
                 email: supplier.email ?? "",
                 is_active: supplier.is_active,
               }))}
-              filterSummary={[`Archived included: ${showInactive ? "Yes" : "No"}`]}
+              filterSummary={[`Disabled included: ${showInactive ? "Yes" : "No"}`]}
               onImported={async () => {
                 await loadSuppliers();
               }}
-            />
-
-            <Card className="min-h-[12rem]">
-              <h2 className="text-lg font-semibold">Create Supplier</h2>
-              <div className="mt-4 grid gap-3 lg:grid-cols-2">
-                <Input
-                  value={newSupplier.name}
-                  onChange={(event) =>
-                    setNewSupplier((current) => ({
-                      ...current,
-                      name: event.target.value,
-                    }))
-                  }
-                  placeholder="Supplier name"
-                  className="ims-control-md"
-                />
-                <Input
-                  value={newSupplier.phone}
-                  onChange={(event) =>
-                    setNewSupplier((current) => ({
-                      ...current,
-                      phone: event.target.value,
-                    }))
-                  }
-                  placeholder="Phone"
-                  className="ims-control-md"
-                />
-                <Input
-                  value={newSupplier.email}
-                  onChange={(event) =>
-                    setNewSupplier((current) => ({
-                      ...current,
-                      email: event.target.value,
-                    }))
-                  }
-                  placeholder="Email"
-                  className="ims-control-md"
-                />
-                <div className="flex items-center justify-between gap-3">
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={newSupplier.is_active}
-                      onChange={(event) =>
-                        setNewSupplier((current) => ({
-                          ...current,
-                          is_active: event.target.checked,
-                        }))
-                      }
-                    />
-                    {newSupplier.is_active ? "Active" : "Inactive"}
-                  </label>
-                  <Button
+            >
+              {canCreateSupplier ? (
+                <div className="grid gap-3 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
+                  <Input
+                    value={newSupplier.name}
+                    onChange={(event) =>
+                      setNewSupplier((current) => ({
+                        ...current,
+                        name: event.target.value,
+                      }))
+                    }
+                    placeholder="Supplier name"
                     className="ims-control-md"
-                    disabled={!canCreate || createLoading}
-                    onClick={() => createSupplier()}
-                  >
-                    {createLoading ? "Creating..." : "Create"}
-                  </Button>
+                  />
+                  <Input
+                    value={newSupplier.phone}
+                    onChange={(event) =>
+                      setNewSupplier((current) => ({
+                        ...current,
+                        phone: event.target.value,
+                      }))
+                    }
+                    placeholder="Phone"
+                    className="ims-control-md"
+                  />
+                  <Input
+                    value={newSupplier.email}
+                    onChange={(event) =>
+                      setNewSupplier((current) => ({
+                        ...current,
+                        email: event.target.value,
+                      }))
+                    }
+                    placeholder="Email"
+                    className="ims-control-md"
+                  />
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={newSupplier.is_active}
+                        onChange={(event) =>
+                          setNewSupplier((current) => ({
+                            ...current,
+                            is_active: event.target.checked,
+                          }))
+                        }
+                      />
+                      {newSupplier.is_active ? "Active" : "Inactive"}
+                    </label>
+                    <Button
+                      className="ims-control-md"
+                      disabled={!canCreate || createLoading}
+                      onClick={() => createSupplier()}
+                    >
+                      {createLoading ? "Creating..." : "Create"}
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            </Card>
-          </div>
-        ) : null
+              ) : null}
+            </MasterCsvSync>
+          </MasterPanelReveal>
       ) : (
         <MasterCsvSync
           entity="suppliers"
-          canManage={canManageSuppliers}
-          helperText="Keys by supplier code. Reimport updates matching codes and inserts missing ones."
+          canManage={canImportSuppliers}
           title="Suppliers"
           filenameBase="suppliers"
           columns={SUPPLIER_EXPORT_COLUMNS}
@@ -421,7 +584,7 @@ export default function MasterSuppliersPage() {
             email: supplier.email ?? "",
             is_active: supplier.is_active,
           }))}
-          filterSummary={[`Archived included: ${showInactive ? "Yes" : "No"}`]}
+          filterSummary={[`Disabled included: ${showInactive ? "Yes" : "No"}`]}
           onImported={async () => {
             await loadSuppliers();
           }}
@@ -430,136 +593,73 @@ export default function MasterSuppliersPage() {
 
       <Card className="min-h-[24rem]">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-lg font-semibold">Supplier List</h2>
-          <label className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
-            <input
-              type="checkbox"
-              checked={showInactive}
-              onChange={(event) => setShowInactive(event.target.checked)}
+          <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3">
+            <MasterRowLimitControl
+              value={supplierRowLimit}
+              onChange={(limit) => {
+                setSupplierRowLimit(limit);
+                setSupplierPage(1);
+              }}
             />
-            Show archived
-          </label>
+            <h2 className="min-w-0 text-lg font-semibold">Supplier List</h2>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <MasterColumnsMenu
+              orderedColumns={orderedSupplierColumns}
+              columnVisibility={supplierColumnVisibility}
+              onToggleColumn={toggleSupplierColumnVisibility}
+              onMoveColumn={moveSupplierColumn}
+              onReset={resetSupplierColumnPreferences}
+              helperText="Toggle and reorder supplier columns."
+            />
+            <MasterArchivedToggle
+              pressed={showInactive}
+              onPressedChange={(pressed) => setShowInactive(pressed)}
+            />
+          </div>
         </div>
 
-        <div className="mt-4 max-h-[34rem] overflow-auto">
-          <table className="ims-table">
+          <div className="mt-4 overflow-visible">
+          <table className="ims-table" aria-busy={showSupplierLoadingRows}>
             <thead className="ims-table-head">
               <tr>
-                <th>
-                  <SortableTableHeader
-                    label="Code"
-                    active={supplierSortKey === "code"}
-                    direction={supplierSortDirection}
-                    onClick={() => toggleSupplierSort("code")}
-                  />
-                </th>
-                <th>
-                  <SortableTableHeader
-                    label="Name"
-                    active={supplierSortKey === "name"}
-                    direction={supplierSortDirection}
-                    onClick={() => toggleSupplierSort("name")}
-                  />
-                </th>
-                <th>
-                  <SortableTableHeader
-                    label="Phone"
-                    active={supplierSortKey === "phone"}
-                    direction={supplierSortDirection}
-                    onClick={() => toggleSupplierSort("phone")}
-                  />
-                </th>
-                <th>
-                  <SortableTableHeader
-                    label="Email"
-                    active={supplierSortKey === "email"}
-                    direction={supplierSortDirection}
-                    onClick={() => toggleSupplierSort("email")}
-                  />
-                </th>
-                <th>
-                  <SortableTableHeader
-                    label="Active"
-                    active={supplierSortKey === "active"}
-                    direction={supplierSortDirection}
-                    onClick={() => toggleSupplierSort("active")}
-                  />
-                </th>
-                <th>Action</th>
+                {visibleSupplierColumns.map((column) => (
+                  <th key={column.key}>
+                    {!isSupplierSortableColumn(column.key) ? column.label : (() => {
+                      const sortKey = column.key;
+                      return (
+                        <SortableTableHeader
+                          label={column.label}
+                          active={supplierSortKey === sortKey}
+                          direction={supplierSortDirection}
+                          onClick={() => toggleSupplierSort(sortKey)}
+                        />
+                      );
+                    })()}
+                  </th>
+                ))}
               </tr>
             </thead>
-            <tbody>
-              {supplierPagination.items.map((supplier) => (
-                <tr key={supplier.id} className="ims-table-row">
-                  <td className="font-medium">{supplier.code}</td>
-                  <td>
-                    {editingSupplierId === supplier.id ? (
-                      <Input
-                        value={editingSupplierName}
-                        onChange={(event) => setEditingSupplierName(event.target.value)}
-                        placeholder="Supplier name"
-                        className="ims-control-sm"
-                      />
-                    ) : (
-                      supplier.name
-                    )}
-                  </td>
-                  <td>{supplier.phone ?? "-"}</td>
-                  <td>{supplier.email ?? "-"}</td>
-                  <td>{supplier.is_active ? "Yes" : "No"}</td>
-                  <td>
-                    {canManageSuppliers ? (
-                      <div className="flex flex-wrap items-center gap-2">
-                        {editingSupplierId === supplier.id ? (
-                          <>
-                            <Button
-                              className="ims-control-sm"
-                              disabled={!canSaveEditedSupplierName || stateLoading}
-                              onClick={() => saveSupplierName(supplier.id)}
-                            >
-                              Save
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              className="ims-control-sm"
-                              disabled={stateLoading}
-                              onClick={() => cancelEditingSupplier()}
-                            >
-                              Cancel
-                            </Button>
-                          </>
-                        ) : (
-                          <RowActionsMenu
-                            label={`Open actions for ${supplier.name}`}
-                            disabled={stateLoading}
-                            items={[
-                              {
-                                label: "Edit name",
-                                onSelect: () => startEditingSupplier(supplier),
-                              },
-                              {
-                                label: supplier.is_active ? "Archive" : "Activate",
-                                onSelect: () =>
-                                  setSupplierActive(supplier.id, !supplier.is_active),
-                              },
-                              {
-                                label: "Delete",
-                                destructive: true,
-                                onSelect: () => hardDeleteSupplier(supplier),
-                              },
-                            ]}
-                          />
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-xs text-[var(--text-muted)]">restricted</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
+            {showSupplierLoadingRows ? (
+              <MasterTableLoadingRows
+                columns={visibleSupplierColumns}
+                rowLimit={supplierRowLimit}
+              />
+            ) : (
+              <tbody>
+                {supplierPagination.items.map((supplier) => (
+                  <tr key={supplier.id} className="ims-table-row">
+                    {visibleSupplierColumns.map((column) => (
+                      <td key={`${supplier.id}-${column.key}`}>
+                        {renderSupplierCell(supplier, column.key)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            )}
           </table>
-          {suppliers.length === 0 ? (
+          {!showSupplierLoadingRows && !error && suppliers.length === 0 ? (
             <p className="ims-empty mt-3">No suppliers found.</p>
           ) : null}
         </div>
@@ -569,10 +669,7 @@ export default function MasterSuppliersPage() {
           currentPage={supplierPage}
           rowLimit={supplierRowLimit}
           onPageChange={setSupplierPage}
-          onRowLimitChange={(limit) => {
-            setSupplierRowLimit(limit);
-            setSupplierPage(1);
-          }}
+          loading={showSupplierLoadingRows}
         />
       </Card>
     </div>
