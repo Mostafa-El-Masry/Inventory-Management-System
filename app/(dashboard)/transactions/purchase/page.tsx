@@ -11,6 +11,8 @@ export default function PurchasePage() {
       locationLabel="Destination location"
       locationTarget="destination"
       viewMode="history"
+      detailBasePath="/transactions/purchase"
+      summaryHistory
       headerAction={{
         href: "/transactions/purchase/new",
         label: "Create purchase",

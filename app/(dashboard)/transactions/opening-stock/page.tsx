@@ -8,6 +8,8 @@ export default function OpeningStockPage() {
       headerSubtitle="Add opening balances into inventory."
       createTitle="Create Opening Stock (single-line quick entry)"
       historyTitle="Opening Stock History"
+      detailBasePath="/transactions/opening-stock"
+      summaryHistory
     />
   );
 }

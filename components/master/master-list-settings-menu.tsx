@@ -13,6 +13,7 @@ import type { MasterColumnDefinition } from "./use-master-columns";
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const SETTINGS_MENU_TRANSITION_MS = 320;
+const SETTINGS_MENU_CLOSE_DELAY_MS = 1000;
 const SETTINGS_MENU_EASING = "cubic-bezier(0.22, 1, 0.36, 1)";
 
 type MenuRevealState = {
@@ -124,6 +125,7 @@ type MasterListSettingsMenuProps<K extends string> = {
   exportFilenameBase: string;
   exportColumns: ExportColumn[];
   exportRows: ExportRow[];
+  exportLoadRows?: () => Promise<ExportRow[]>;
   exportFilterSummary?: string[];
   exportEmptyMessage: string;
   className?: string;
@@ -143,6 +145,7 @@ export function MasterListSettingsMenu<K extends string>({
   exportFilenameBase,
   exportColumns,
   exportRows,
+  exportLoadRows,
   exportFilterSummary,
   exportEmptyMessage,
   className,
@@ -155,6 +158,24 @@ export function MasterListSettingsMenu<K extends string>({
     createInitialMenuRevealState,
   );
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const closeTimeoutRef = useRef<number | null>(null);
+
+  function cancelScheduledClose() {
+    if (closeTimeoutRef.current === null) {
+      return;
+    }
+
+    window.clearTimeout(closeTimeoutRef.current);
+    closeTimeoutRef.current = null;
+  }
+
+  function scheduleClose() {
+    cancelScheduledClose();
+    closeTimeoutRef.current = window.setTimeout(() => {
+      closeTimeoutRef.current = null;
+      setOpen(false);
+    }, SETTINGS_MENU_CLOSE_DELAY_MS);
+  }
 
   useEffect(() => {
     if (!open) {
@@ -163,12 +184,14 @@ export function MasterListSettingsMenu<K extends string>({
 
     function handlePointerDown(event: PointerEvent) {
       if (!containerRef.current?.contains(event.target as Node)) {
+        cancelScheduledClose();
         setOpen(false);
       }
     }
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
+        cancelScheduledClose();
         setOpen(false);
       }
     }
@@ -181,6 +204,15 @@ export function MasterListSettingsMenu<K extends string>({
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [open]);
+
+  useEffect(() => () => {
+    if (closeTimeoutRef.current === null) {
+      return;
+    }
+
+    window.clearTimeout(closeTimeoutRef.current);
+    closeTimeoutRef.current = null;
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -251,16 +283,24 @@ export function MasterListSettingsMenu<K extends string>({
     <div
       ref={containerRef}
       className={cn("relative", className)}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-      onFocusCapture={() => setOpen(true)}
+      onMouseEnter={() => {
+        cancelScheduledClose();
+        setOpen(true);
+      }}
+      onMouseLeave={() => {
+        scheduleClose();
+      }}
+      onFocusCapture={() => {
+        cancelScheduledClose();
+        setOpen(true);
+      }}
       onBlurCapture={(event) => {
         const nextTarget = event.relatedTarget;
         if (nextTarget instanceof Node && containerRef.current?.contains(nextTarget)) {
           return;
         }
 
-        setOpen(false);
+        scheduleClose();
       }}
     >
       <Button
@@ -271,7 +311,10 @@ export function MasterListSettingsMenu<K extends string>({
         )}
         aria-label="Open list settings"
         aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => {
+          cancelScheduledClose();
+          setOpen((current) => !current);
+        }}
       >
         <svg
           aria-hidden="true"
@@ -298,15 +341,17 @@ export function MasterListSettingsMenu<K extends string>({
 
       {menuState.rendered ? (
         <div
-          className="absolute right-0 top-[calc(100%+0.45rem)] z-30 w-[10.5rem] origin-top-right rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] p-3 shadow-[var(--shadow-md)]"
+          className="absolute right-0 top-[calc(100%+0.45rem)] z-30 w-[min(12rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] origin-top-right rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] p-2.5 shadow-[var(--shadow-md)] sm:w-[11rem] sm:p-3 md:w-[10.5rem]"
           aria-hidden={!menuState.visible}
           style={menuStyle}
         >
-          <div className="mb-2">
-            <p className="text-sm font-semibold text-[var(--text-strong)]">Settings</p>
+          <div className="mb-1.5 sm:mb-2">
+            <p className="text-xs font-semibold text-[var(--text-strong)] sm:text-sm">
+              Settings
+            </p>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-1.5 sm:space-y-2">
             <MasterColumnsMenu
               orderedColumns={orderedColumns}
               columnVisibility={columnVisibility}
@@ -315,14 +360,14 @@ export function MasterListSettingsMenu<K extends string>({
               onReset={onResetColumns}
               helperText={columnsHelperText}
               triggerVariant="secondary"
-              triggerButtonClassName="rounded-xl"
+              triggerButtonClassName="rounded-xl !h-10 px-2.5 !text-xs sm:px-3 sm:!text-sm"
             />
 
             <MasterArchivedToggle
               pressed={showInactive}
               onPressedChange={onShowInactiveChange}
               label={inactiveLabel}
-              className="w-full min-w-0"
+              className="w-full min-w-0 !h-10 px-2.5 !text-xs sm:px-3 sm:!text-sm"
             />
 
             <ExportActions
@@ -330,10 +375,14 @@ export function MasterListSettingsMenu<K extends string>({
               filenameBase={exportFilenameBase}
               columns={exportColumns}
               rows={exportRows}
+              loadRows={exportLoadRows}
               filterSummary={exportFilterSummary}
               emptyMessage={exportEmptyMessage}
               variant="secondary"
-              buttonClassName="w-full justify-between rounded-xl"
+              buttonClassName="w-full justify-between rounded-xl !h-10 whitespace-normal px-2.5 py-2 text-left leading-tight !text-xs sm:px-3 sm:!text-sm"
+              menuAlign="end"
+              menuClassName="min-w-[10rem] max-w-[min(14rem,calc(100vw-1.5rem))]"
+              menuItemClassName="px-2.5 py-2 text-xs sm:px-3 sm:text-sm"
             />
           </div>
         </div>

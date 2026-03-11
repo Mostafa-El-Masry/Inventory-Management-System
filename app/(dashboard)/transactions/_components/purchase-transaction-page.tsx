@@ -2,6 +2,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   FormEvent,
   type ReactNode,
@@ -12,16 +13,29 @@ import {
   useState,
 } from "react";
 
+import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { BarcodePrintDialog } from "./barcode-print-dialog";
 import {
-  BarcodeLabel,
-  buildBarcodeLabelsFromLines,
-  printBarcodeLabels,
-} from "./barcode-print";
+  MasterRowLimitControl,
+  MasterTablePagination,
+  paginateRows,
+  type RowLimitOption,
+} from "@/components/master/master-table-pagination";
+import {
+  buildDefaultColumnVisibility,
+  useMasterColumns,
+  type MasterColumnDefinition,
+} from "@/components/master/use-master-columns";
+import type { ExportColumn } from "@/lib/export/contracts";
+import { MAIN_WAREHOUSE_NAME } from "@/lib/locations/main-warehouse";
+
+import { fetchAllHistoryItems } from "./fetch-all-history-items";
+import { TransactionListSettingsMenu } from "./transaction-list-settings-menu";
+import { TransactionRowActionsMenu } from "./transaction-row-actions-menu";
+import { useHistoryAutoRefresh } from "./use-history-auto-refresh";
 
 type TxStatus = "DRAFT" | "SUBMITTED" | "POSTED" | "REVERSED" | "CANCELLED";
 type PurchaseTransactionViewMode = "combined" | "history" | "create";
@@ -47,6 +61,11 @@ type Tx = {
   status: TxStatus;
   source_location_id: string | null;
   destination_location_id: string | null;
+  supplier_id?: string | null;
+  supplier_code_snapshot?: string | null;
+  supplier_name_snapshot?: string | null;
+  supplier_invoice_number?: string | null;
+  supplier_invoice_date?: string | null;
   created_at: string;
   inventory_transaction_lines?: TxLine[];
 };
@@ -56,7 +75,6 @@ type Lookup = {
   name: string;
   sku?: string;
   code?: string;
-  barcode?: string | null;
 };
 
 type PurchaseHeaderAction = {
@@ -64,6 +82,70 @@ type PurchaseHeaderAction = {
   label: string;
   kind: PurchaseHeaderActionKind;
 };
+
+type PurchaseHistoryColumnKey =
+  | "number"
+  | "voucherDate"
+  | "supplier"
+  | "amount"
+  | "status"
+  | "location"
+  | "item"
+  | "qty"
+  | "created";
+
+const PURCHASE_HISTORY_SUMMARY_DEFAULT_COLUMN_ORDER: readonly PurchaseHistoryColumnKey[] = [
+  "number",
+  "voucherDate",
+  "supplier",
+  "amount",
+  "status",
+  "location",
+  "item",
+  "qty",
+  "created",
+];
+
+const PURCHASE_HISTORY_SUMMARY_DEFAULT_COLUMN_VISIBILITY =
+  buildDefaultColumnVisibility<PurchaseHistoryColumnKey>(
+    PURCHASE_HISTORY_SUMMARY_DEFAULT_COLUMN_ORDER,
+    ["number", "voucherDate", "supplier", "amount", "status", "location"],
+  );
+
+const PURCHASE_HISTORY_DETAIL_DEFAULT_COLUMN_ORDER: readonly PurchaseHistoryColumnKey[] = [
+  "number",
+  "status",
+  "location",
+  "item",
+  "qty",
+  "created",
+];
+
+const PURCHASE_HISTORY_DETAIL_DEFAULT_COLUMN_VISIBILITY =
+  buildDefaultColumnVisibility<PurchaseHistoryColumnKey>(
+    PURCHASE_HISTORY_DETAIL_DEFAULT_COLUMN_ORDER,
+  );
+
+const PURCHASE_SUMMARY_EXPORT_COLUMNS: ExportColumn[] = [
+  { key: "voucher_no", label: "Voucher No" },
+  { key: "voucher_date", label: "Voucher Date" },
+  { key: "supplier_name", label: "Supplier Name" },
+  { key: "total_amount", label: "Total Amount" },
+  { key: "status", label: "Status" },
+  { key: "location", label: "Warehouse" },
+  { key: "item_count", label: "Items" },
+  { key: "total_qty", label: "Total Qty" },
+  { key: "created_at", label: "Created" },
+];
+
+const PURCHASE_DETAIL_EXPORT_COLUMNS: ExportColumn[] = [
+  { key: "number", label: "Number" },
+  { key: "status", label: "Status" },
+  { key: "location", label: "Location" },
+  { key: "product", label: "Product" },
+  { key: "qty", label: "Qty" },
+  { key: "created_at", label: "Created" },
+];
 
 type Props = {
   headerTitle: string;
@@ -76,6 +158,8 @@ type Props = {
   viewMode?: PurchaseTransactionViewMode;
   headerAction?: PurchaseHeaderAction;
   successMessage?: string;
+  detailBasePath?: string;
+  summaryHistory?: boolean;
 };
 
 function SvgIcon({
@@ -178,6 +262,57 @@ function formatHistoricalProduct(line: TxLine | undefined, productById: Map<stri
   return product ? `${product.sku ?? "SKU"} - ${product.name}` : "--";
 }
 
+function getTransactionItemCount(transaction: Tx) {
+  return transaction.inventory_transaction_lines?.length ?? 0;
+}
+
+function getTransactionTotalQty(transaction: Tx) {
+  return (transaction.inventory_transaction_lines ?? []).reduce(
+    (total, line) => total + Number(line.qty ?? 0),
+    0,
+  );
+}
+
+function getTransactionTotalAmount(transaction: Tx) {
+  return (transaction.inventory_transaction_lines ?? []).reduce(
+    (total, line) => total + Number(line.qty ?? 0) * Number(line.unit_cost ?? 0),
+    0,
+  );
+}
+
+function formatTransactionMoney(value: number) {
+  return value.toFixed(2);
+}
+
+function formatSupplierName(transaction: Tx, supplierById: Map<string, Lookup>) {
+  const snapshotName = transaction.supplier_name_snapshot?.trim();
+  const snapshotCode = transaction.supplier_code_snapshot?.trim();
+  if (snapshotName) {
+    return snapshotCode ? `${snapshotCode} - ${snapshotName}` : snapshotName;
+  }
+
+  if (!transaction.supplier_id) {
+    return "--";
+  }
+
+  const supplier = supplierById.get(transaction.supplier_id);
+  if (!supplier) {
+    return transaction.supplier_id;
+  }
+
+  return supplier.code ? `${supplier.code} - ${supplier.name}` : supplier.name;
+}
+
+function formatVoucherDate(transaction: Tx) {
+  const rawDate = transaction.supplier_invoice_date ?? transaction.created_at;
+  const parsed = new Date(rawDate);
+  if (Number.isNaN(parsed.getTime())) {
+    return rawDate || "--";
+  }
+
+  return parsed.toLocaleDateString();
+}
+
 function PurchaseTransactionCreateSection({
   createTitle,
   suppliers,
@@ -185,6 +320,7 @@ function PurchaseTransactionCreateSection({
   products,
   createLoading,
   locationLabel,
+  fixedLocationName,
   onSubmit,
 }: {
   createTitle: string;
@@ -193,6 +329,7 @@ function PurchaseTransactionCreateSection({
   products: Lookup[];
   createLoading: boolean;
   locationLabel: string;
+  fixedLocationName?: string | null;
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
 }) {
   return (
@@ -223,14 +360,20 @@ function PurchaseTransactionCreateSection({
           defaultValue={new Date().toISOString().slice(0, 10)}
         />
 
-        <Select name="location_id" required className="ims-control-lg">
-          <option value="">{locationLabel}</option>
-          {locations.map((location) => (
-            <option key={location.id} value={location.id}>
-              {(location.code ?? "LOC")} - {location.name}
-            </option>
-          ))}
-        </Select>
+        {fixedLocationName ? (
+          <div className="ims-control-lg flex items-center rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface-muted)] px-4 text-sm text-[var(--text-strong)]">
+            {locationLabel}: {fixedLocationName}
+          </div>
+        ) : (
+          <Select name="location_id" required className="ims-control-lg">
+            <option value="">{locationLabel}</option>
+            {locations.map((location) => (
+              <option key={location.id} value={location.id}>
+                {(location.code ?? "LOC")} - {location.name}
+              </option>
+            ))}
+          </Select>
+        )}
 
         <Select name="product_id" required className="ims-control-lg">
           <option value="">Select product</option>
@@ -267,98 +410,215 @@ function PurchaseTransactionHistorySection({
   locationTarget,
   locationById,
   productById,
+  supplierById,
+  currentPage,
+  rowLimit,
+  orderedColumns,
+  visibleColumns,
+  columnVisibility,
   stateLoading,
+  detailBasePath,
+  summaryHistory,
+  exportColumns,
+  exportRows,
+  onPageChange,
+  onRowLimitChange,
+  onToggleColumn,
+  onMoveColumn,
+  onResetColumns,
   onRunAction,
   onReverse,
-  onPrint,
 }: {
   historyTitle: string;
   transactions: Tx[];
   locationTarget: "source" | "destination";
   locationById: Map<string, Lookup>;
   productById: Map<string, Lookup>;
+  supplierById: Map<string, Lookup>;
+  currentPage: number;
+  rowLimit: RowLimitOption;
+  orderedColumns: readonly MasterColumnDefinition<PurchaseHistoryColumnKey>[];
+  visibleColumns: readonly MasterColumnDefinition<PurchaseHistoryColumnKey>[];
+  columnVisibility: Record<PurchaseHistoryColumnKey, boolean>;
   stateLoading: boolean;
+  detailBasePath?: string;
+  summaryHistory?: boolean;
+  exportColumns: ExportColumn[];
+  exportRows: Array<Record<string, unknown>>;
+  onPageChange: (page: number) => void;
+  onRowLimitChange: (limit: RowLimitOption) => void;
+  onToggleColumn: (columnKey: PurchaseHistoryColumnKey) => void;
+  onMoveColumn: (columnKey: PurchaseHistoryColumnKey, direction: -1 | 1) => void;
+  onResetColumns: () => void;
   onRunAction: (id: string, action: "submit" | "post") => Promise<void>;
   onReverse: (id: string) => Promise<void>;
-  onPrint: (tx: Tx, historyTitle: string) => void;
 }) {
+  const router = useRouter();
+  const pagination = useMemo(
+    () => paginateRows(transactions, rowLimit, currentPage),
+    [currentPage, rowLimit, transactions],
+  );
+
   return (
     <Card className="min-h-[24rem]">
-      <h2 className="text-lg font-semibold">{historyTitle}</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-1">
+          <MasterRowLimitControl
+            value={rowLimit}
+            onChange={(limit) => {
+              onRowLimitChange(limit);
+              onPageChange(1);
+            }}
+          />
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold">{historyTitle}</h2>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <TransactionListSettingsMenu
+            orderedColumns={orderedColumns}
+            columnVisibility={columnVisibility}
+            onToggleColumn={onToggleColumn}
+            onMoveColumn={onMoveColumn}
+            onResetColumns={onResetColumns}
+            exportTitle={historyTitle}
+            exportFilenameBase={
+              summaryHistory
+                ? "purchase-history"
+                : "purchase-transaction-history"
+            }
+            exportColumns={exportColumns}
+            exportRows={exportRows}
+            exportEmptyMessage="No purchase history rows available."
+          />
+        </div>
+      </div>
       <div className="mt-4 max-h-[32rem] overflow-auto">
-        <table className="ims-table">
+        <table className="ims-table ims-master-table">
           <thead className="ims-table-head">
             <tr>
-              <th>Number</th>
-              <th>Status</th>
-              <th>Location</th>
-              <th>Product</th>
-              <th>Qty</th>
-              <th>Created</th>
-              <th>Actions</th>
+              {visibleColumns.map((column) => (
+                <th key={column.key} data-column-key={column.key}>
+                  {column.key === "item"
+                    ? summaryHistory
+                      ? "Items"
+                      : "Product"
+                    : column.label}
+                </th>
+              ))}
+              <th data-column-key="action">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {transactions.map((tx) => {
+            {pagination.items.map((tx) => {
               const line = tx.inventory_transaction_lines?.[0];
               const locationId =
                 locationTarget === "destination"
                   ? tx.destination_location_id
                   : tx.source_location_id;
               const location = locationId ? locationById.get(locationId) : undefined;
+              const detailHref = detailBasePath ? `${detailBasePath}/${tx.id}` : undefined;
 
               return (
-                <tr key={tx.id} className="ims-table-row">
-                  <td className="font-medium">{tx.tx_number}</td>
-                  <td>{tx.status}</td>
-                  <td>{location ? `${location.code ?? "LOC"} - ${location.name}` : "--"}</td>
-                  <td>{formatHistoricalProduct(line, productById)}</td>
-                  <td>{line?.qty ?? "--"}</td>
-                  <td>{new Date(tx.created_at).toLocaleString()}</td>
-                  <td>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        variant="secondary"
-                        className="ims-control-sm"
-                        onClick={() => onRunAction(tx.id, "submit")}
-                        disabled={stateLoading || tx.status !== "DRAFT"}
-                      >
-                        Submit
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        className="ims-control-sm"
-                        onClick={() => onRunAction(tx.id, "post")}
-                        disabled={stateLoading || tx.status !== "SUBMITTED"}
-                      >
-                        Post
-                      </Button>
-                      <Button
-                        variant="danger"
-                        className="ims-control-sm"
-                        onClick={() => onReverse(tx.id)}
-                        disabled={stateLoading || tx.status !== "POSTED"}
-                      >
-                        Reverse
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        className="ims-control-sm"
-                        onClick={() => onPrint(tx, historyTitle)}
-                      >
-                        Print Barcode
-                      </Button>
-                    </div>
+                <tr
+                  key={tx.id}
+                  className={`ims-table-row${detailHref ? " cursor-pointer" : ""}`}
+                  onClick={detailHref ? () => router.push(detailHref) : undefined}
+                  onKeyDown={
+                    detailHref
+                      ? (event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            router.push(detailHref);
+                          }
+                        }
+                      : undefined
+                  }
+                  role={detailHref ? "link" : undefined}
+                  tabIndex={detailHref ? 0 : undefined}
+                >
+                  {visibleColumns.map((column) => (
+                    <td key={column.key} data-column-key={column.key}>
+                      {column.key === "number" ? (
+                        detailHref ? (
+                          <Link
+                            href={detailHref}
+                            className="font-medium underline-offset-4 hover:underline"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            {tx.supplier_invoice_number?.trim() || tx.tx_number}
+                          </Link>
+                        ) : (
+                          <span className="font-medium">
+                            {tx.supplier_invoice_number?.trim() || tx.tx_number}
+                          </span>
+                        )
+                      ) : null}
+                      {column.key === "voucherDate" ? formatVoucherDate(tx) : null}
+                      {column.key === "supplier"
+                        ? formatSupplierName(tx, supplierById)
+                        : null}
+                      {column.key === "amount"
+                        ? formatTransactionMoney(getTransactionTotalAmount(tx))
+                        : null}
+                      {column.key === "status" ? tx.status : null}
+                      {column.key === "location"
+                        ? location
+                          ? `${location.code ?? "LOC"} - ${location.name}`
+                          : "--"
+                        : null}
+                      {column.key === "item"
+                        ? summaryHistory
+                          ? `${getTransactionItemCount(tx)} item${getTransactionItemCount(tx) === 1 ? "" : "s"}`
+                          : formatHistoricalProduct(line, productById)
+                        : null}
+                      {column.key === "qty"
+                        ? summaryHistory
+                          ? getTransactionTotalQty(tx)
+                          : line?.qty ?? "--"
+                        : null}
+                      {column.key === "created"
+                        ? new Date(tx.created_at).toLocaleString()
+                        : null}
+                    </td>
+                  ))}
+                  <td data-column-key="action">
+                    <TransactionRowActionsMenu
+                      actions={[
+                        {
+                          label: "Submit",
+                          disabled: stateLoading || tx.status !== "DRAFT",
+                          onSelect: () => onRunAction(tx.id, "submit"),
+                        },
+                        {
+                          label: "Post",
+                          disabled: stateLoading || tx.status !== "SUBMITTED",
+                          onSelect: () => onRunAction(tx.id, "post"),
+                        },
+                        {
+                          label: "Reverse",
+                          disabled: stateLoading || tx.status !== "POSTED",
+                          tone: "danger",
+                          onSelect: () => onReverse(tx.id),
+                        },
+                      ]}
+                    />
                   </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
-        {transactions.length === 0 ? (
+        {pagination.totalItems === 0 ? (
           <p className="ims-empty mt-3">No records found.</p>
         ) : null}
       </div>
+      <MasterTablePagination
+        totalItems={pagination.totalItems}
+        currentPage={pagination.currentPage}
+        rowLimit={rowLimit}
+        onPageChange={onPageChange}
+      />
     </Card>
   );
 }
@@ -374,7 +634,10 @@ export function PurchaseTransactionPage({
   viewMode = "combined",
   headerAction,
   successMessage,
+  detailBasePath,
+  summaryHistory = false,
 }: Props) {
+  const { userId: authUserId } = useDashboardSession();
   const [transactions, setTransactions] = useState<Tx[]>([]);
   const [products, setProducts] = useState<Lookup[]>([]);
   const [locations, setLocations] = useState<Lookup[]>([]);
@@ -383,9 +646,54 @@ export function PurchaseTransactionPage({
   const [message, setMessage] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
   const [stateLoading, setStateLoading] = useState(false);
-  const [printDialogOpen, setPrintDialogOpen] = useState(false);
-  const [printLabels, setPrintLabels] = useState<BarcodeLabel[]>([]);
-  const [printTitle, setPrintTitle] = useState("Barcode Labels");
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyRowLimit, setHistoryRowLimit] = useState<RowLimitOption>(10);
+  const historyDefaultOrder = useMemo(
+    () =>
+      summaryHistory
+        ? PURCHASE_HISTORY_SUMMARY_DEFAULT_COLUMN_ORDER
+        : PURCHASE_HISTORY_DETAIL_DEFAULT_COLUMN_ORDER,
+    [summaryHistory],
+  );
+  const historyDefaultVisibility = useMemo(
+    () =>
+      summaryHistory
+        ? PURCHASE_HISTORY_SUMMARY_DEFAULT_COLUMN_VISIBILITY
+        : PURCHASE_HISTORY_DETAIL_DEFAULT_COLUMN_VISIBILITY,
+    [summaryHistory],
+  );
+  const historyColumns = useMemo<readonly MasterColumnDefinition<PurchaseHistoryColumnKey>[]>(
+    () => [
+      { key: "number", label: "Voucher No" },
+      { key: "voucherDate", label: "Voucher Date" },
+      { key: "supplier", label: "Supplier Name" },
+      { key: "amount", label: "Total Amount" },
+      { key: "status", label: "Status" },
+      {
+        key: "location",
+        label:
+          summaryHistory && transactionType === "RECEIPT" ? "Warehouse" : "Location",
+      },
+      { key: "item", label: summaryHistory ? "Items" : "Product" },
+      { key: "qty", label: "Qty" },
+      { key: "created", label: "Created" },
+    ],
+    [summaryHistory, transactionType],
+  );
+  const {
+    orderedColumns: orderedHistoryColumns,
+    visibleColumns: visibleHistoryColumns,
+    columnVisibility: historyColumnVisibility,
+    toggleColumnVisibility: toggleHistoryColumnVisibility,
+    moveColumn: moveHistoryColumn,
+    resetColumnPreferences: resetHistoryColumnPreferences,
+  } = useMasterColumns({
+    userId: authUserId,
+    storageKey: `ims:${transactionType.toLowerCase()}:history:columns:v2:${authUserId}`,
+    columns: historyColumns,
+    defaultOrder: historyDefaultOrder,
+    defaultVisibility: historyDefaultVisibility,
+  });
 
   const createSuccessMessage =
     successMessage ??
@@ -394,17 +702,23 @@ export function PurchaseTransactionPage({
       : "Purchase draft created.");
   const showCreateSection = viewMode !== "history";
   const showHistorySection = viewMode !== "create";
+  const fixedLocationName =
+    transactionType === "RECEIPT" ? MAIN_WAREHOUSE_NAME : null;
 
-  const loadTransactions = useCallback(async () => {
-    const response = await fetch(`/api/transactions?type=${transactionType}&limit=100`, {
-      cache: "no-store",
+  const loadTransactions = useCallback(async (signal?: AbortSignal) => {
+    const result = await fetchAllHistoryItems<Tx>(`/api/transactions?type=${transactionType}`, {
+      signal,
+      fallbackError: "Failed to load transactions.",
     });
-    const json = (await response.json()) as { items?: Tx[]; error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to load transactions.");
+
+    if (!result.ok) {
+      if (result.error !== "Request aborted.") {
+        setError(result.error);
+      }
       return;
     }
-    setTransactions(json.items ?? []);
+
+    setTransactions(result.data);
   }, [transactionType]);
 
   const loadLookups = useCallback(async () => {
@@ -440,10 +754,16 @@ export function PurchaseTransactionPage({
   }, []);
 
   useEffect(() => {
-    Promise.all([loadTransactions(), loadLookups()]).catch(() =>
+    const controller = new AbortController();
+    Promise.all([loadTransactions(controller.signal), loadLookups()]).catch(() =>
       setError("Failed to load page data."),
     );
+    return () => controller.abort();
   }, [loadLookups, loadTransactions]);
+
+  useHistoryAutoRefresh(() => loadTransactions(), {
+    enabled: showHistorySection,
+  });
 
   const locationById = useMemo(() => {
     const mapped = new Map<string, Lookup>();
@@ -460,6 +780,71 @@ export function PurchaseTransactionPage({
     }
     return mapped;
   }, [products]);
+
+  const supplierById = useMemo(() => {
+    const mapped = new Map<string, Lookup>();
+    for (const supplier of suppliers) {
+      mapped.set(supplier.id, supplier);
+    }
+    return mapped;
+  }, [suppliers]);
+
+  const historyExportColumns = useMemo(
+    () =>
+      summaryHistory
+        ? PURCHASE_SUMMARY_EXPORT_COLUMNS.map((column) =>
+            column.key === "location" && transactionType !== "RECEIPT"
+              ? { ...column, label: "Location" }
+              : column,
+          )
+        : PURCHASE_DETAIL_EXPORT_COLUMNS,
+    [summaryHistory, transactionType],
+  );
+
+  const historyExportRows = useMemo(
+    () =>
+      transactions.map((transaction) => {
+        const line = transaction.inventory_transaction_lines?.[0];
+        const locationId =
+          locationTarget === "destination"
+            ? transaction.destination_location_id
+            : transaction.source_location_id;
+        const location = locationId ? locationById.get(locationId) : undefined;
+
+        if (summaryHistory) {
+          return {
+            voucher_no: transaction.supplier_invoice_number?.trim() || transaction.tx_number,
+            voucher_date: formatVoucherDate(transaction),
+            supplier_name: formatSupplierName(transaction, supplierById),
+            total_amount: formatTransactionMoney(getTransactionTotalAmount(transaction)),
+            status: transaction.status,
+            location: location
+              ? `${location.code ?? "LOC"} - ${location.name}`
+              : "--",
+            item_count: getTransactionItemCount(transaction),
+            total_qty: getTransactionTotalQty(transaction),
+            created_at: new Date(transaction.created_at).toLocaleString(),
+          };
+        }
+
+        return {
+          number: transaction.tx_number,
+          status: transaction.status,
+          location: location ? `${location.code ?? "LOC"} - ${location.name}` : "--",
+          product: formatHistoricalProduct(line, productById),
+          qty: line?.qty ?? "--",
+          created_at: new Date(transaction.created_at).toLocaleString(),
+        };
+      }),
+    [
+      locationById,
+      locationTarget,
+      productById,
+      supplierById,
+      summaryHistory,
+      transactions,
+    ],
+  );
 
   async function createTransaction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -506,7 +891,7 @@ export function PurchaseTransactionPage({
 
     (event.currentTarget as HTMLFormElement).reset();
     setMessage(createSuccessMessage);
-    await loadTransactions();
+    await Promise.all([loadTransactions(), loadLookups()]);
     setCreateLoading(false);
   }
 
@@ -551,29 +936,6 @@ export function PurchaseTransactionPage({
     setStateLoading(false);
   }
 
-  function openPrintForTransaction(tx: Tx, title: string) {
-    const lines = tx.inventory_transaction_lines ?? [];
-    const prepared = buildBarcodeLabelsFromLines(
-      lines.map((line) => ({
-        productId: line.product_id,
-        productName: line.product_name_snapshot,
-        productSku: line.product_sku_snapshot,
-        productBarcode: line.product_barcode_snapshot,
-        useSnapshot: hasHistoricalProductSnapshot(line),
-      })),
-      productById,
-    );
-    if ("error" in prepared) {
-      setError(prepared.error);
-      return;
-    }
-
-    setError(null);
-    setPrintLabels(prepared.labels);
-    setPrintTitle(`${title} - ${tx.tx_number}`);
-    setPrintDialogOpen(true);
-  }
-
   return (
     <div className="space-y-6">
       <TransactionPageHeader
@@ -593,6 +955,7 @@ export function PurchaseTransactionPage({
           products={products}
           createLoading={createLoading}
           locationLabel={locationLabel}
+          fixedLocationName={fixedLocationName}
           onSubmit={createTransaction}
         />
       ) : null}
@@ -604,29 +967,26 @@ export function PurchaseTransactionPage({
           locationTarget={locationTarget}
           locationById={locationById}
           productById={productById}
+          supplierById={supplierById}
+          currentPage={historyPage}
+          rowLimit={historyRowLimit}
+          orderedColumns={orderedHistoryColumns}
+          visibleColumns={visibleHistoryColumns}
+          columnVisibility={historyColumnVisibility}
           stateLoading={stateLoading}
+          detailBasePath={detailBasePath}
+          summaryHistory={summaryHistory}
+          exportColumns={historyExportColumns}
+          exportRows={historyExportRows}
+          onPageChange={setHistoryPage}
+          onRowLimitChange={setHistoryRowLimit}
+          onToggleColumn={toggleHistoryColumnVisibility}
+          onMoveColumn={moveHistoryColumn}
+          onResetColumns={resetHistoryColumnPreferences}
           onRunAction={runAction}
           onReverse={reverse}
-          onPrint={openPrintForTransaction}
         />
       ) : null}
-
-      <BarcodePrintDialog
-        open={printDialogOpen}
-        onClose={() => setPrintDialogOpen(false)}
-        onConfirm={async ({ format, quantity }) => {
-          const result = await printBarcodeLabels(printLabels, {
-            format,
-            quantity,
-            title: printTitle,
-          });
-          if ("error" in result) {
-            setError(result.error);
-            return;
-          }
-          setPrintDialogOpen(false);
-        }}
-      />
     </div>
   );
 }

@@ -1,18 +1,31 @@
 "use client";
 /* eslint-disable react-hooks/set-state-in-effect */
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
+import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
+import {
+  MasterRowLimitControl,
+  MasterTablePagination,
+  paginateRows,
+  type RowLimitOption,
+} from "@/components/master/master-table-pagination";
+import {
+  buildDefaultColumnVisibility,
+  useMasterColumns,
+  type MasterColumnDefinition,
+} from "@/components/master/use-master-columns";
+import type { ExportColumn } from "@/lib/export/contracts";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { BarcodePrintDialog } from "./barcode-print-dialog";
-import {
-  BarcodeLabel,
-  buildBarcodeLabelsFromLines,
-  printBarcodeLabels,
-} from "./barcode-print";
+import { fetchAllHistoryItems } from "./fetch-all-history-items";
+import { TransactionListSettingsMenu } from "./transaction-list-settings-menu";
+import { TransactionRowActionsMenu } from "./transaction-row-actions-menu";
+import { useHistoryAutoRefresh } from "./use-history-auto-refresh";
 
 type TxStatus = "DRAFT" | "SUBMITTED" | "POSTED" | "REVERSED" | "CANCELLED";
 
@@ -45,8 +58,41 @@ type Lookup = {
   name: string;
   sku?: string;
   code?: string;
-  barcode?: string | null;
 };
+
+type AdjustmentHistoryColumnKey =
+  | "number"
+  | "mode"
+  | "status"
+  | "location"
+  | "item"
+  | "qty"
+  | "created";
+
+const ADJUSTMENT_HISTORY_DEFAULT_COLUMN_ORDER: readonly AdjustmentHistoryColumnKey[] = [
+  "number",
+  "mode",
+  "status",
+  "location",
+  "item",
+  "qty",
+  "created",
+];
+
+const ADJUSTMENT_HISTORY_DEFAULT_COLUMN_VISIBILITY =
+  buildDefaultColumnVisibility<AdjustmentHistoryColumnKey>(
+    ADJUSTMENT_HISTORY_DEFAULT_COLUMN_ORDER,
+  );
+
+const ADJUSTMENT_EXPORT_COLUMNS: ExportColumn[] = [
+  { key: "number", label: "Number" },
+  { key: "mode", label: "Mode" },
+  { key: "status", label: "Status" },
+  { key: "location", label: "Location" },
+  { key: "items", label: "Items" },
+  { key: "qty", label: "Qty" },
+  { key: "created_at", label: "Created" },
+];
 
 function hasHistoricalProductSnapshot(line: TxLine | undefined) {
   return Boolean(
@@ -80,7 +126,20 @@ type Props = {
   headerSubtitle: string;
   createTitle: string;
   historyTitle: string;
+  detailBasePath?: string;
+  summaryHistory?: boolean;
 };
+
+function getTransactionItemCount(transaction: Tx) {
+  return transaction.inventory_transaction_lines?.length ?? 0;
+}
+
+function getTransactionTotalQty(transaction: Tx) {
+  return (transaction.inventory_transaction_lines ?? []).reduce(
+    (total, line) => total + Number(line.qty ?? 0),
+    0,
+  );
+}
 
 export function AdjustmentTransactionPage({
   mode,
@@ -88,27 +147,62 @@ export function AdjustmentTransactionPage({
   headerSubtitle,
   createTitle,
   historyTitle,
+  detailBasePath,
+  summaryHistory = false,
 }: Props) {
+  const { userId: authUserId } = useDashboardSession();
+  const router = useRouter();
   const [transactions, setTransactions] = useState<Tx[]>([]);
   const [products, setProducts] = useState<Lookup[]>([]);
   const [locations, setLocations] = useState<Lookup[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
   const [stateLoading, setStateLoading] = useState(false);
-  const [printDialogOpen, setPrintDialogOpen] = useState(false);
-  const [printLabels, setPrintLabels] = useState<BarcodeLabel[]>([]);
-  const [printTitle, setPrintTitle] = useState("Barcode Labels");
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyRowLimit, setHistoryRowLimit] = useState<RowLimitOption>(10);
+  const historyColumns = useMemo<
+    readonly MasterColumnDefinition<AdjustmentHistoryColumnKey>[]
+  >(
+    () => [
+      { key: "number", label: "Number" },
+      { key: "mode", label: "Mode" },
+      { key: "status", label: "Status" },
+      { key: "location", label: "Location" },
+      { key: "item", label: summaryHistory ? "Items" : "Product" },
+      { key: "qty", label: "Qty" },
+      { key: "created", label: "Created" },
+    ],
+    [summaryHistory],
+  );
+  const {
+    orderedColumns: orderedHistoryColumns,
+    visibleColumns: visibleHistoryColumns,
+    columnVisibility: historyColumnVisibility,
+    toggleColumnVisibility: toggleHistoryColumnVisibility,
+    moveColumn: moveHistoryColumn,
+    resetColumnPreferences: resetHistoryColumnPreferences,
+  } = useMasterColumns({
+    userId: authUserId,
+    storageKey: `ims:${mode}:history:columns:${authUserId}`,
+    columns: historyColumns,
+    defaultOrder: ADJUSTMENT_HISTORY_DEFAULT_COLUMN_ORDER,
+    defaultVisibility: ADJUSTMENT_HISTORY_DEFAULT_COLUMN_VISIBILITY,
+  });
 
-  const loadTransactions = useCallback(async () => {
-    const response = await fetch("/api/transactions?type=ADJUSTMENT&limit=200", {
-      cache: "no-store",
+  const loadTransactions = useCallback(async (signal?: AbortSignal) => {
+    const result = await fetchAllHistoryItems<Tx>("/api/transactions?type=ADJUSTMENT", {
+      signal,
+      fallbackError: "Failed to load adjustments.",
     });
-    const json = (await response.json()) as { items?: Tx[]; error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to load adjustments.");
+
+    if (!result.ok) {
+      if (result.error !== "Request aborted.") {
+        setError(result.error);
+      }
       return;
     }
-    setTransactions(json.items ?? []);
+
+    setTransactions(result.data);
   }, []);
 
   const loadLookups = useCallback(async () => {
@@ -134,10 +228,14 @@ export function AdjustmentTransactionPage({
   }, []);
 
   useEffect(() => {
-    Promise.all([loadTransactions(), loadLookups()]).catch(() =>
+    const controller = new AbortController();
+    Promise.all([loadTransactions(controller.signal), loadLookups()]).catch(() =>
       setError("Failed to load page data."),
     );
+    return () => controller.abort();
   }, [loadLookups, loadTransactions]);
+
+  useHistoryAutoRefresh(() => loadTransactions());
 
   const locationById = useMemo(() => {
     const mapped = new Map<string, Lookup>();
@@ -164,6 +262,35 @@ export function AdjustmentTransactionPage({
       return reason !== "OPENING";
     });
   }, [mode, transactions]);
+  const paginatedTransactions = useMemo(
+    () => paginateRows(filteredTransactions, historyRowLimit, historyPage),
+    [filteredTransactions, historyPage, historyRowLimit],
+  );
+  const historyExportRows = useMemo(
+    () =>
+      filteredTransactions.map((tx) => {
+        const line = tx.inventory_transaction_lines?.[0];
+        const reason = line?.reason_code ?? "";
+        const isDecrease = reason === "DECREASE";
+        const locationId = isDecrease ? tx.source_location_id : tx.destination_location_id;
+        const location = locationId ? locationById.get(locationId) : undefined;
+        const modeLabel =
+          reason === "OPENING" ? "Opening" : isDecrease ? "Remove" : "Add";
+
+        return {
+          number: tx.tx_number,
+          mode: modeLabel,
+          status: tx.status,
+          location: location ? `${location.code ?? "LOC"} - ${location.name}` : "--",
+          items: summaryHistory
+            ? `${getTransactionItemCount(tx)} item${getTransactionItemCount(tx) === 1 ? "" : "s"}`
+            : formatHistoricalProduct(line, productById),
+          qty: summaryHistory ? getTransactionTotalQty(tx) : line?.qty ?? "--",
+          created_at: new Date(tx.created_at).toLocaleString(),
+        };
+      }),
+    [filteredTransactions, locationById, productById, summaryHistory],
+  );
 
   async function createTransaction(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -254,29 +381,6 @@ export function AdjustmentTransactionPage({
     setStateLoading(false);
   }
 
-  function openPrintForTransaction(tx: Tx) {
-    const lines = tx.inventory_transaction_lines ?? [];
-    const prepared = buildBarcodeLabelsFromLines(
-      lines.map((line) => ({
-        productId: line.product_id,
-        productName: line.product_name_snapshot,
-        productSku: line.product_sku_snapshot,
-        productBarcode: line.product_barcode_snapshot,
-        useSnapshot: hasHistoricalProductSnapshot(line),
-      })),
-      productById,
-    );
-    if ("error" in prepared) {
-      setError(prepared.error);
-      return;
-    }
-
-    setError(null);
-    setPrintLabels(prepared.labels);
-    setPrintTitle(`${historyTitle} - ${tx.tx_number}`);
-    setPrintDialogOpen(true);
-  }
-
   return (
     <div className="space-y-6">
       <header>
@@ -338,23 +442,52 @@ export function AdjustmentTransactionPage({
       </Card>
 
       <Card className="min-h-[24rem]">
-        <h2 className="text-lg font-semibold">{historyTitle}</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-1">
+            <MasterRowLimitControl
+              value={historyRowLimit}
+              onChange={(limit) => {
+                setHistoryRowLimit(limit);
+                setHistoryPage(1);
+              }}
+            />
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold">{historyTitle}</h2>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <TransactionListSettingsMenu
+              orderedColumns={orderedHistoryColumns}
+              columnVisibility={historyColumnVisibility}
+              onToggleColumn={toggleHistoryColumnVisibility}
+              onMoveColumn={moveHistoryColumn}
+              onResetColumns={resetHistoryColumnPreferences}
+              exportTitle={historyTitle}
+              exportFilenameBase={mode === "opening" ? "opening-stock-history" : "stock-adjustment-history"}
+              exportColumns={ADJUSTMENT_EXPORT_COLUMNS}
+              exportRows={historyExportRows}
+              exportEmptyMessage="No adjustment history rows available."
+            />
+          </div>
+        </div>
         <div className="mt-4 max-h-[32rem] overflow-auto">
-          <table className="ims-table">
+          <table className="ims-table ims-master-table">
             <thead className="ims-table-head">
               <tr>
-                <th>Number</th>
-                <th>Mode</th>
-                <th>Status</th>
-                <th>Location</th>
-                <th>Product</th>
-                <th>Qty</th>
-                <th>Created</th>
-                <th>Actions</th>
+                {visibleHistoryColumns.map((column) => (
+                  <th key={column.key} data-column-key={column.key}>
+                    {column.key === "item"
+                      ? summaryHistory
+                        ? "Items"
+                        : "Product"
+                      : column.label}
+                  </th>
+                ))}
+                <th data-column-key="action">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filteredTransactions.map((tx) => {
+              {paginatedTransactions.items.map((tx) => {
                 const line = tx.inventory_transaction_lines?.[0];
                 const reason = line?.reason_code ?? "";
                 const isDecrease = reason === "DECREASE";
@@ -362,78 +495,101 @@ export function AdjustmentTransactionPage({
                 const location = locationId ? locationById.get(locationId) : undefined;
                 const modeLabel =
                   reason === "OPENING" ? "Opening" : isDecrease ? "Remove" : "Add";
+                const detailHref = detailBasePath ? `${detailBasePath}/${tx.id}` : undefined;
 
                 return (
-                  <tr key={tx.id} className="ims-table-row">
-                    <td className="font-medium">{tx.tx_number}</td>
-                    <td>{modeLabel}</td>
-                    <td>{tx.status}</td>
-                    <td>{location ? `${location.code ?? "LOC"} - ${location.name}` : "--"}</td>
-                    <td>{formatHistoricalProduct(line, productById)}</td>
-                    <td>{line?.qty ?? "--"}</td>
-                    <td>{new Date(tx.created_at).toLocaleString()}</td>
-                    <td>
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          variant="secondary"
-                          className="ims-control-sm"
-                          onClick={() => runAction(tx.id, "submit")}
-                          disabled={stateLoading || tx.status !== "DRAFT"}
-                        >
-                          Submit
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          className="ims-control-sm"
-                          onClick={() => runAction(tx.id, "post")}
-                          disabled={stateLoading || tx.status !== "SUBMITTED"}
-                        >
-                          Post
-                        </Button>
-                        <Button
-                          variant="danger"
-                          className="ims-control-sm"
-                          onClick={() => reverse(tx.id)}
-                          disabled={stateLoading || tx.status !== "POSTED"}
-                        >
-                          Reverse
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          className="ims-control-sm"
-                          onClick={() => openPrintForTransaction(tx)}
-                        >
-                          Print Barcode
-                        </Button>
-                      </div>
+                  <tr
+                    key={tx.id}
+                    className={`ims-table-row${detailHref ? " cursor-pointer" : ""}`}
+                    onClick={detailHref ? () => router.push(detailHref) : undefined}
+                    onKeyDown={
+                      detailHref
+                        ? (event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              router.push(detailHref);
+                            }
+                          }
+                        : undefined
+                    }
+                    role={detailHref ? "link" : undefined}
+                    tabIndex={detailHref ? 0 : undefined}
+                  >
+                    {visibleHistoryColumns.map((column) => (
+                      <td key={column.key} data-column-key={column.key}>
+                        {column.key === "number" ? (
+                          detailHref ? (
+                            <Link
+                              href={detailHref}
+                              className="font-medium underline-offset-4 hover:underline"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              {tx.tx_number}
+                            </Link>
+                          ) : (
+                            <span className="font-medium">{tx.tx_number}</span>
+                          )
+                        ) : null}
+                        {column.key === "mode" ? modeLabel : null}
+                        {column.key === "status" ? tx.status : null}
+                        {column.key === "location"
+                          ? location
+                            ? `${location.code ?? "LOC"} - ${location.name}`
+                            : "--"
+                          : null}
+                        {column.key === "item"
+                          ? summaryHistory
+                            ? `${getTransactionItemCount(tx)} item${getTransactionItemCount(tx) === 1 ? "" : "s"}`
+                            : formatHistoricalProduct(line, productById)
+                          : null}
+                        {column.key === "qty"
+                          ? summaryHistory
+                            ? getTransactionTotalQty(tx)
+                            : line?.qty ?? "--"
+                          : null}
+                        {column.key === "created"
+                          ? new Date(tx.created_at).toLocaleString()
+                          : null}
+                      </td>
+                    ))}
+                    <td data-column-key="action">
+                      <TransactionRowActionsMenu
+                        actions={[
+                          {
+                            label: "Submit",
+                            disabled: stateLoading || tx.status !== "DRAFT",
+                            onSelect: () => runAction(tx.id, "submit"),
+                          },
+                          {
+                            label: "Post",
+                            disabled: stateLoading || tx.status !== "SUBMITTED",
+                            onSelect: () => runAction(tx.id, "post"),
+                          },
+                          {
+                            label: "Reverse",
+                            disabled: stateLoading || tx.status !== "POSTED",
+                            tone: "danger",
+                            onSelect: () => reverse(tx.id),
+                          },
+                        ]}
+                      />
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-          {filteredTransactions.length === 0 ? (
+          {paginatedTransactions.totalItems === 0 ? (
             <p className="ims-empty mt-3">No records found.</p>
           ) : null}
         </div>
+        <MasterTablePagination
+          totalItems={paginatedTransactions.totalItems}
+          currentPage={paginatedTransactions.currentPage}
+          rowLimit={historyRowLimit}
+          onPageChange={setHistoryPage}
+        />
       </Card>
-
-      <BarcodePrintDialog
-        open={printDialogOpen}
-        onClose={() => setPrintDialogOpen(false)}
-        onConfirm={async ({ format, quantity }) => {
-          const result = await printBarcodeLabels(printLabels, {
-            format,
-            quantity,
-            title: printTitle,
-          });
-          if ("error" in result) {
-            setError(result.error);
-            return;
-          }
-          setPrintDialogOpen(false);
-        }}
-      />
     </div>
   );
 }

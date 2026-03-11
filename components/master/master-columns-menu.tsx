@@ -108,7 +108,7 @@ export function MasterColumnsMenu<K extends string>({
         className={cn(
           triggerVariant === "ghost"
             ? "ims-control-sm rounded-full border-0 bg-transparent px-2 shadow-none hover:bg-transparent"
-            : "w-full justify-between rounded-xl px-3 shadow-none",
+            : "w-full justify-between rounded-xl px-3 shadow-none text-xs sm:text-sm",
           triggerVariant === "ghost"
             ? open
               ? "text-[var(--brand-primary-hover)]"
@@ -138,21 +138,23 @@ export function MasterColumnsMenu<K extends string>({
       </Button>
 
       {open ? (
-        <div className="absolute right-0 top-[calc(100%+0.35rem)] z-20 w-[17.5rem] rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] p-3 shadow-[var(--shadow-md)]">
+        <div className="absolute right-0 top-[calc(100%+0.35rem)] z-20 w-[min(17.5rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface)] p-2.5 shadow-[var(--shadow-md)] sm:p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <p className="text-sm font-semibold text-[var(--text-strong)]">Visible Columns</p>
-            <Button variant="ghost" className="h-7 px-2 text-xs" onClick={onReset}>
+            <p className="text-xs font-semibold text-[var(--text-strong)] sm:text-sm">
+              Visible Columns
+            </p>
+            <Button variant="ghost" className="h-6 px-2 text-[11px] sm:h-7 sm:text-xs" onClick={onReset}>
               Reset
             </Button>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-1.5 sm:space-y-2">
             {orderedColumns.map((column, index) => (
               <div
                 key={column.key}
                 className="flex items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-[var(--line)] bg-[var(--surface-soft)] px-2 py-1.5"
               >
-                <label className="flex items-center gap-2 text-sm text-[var(--text-strong)]">
+                <label className="flex min-w-0 items-center gap-2 text-xs text-[var(--text-strong)] sm:text-sm">
                   <input
                     type="checkbox"
                     checked={columnVisibility[column.key]}
@@ -163,7 +165,7 @@ export function MasterColumnsMenu<K extends string>({
                 <div className="flex items-center gap-1">
                   <Button
                     variant="secondary"
-                    className="h-7 w-7 rounded-md p-0"
+                    className="h-6 w-6 rounded-md p-0 sm:h-7 sm:w-7"
                     disabled={index === 0}
                     aria-label={`Move ${column.label} earlier`}
                     onClick={() => onMoveColumn(column.key, -1)}
@@ -172,7 +174,7 @@ export function MasterColumnsMenu<K extends string>({
                   </Button>
                   <Button
                     variant="secondary"
-                    className="h-7 w-7 rounded-md p-0"
+                    className="h-6 w-6 rounded-md p-0 sm:h-7 sm:w-7"
                     disabled={index === orderedColumns.length - 1}
                     aria-label={`Move ${column.label} later`}
                     onClick={() => onMoveColumn(column.key, 1)}
@@ -184,7 +186,7 @@ export function MasterColumnsMenu<K extends string>({
             ))}
           </div>
 
-          <p className="mt-2 text-xs text-[var(--text-muted)]">{helperText}</p>
+          <p className="mt-2 text-[11px] text-[var(--text-muted)] sm:text-xs">{helperText}</p>
         </div>
       ) : null}
     </div>

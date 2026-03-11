@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 
 export type RowLimitOption = 10 | 25 | 50 | "all";
+const MAX_VISIBLE_PAGE_BUTTONS = 5;
 
 export function parseRowLimitOption(raw: unknown): RowLimitOption {
   if (raw === 10 || raw === "10") {
@@ -49,6 +50,46 @@ export function paginateRows<T>(rows: T[], limit: RowLimitOption, page: number) 
     start: totalItems === 0 ? 0 : startIndex + 1,
     end: totalItems === 0 ? 0 : startIndex + items.length,
   };
+}
+
+export function buildVisiblePaginationPages(
+  totalPages: number,
+  currentPage: number,
+  maxVisibleButtons = MAX_VISIBLE_PAGE_BUTTONS,
+) {
+  const safeTotalPages = Math.max(1, totalPages);
+  const safeCurrentPage = Math.min(Math.max(currentPage, 1), safeTotalPages);
+  const targetCount = Math.min(maxVisibleButtons, safeTotalPages);
+  const visiblePages = new Set<number>();
+
+  [1, safeCurrentPage - 1, safeCurrentPage, safeCurrentPage + 1, safeTotalPages].forEach(
+    (page) => {
+      if (page >= 1 && page <= safeTotalPages) {
+        visiblePages.add(page);
+      }
+    },
+  );
+
+  let distance = 2;
+  while (visiblePages.size < targetCount) {
+    const beforePage = safeCurrentPage - distance;
+    if (beforePage > 1) {
+      visiblePages.add(beforePage);
+    }
+
+    if (visiblePages.size >= targetCount) {
+      break;
+    }
+
+    const afterPage = safeCurrentPage + distance;
+    if (afterPage < safeTotalPages) {
+      visiblePages.add(afterPage);
+    }
+
+    distance += 1;
+  }
+
+  return Array.from(visiblePages).sort((left, right) => left - right);
 }
 
 type MasterTablePaginationProps = {
@@ -103,20 +144,11 @@ export function MasterTablePagination({
       : rowLimit === "all"
         ? totalItems
         : Math.min(totalItems, safePage * rowLimit);
-  const pages = Array.from({ length: totalPages }, (_, index) => index + 1);
+  const pages = buildVisiblePaginationPages(totalPages, safePage);
 
   return (
-    <div className="mt-4 grid gap-3 md:grid-cols-[auto_1fr] md:items-center">
+    <div className="mt-4 flex flex-col items-center gap-3">
       <div className="flex flex-wrap items-center justify-center gap-1.5">
-        <Button
-          variant="secondary"
-          className="ims-control-sm rounded-xl px-3"
-          disabled={loading || safePage <= 1}
-          onClick={() => onPageChange(safePage - 1)}
-        >
-          Prev
-        </Button>
-
         {pages.map((page) => (
           <Button
             key={page}
@@ -128,18 +160,9 @@ export function MasterTablePagination({
             {page}
           </Button>
         ))}
-
-        <Button
-          variant="secondary"
-          className="ims-control-sm rounded-xl px-3"
-          disabled={loading || safePage >= totalPages}
-          onClick={() => onPageChange(safePage + 1)}
-        >
-          Next
-        </Button>
       </div>
 
-      <p className="text-center text-xs text-[var(--text-muted)] md:text-right">
+      <p className="text-center text-xs text-[var(--text-muted)]">
         {loading
           ? "Loading..."
           : totalItems === 0

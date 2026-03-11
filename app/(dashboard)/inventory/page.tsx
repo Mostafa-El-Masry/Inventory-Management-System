@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
 import { Card } from "@/components/ui/card";
@@ -108,24 +108,27 @@ export default function InventoryPage() {
     setLocations(locationsResult.data.items ?? []);
   }
 
-  function buildStockQuery(
-    nextFilters: {
-      productId?: string;
-      locationId?: string;
-      asOfDate?: string;
-    } = {},
-  ) {
-    const params = new URLSearchParams();
-    const nextProductId = nextFilters.productId ?? productId;
-    const nextLocationId = nextFilters.locationId ?? locationId;
-    const nextAsOfDate = nextFilters.asOfDate ?? asOfDate;
+  const buildStockQuery = useCallback(
+    (
+      nextFilters: {
+        productId?: string;
+        locationId?: string;
+        asOfDate?: string;
+      } = {},
+    ) => {
+      const params = new URLSearchParams();
+      const nextProductId = nextFilters.productId ?? productId;
+      const nextLocationId = nextFilters.locationId ?? locationId;
+      const nextAsOfDate = nextFilters.asOfDate ?? asOfDate;
 
-    if (nextProductId) params.set("product_id", nextProductId);
-    if (nextLocationId) params.set("location_id", nextLocationId);
-    if (nextAsOfDate) params.set("as_of_date", nextAsOfDate);
+      if (nextProductId) params.set("product_id", nextProductId);
+      if (nextLocationId) params.set("location_id", nextLocationId);
+      if (nextAsOfDate) params.set("as_of_date", nextAsOfDate);
 
-    return params.toString() ? `?${params.toString()}` : "";
-  }
+      return params.toString() ? `?${params.toString()}` : "";
+    },
+    [asOfDate, locationId, productId],
+  );
 
   useEffect(() => {
     const saved = readLocalFilterState<Partial<InventoryFilterState>>(inventoryFilterStorageKey);
@@ -148,7 +151,7 @@ export default function InventoryPage() {
       setError("Failed to load inventory data.");
     });
     return () => controller.abort();
-  }, [filtersHydrated]);
+  }, [buildStockQuery, filtersHydrated]);
 
   useEffect(() => {
     if (!filtersHydrated) {
@@ -180,6 +183,10 @@ export default function InventoryPage() {
   }
 
   const filtersApplied = Boolean(productId || locationId || asOfDate);
+  const totalInventoryValue = rows.reduce(
+    (sum, row) => sum + row.qty_on_hand * Number(row.unit_cost ?? 0),
+    0,
+  );
 
   return (
     <div className="space-y-6">
@@ -192,6 +199,24 @@ export default function InventoryPage() {
       </header>
 
       {error ? <p className="ims-alert-danger">{error}</p> : null}
+
+      <Card className="min-h-0">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="ims-field-label">
+              {filtersApplied ? "Filtered Inventory Value" : "Total Inventory Value"}
+            </p>
+            <p className="mt-2 text-[clamp(1.8rem,1.6rem+1vw,2.6rem)] font-semibold text-[var(--text-strong)]">
+              KWD {totalInventoryValue.toFixed(2)}
+            </p>
+          </div>
+          <p className="text-sm text-[var(--text-muted)]">
+            {asOfDate
+              ? `Calculated from the filtered stock snapshot as of ${asOfDate}.`
+              : "Calculated from the currently filtered stock batches."}
+          </p>
+        </div>
+      </Card>
 
       <Card className="min-h-[22rem]">
         <div className="flex flex-wrap items-start justify-between gap-3">

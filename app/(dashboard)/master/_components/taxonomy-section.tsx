@@ -948,50 +948,53 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
               </div>
             </div>
 
-          <div className="mt-4 overflow-visible">
-              <table className="ims-table" aria-busy={showTaxonomyLoadingRows}>
-                <thead className="ims-table-head">
-                  <tr>
-                    {categoryColumns.visibleColumns.map((column) => (
-                      <th key={column.key}>
-                        {!isCategorySortableColumn(column.key) ? column.label : (() => {
-                          const sortKey = column.key;
-                          return (
-                            <SortableTableHeader
-                              label={column.label}
-                              active={categorySortKey === sortKey}
-                              direction={categorySortDirection}
-                              onClick={() => toggleCategorySort(sortKey)}
-                            />
-                          );
-                        })()}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                {showTaxonomyLoadingRows ? (
-                  <MasterTableLoadingRows
-                    columns={categoryColumns.visibleColumns}
-                    rowLimit={categoryRowLimit}
-                  />
-                ) : (
-                  <tbody>
-                    {visibleCategories.map((category) => (
-                      <tr key={category.id} className="ims-table-row">
-                        {categoryColumns.visibleColumns.map((column) => (
-                          <td key={`${category.id}-${column.key}`}>
-                            {renderCategoryCell(category, column.key)}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                )}
-              </table>
-              {!showTaxonomyLoadingRows && !error && categories.length === 0 ? (
-                <p className="ims-empty mt-3">No categories yet.</p>
-              ) : null}
-            </div>
+          <div className="mt-4 overflow-x-auto overflow-y-visible">
+            <table className="ims-table ims-master-table" aria-busy={showTaxonomyLoadingRows}>
+              <thead className="ims-table-head">
+                <tr>
+                  {categoryColumns.visibleColumns.map((column) => (
+                    <th key={column.key} data-column-key={column.key}>
+                      {!isCategorySortableColumn(column.key) ? column.label : (() => {
+                        const sortKey = column.key;
+                        return (
+                          <SortableTableHeader
+                            label={column.label}
+                            active={categorySortKey === sortKey}
+                            direction={categorySortDirection}
+                            onClick={() => toggleCategorySort(sortKey)}
+                          />
+                        );
+                      })()}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              {showTaxonomyLoadingRows ? (
+                <MasterTableLoadingRows
+                  columns={categoryColumns.visibleColumns}
+                  rowLimit={categoryRowLimit}
+                />
+              ) : (
+                <tbody>
+                  {visibleCategories.map((category) => (
+                    <tr key={category.id} className="ims-table-row">
+                      {categoryColumns.visibleColumns.map((column) => (
+                        <td
+                          key={`${category.id}-${column.key}`}
+                          data-column-key={column.key}
+                        >
+                          {renderCategoryCell(category, column.key)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              )}
+            </table>
+            {!showTaxonomyLoadingRows && !error && categories.length === 0 ? (
+              <p className="ims-empty mt-3">No categories yet.</p>
+            ) : null}
+          </div>
 
             <MasterTablePagination
               totalItems={filteredCategories.length}
@@ -1039,50 +1042,53 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
               </div>
             </div>
 
-          <div className="mt-4 overflow-visible">
-              <table className="ims-table" aria-busy={showTaxonomyLoadingRows}>
-                <thead className="ims-table-head">
-                  <tr>
-                    {subcategoryColumns.visibleColumns.map((column) => (
-                      <th key={column.key}>
-                        {!isSubcategorySortableColumn(column.key) ? column.label : (() => {
-                          const sortKey = column.key;
-                          return (
-                            <SortableTableHeader
-                              label={column.label}
-                              active={subcategorySortKey === sortKey}
-                              direction={subcategorySortDirection}
-                              onClick={() => toggleSubcategorySort(sortKey)}
-                            />
-                          );
-                        })()}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                {showTaxonomyLoadingRows ? (
-                  <MasterTableLoadingRows
-                    columns={subcategoryColumns.visibleColumns}
-                    rowLimit={subcategoryRowLimit}
-                  />
-                ) : (
-                  <tbody>
-                    {visibleSubcategories.map((subcategory) => (
-                      <tr key={subcategory.id} className="ims-table-row">
-                        {subcategoryColumns.visibleColumns.map((column) => (
-                          <td key={`${subcategory.id}-${column.key}`}>
-                            {renderSubcategoryCell(subcategory, column.key)}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                )}
-              </table>
-              {!showTaxonomyLoadingRows && !error && subcategories.length === 0 ? (
-                <p className="ims-empty mt-3">No subcategories yet.</p>
-              ) : null}
-            </div>
+          <div className="mt-4 overflow-x-auto overflow-y-visible">
+            <table className="ims-table ims-master-table" aria-busy={showTaxonomyLoadingRows}>
+              <thead className="ims-table-head">
+                <tr>
+                  {subcategoryColumns.visibleColumns.map((column) => (
+                    <th key={column.key} data-column-key={column.key}>
+                      {!isSubcategorySortableColumn(column.key) ? column.label : (() => {
+                        const sortKey = column.key;
+                        return (
+                          <SortableTableHeader
+                            label={column.label}
+                            active={subcategorySortKey === sortKey}
+                            direction={subcategorySortDirection}
+                            onClick={() => toggleSubcategorySort(sortKey)}
+                          />
+                        );
+                      })()}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              {showTaxonomyLoadingRows ? (
+                <MasterTableLoadingRows
+                  columns={subcategoryColumns.visibleColumns}
+                  rowLimit={subcategoryRowLimit}
+                />
+              ) : (
+                <tbody>
+                  {visibleSubcategories.map((subcategory) => (
+                    <tr key={subcategory.id} className="ims-table-row">
+                      {subcategoryColumns.visibleColumns.map((column) => (
+                        <td
+                          key={`${subcategory.id}-${column.key}`}
+                          data-column-key={column.key}
+                        >
+                          {renderSubcategoryCell(subcategory, column.key)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              )}
+            </table>
+            {!showTaxonomyLoadingRows && !error && subcategories.length === 0 ? (
+              <p className="ims-empty mt-3">No subcategories yet.</p>
+            ) : null}
+          </div>
 
             <MasterTablePagination
               totalItems={filteredSubcategories.length}

@@ -12,7 +12,6 @@ import {
   MasterRowLimitControl,
   MasterTablePagination,
   RowLimitOption,
-  paginateRows,
   parseRowLimitOption,
 } from "@/components/master/master-table-pagination";
 import {
@@ -36,7 +35,6 @@ import {
   removeLocalFilterState,
   writeLocalFilterState,
 } from "@/lib/utils/local-filter-storage";
-import { compareTextValues } from "@/lib/utils/sort-values";
 import { fetchJson } from "@/lib/utils/fetch-json";
 
 const PRODUCT_COLUMN_DEFINITIONS = [
@@ -110,14 +108,52 @@ type ProductSubcategory = {
 };
 
 type ProductSortKey = Exclude<ProductColumnKey, "action">;
+type ProductListResponse = {
+  items?: Product[];
+  pagination?: {
+    totalItems?: number;
+    totalPages?: number;
+    currentPage?: number;
+    pageSize?: number | null;
+  };
+};
 
 function isProductSortableColumn(key: ProductColumnKey): key is ProductSortKey {
   return key !== "action";
 }
 
+function parseStoredPage(raw: unknown) {
+  const numeric =
+    typeof raw === "number"
+      ? raw
+      : typeof raw === "string"
+        ? Number.parseInt(raw, 10)
+        : Number.NaN;
+
+  if (!Number.isFinite(numeric) || numeric < 1) {
+    return 1;
+  }
+
+  return Math.floor(numeric);
+}
+
+function mapProductsToExportRows(products: Product[]) {
+  return products.map((product) => ({
+    sku: product.sku,
+    name: product.name,
+    barcode: product.barcode ?? "",
+    unit: product.unit,
+    is_active: product.is_active,
+    description: product.description ?? "",
+    category_code: product.category_code ?? "",
+    subcategory_code: product.subcategory_code ?? "",
+  }));
+}
+
 export default function ProductsPage() {
   const { capabilities, userId: authUserId } = useDashboardSession();
   const [products, setProducts] = useState<Product[]>([]);
+  const [productTotalItems, setProductTotalItems] = useState(0);
   const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [subcategories, setSubcategories] = useState<ProductSubcategory[]>([]);
   const [showInactive, setShowInactive] = useState(false);
@@ -134,6 +170,7 @@ export default function ProductsPage() {
   const [productRowLimit, setProductRowLimit] = useState<RowLimitOption>(10);
   const [productRowLimitPrefsLoaded, setProductRowLimitPrefsLoaded] = useState(false);
   const [productPage, setProductPage] = useState(1);
+  const [productPagePrefsLoaded, setProductPagePrefsLoaded] = useState(false);
   const [archivedFilterHydrated, setArchivedFilterHydrated] = useState(false);
   const [productSortKey, setProductSortKey] = useState<ProductSortKey>("name");
   const [productSortDirection, setProductSortDirection] =
@@ -148,6 +185,12 @@ export default function ProductsPage() {
   });
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
   const archivedFilterStorageKey = buildFilterStorageKey(authUserId, "master", "products");
+  const productPageStorageKey = buildFilterStorageKey(
+    authUserId,
+    "master",
+    "products",
+    "page",
+  );
   const {
     orderedColumns,
     visibleColumns,
@@ -164,14 +207,22 @@ export default function ProductsPage() {
   });
 
   const loadProducts = useCallback(async (signal?: AbortSignal) => {
-    const result = await fetchJson<{ items?: Product[] }>(
-      `/api/products?include_inactive=${showInactive ? "true" : "false"}`,
-      {
-        cache: "no-store",
-        signal,
-        fallbackError: "Failed to load products.",
-      },
-    );
+    const params = new URLSearchParams({
+      include_inactive: showInactive ? "true" : "false",
+      sort: productSortKey,
+      direction: productSortDirection,
+    });
+
+    if (productRowLimit !== "all") {
+      params.set("page", String(productPage));
+      params.set("limit", String(productRowLimit));
+    }
+
+    const result = await fetchJson<ProductListResponse>(`/api/products?${params.toString()}`, {
+      cache: "no-store",
+      signal,
+      fallbackError: "Failed to load products.",
+    });
     if (!result.ok) {
       if (result.error !== "Request aborted.") {
         setError(result.error);
@@ -179,9 +230,30 @@ export default function ProductsPage() {
       return;
     }
 
+    const nextItems = result.data.items ?? [];
+    const nextTotalItems =
+      typeof result.data.pagination?.totalItems === "number"
+        ? result.data.pagination.totalItems
+        : nextItems.length;
+
     setError(null);
-    setProducts(result.data.items ?? []);
-  }, [showInactive]);
+    setProducts(nextItems);
+    setProductTotalItems(nextTotalItems);
+
+    if (
+      productRowLimit !== "all" &&
+      typeof result.data.pagination?.currentPage === "number" &&
+      result.data.pagination.currentPage !== productPage
+    ) {
+      setProductPage(result.data.pagination.currentPage);
+    }
+  }, [
+    productPage,
+    productRowLimit,
+    productSortDirection,
+    productSortKey,
+    showInactive,
+  ]);
 
   const loadTaxonomy = useCallback(async (signal?: AbortSignal) => {
     setTaxonomyLoading(true);
@@ -231,6 +303,10 @@ export default function ProductsPage() {
       return;
     }
 
+    if (!productRowLimitPrefsLoaded || !productPagePrefsLoaded) {
+      return;
+    }
+
     const controller = new AbortController();
     let cancelled = false;
 
@@ -251,7 +327,7 @@ export default function ProductsPage() {
       cancelled = true;
       controller.abort();
     };
-  }, [archivedFilterHydrated, loadProducts]);
+  }, [archivedFilterHydrated, loadProducts, productPagePrefsLoaded, productRowLimitPrefsLoaded]);
 
   const canCreateProductPermission = capabilities.master.products.create;
   const canImportProducts = capabilities.master.products.import;
@@ -259,7 +335,11 @@ export default function ProductsPage() {
   const canDeleteProducts = capabilities.master.products.delete;
   const canShowProductPanel = canCreateProductPermission || canImportProducts;
   const needsTaxonomyForPanel = canCreateProductPermission;
-  const showProductLoadingRows = !archivedFilterHydrated || productsLoading;
+  const showProductLoadingRows =
+    !archivedFilterHydrated ||
+    !productRowLimitPrefsLoaded ||
+    !productPagePrefsLoaded ||
+    productsLoading;
 
   useEffect(() => {
     if (!canShowProductPanel) {
@@ -308,6 +388,33 @@ export default function ProductsPage() {
   }, [authUserId]);
 
   useEffect(() => {
+    setProductPagePrefsLoaded(false);
+    setProductPage(1);
+  }, [productPageStorageKey]);
+
+  useEffect(() => {
+    if (!authUserId || !productRowLimitPrefsLoaded || productPagePrefsLoaded) {
+      return;
+    }
+
+    if (productRowLimit === "all") {
+      setProductPage(1);
+      setProductPagePrefsLoaded(true);
+      return;
+    }
+
+    const savedPage = readLocalFilterState<number | string>(productPageStorageKey);
+    setProductPage(parseStoredPage(savedPage));
+    setProductPagePrefsLoaded(true);
+  }, [
+    authUserId,
+    productPagePrefsLoaded,
+    productPageStorageKey,
+    productRowLimit,
+    productRowLimitPrefsLoaded,
+  ]);
+
+  useEffect(() => {
     if (!authUserId || !productRowLimitPrefsLoaded) {
       return;
     }
@@ -319,6 +426,19 @@ export default function ProductsPage() {
       // Ignore localStorage quota or privacy-mode write errors.
     }
   }, [authUserId, productRowLimitPrefsLoaded, productRowLimit]);
+
+  useEffect(() => {
+    if (!authUserId || !productPagePrefsLoaded) {
+      return;
+    }
+
+    if (productRowLimit === "all" || productPage <= 1) {
+      removeLocalFilterState(productPageStorageKey);
+      return;
+    }
+
+    writeLocalFilterState(productPageStorageKey, productPage);
+  }, [authUserId, productPage, productPagePrefsLoaded, productPageStorageKey, productRowLimit]);
 
   useEffect(() => {
     setProductPage(1);
@@ -356,58 +476,41 @@ export default function ProductsPage() {
     newProduct.unit.trim().length >= 1 &&
     newProduct.category_id.length > 0 &&
     newProduct.subcategory_id.length > 0;
-  const sortedProducts = useMemo(() => {
-    const next = [...products];
-    next.sort((left, right) => {
-      switch (productSortKey) {
-        case "name":
-          return compareTextValues(left.name, right.name, productSortDirection);
-        case "barcode":
-          return compareTextValues(left.barcode, right.barcode, productSortDirection);
-        case "sku":
-          return compareTextValues(left.sku, right.sku, productSortDirection);
-        case "category":
-          return compareTextValues(
-            left.category_name ?? left.category_code,
-            right.category_name ?? right.category_code,
-            productSortDirection,
-          );
-        case "subcategory":
-          return compareTextValues(
-            left.subcategory_name ?? left.subcategory_code,
-            right.subcategory_name ?? right.subcategory_code,
-            productSortDirection,
-          );
-        case "unit":
-          return compareTextValues(left.unit, right.unit, productSortDirection);
-        case "active":
-          return compareTextValues(left.is_active, right.is_active, productSortDirection);
-      }
-    });
-    return next;
-  }, [productSortDirection, productSortKey, products]);
-  const productPagination = useMemo(
-    () => paginateRows(sortedProducts, productRowLimit, productPage),
-    [productPage, productRowLimit, sortedProducts],
-  );
-  const visibleProducts = productPagination.items;
-  const productExportRows = products.map((product) => ({
-    sku: product.sku,
-    name: product.name,
-    barcode: product.barcode ?? "",
-    unit: product.unit,
-    is_active: product.is_active,
-    description: product.description ?? "",
-    category_code: product.category_code ?? "",
-    subcategory_code: product.subcategory_code ?? "",
-  }));
+  const visibleProducts = products;
+  const productExportRows = mapProductsToExportRows(products);
   const productFilterSummary = [`Inactive included: ${showInactive ? "Yes" : "No"}`];
-
-  useEffect(() => {
-    if (productPage > productPagination.totalPages) {
-      setProductPage(productPagination.totalPages);
+  const loadProductExportRows = useCallback(async () => {
+    if (productTotalItems === 0) {
+      return [];
     }
-  }, [productPage, productPagination.totalPages]);
+
+    if (productRowLimit === "all" && products.length === productTotalItems) {
+      return mapProductsToExportRows(products);
+    }
+
+    const params = new URLSearchParams({
+      include_inactive: showInactive ? "true" : "false",
+      sort: productSortKey,
+      direction: productSortDirection,
+    });
+    const result = await fetchJson<ProductListResponse>(`/api/products?${params.toString()}`, {
+      cache: "no-store",
+      fallbackError: "Failed to prepare product export.",
+    });
+
+    if (!result.ok) {
+      throw new Error(result.error);
+    }
+
+    return mapProductsToExportRows(result.data.items ?? []);
+  }, [
+    productRowLimit,
+    productSortDirection,
+    productSortKey,
+    productTotalItems,
+    products,
+    showInactive,
+  ]);
 
   function toggleProductSort(nextKey: ProductSortKey) {
     setProductSortDirection((current) =>
@@ -941,21 +1044,22 @@ export default function ProductsPage() {
                 exportFilenameBase="products"
                 exportColumns={PRODUCT_EXPORT_COLUMNS}
                 exportRows={productExportRows}
+                exportLoadRows={loadProductExportRows}
                 exportFilterSummary={productFilterSummary}
                 exportEmptyMessage="No products available."
               />
             </div>
           </div>
 
-          <div className="mt-4 overflow-visible">
+          <div className="mt-4 overflow-x-auto overflow-y-visible">
             <table
-              className="ims-table ims-table-products"
+              className="ims-table ims-master-table ims-table-products"
               aria-busy={showProductLoadingRows}
             >
               <thead className="ims-table-head">
                 <tr>
                   {visibleColumns.map((column) => (
-                    <th key={column.key}>
+                    <th key={column.key} data-column-key={column.key}>
                       {!isProductSortableColumn(column.key) ? column.label : (() => {
                         const sortKey = column.key;
                         return (
@@ -983,6 +1087,7 @@ export default function ProductsPage() {
                       {visibleColumns.map((column) => (
                         <td
                           key={`${product.id}-${column.key}`}
+                          data-column-key={column.key}
                           className={column.key === "action" ? "relative" : undefined}
                         >
                           {renderProductCell(product, column.key)}
@@ -993,12 +1098,12 @@ export default function ProductsPage() {
                 </tbody>
               )}
             </table>
-            {!showProductLoadingRows && !error && products.length === 0 ? (
+            {!showProductLoadingRows && !error && productTotalItems === 0 ? (
               <p className="ims-empty mt-3">No products found.</p>
             ) : null}
           </div>
           <MasterTablePagination
-            totalItems={sortedProducts.length}
+            totalItems={productTotalItems}
             currentPage={productPage}
             rowLimit={productRowLimit}
             onPageChange={setProductPage}

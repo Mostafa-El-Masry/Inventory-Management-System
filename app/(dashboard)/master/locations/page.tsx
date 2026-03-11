@@ -443,12 +443,12 @@ export default function LocationsPage() {
             </div>
           </div>
 
-          <div className="mt-4 overflow-visible">
-            <table className="ims-table" aria-busy={showLocationLoadingRows}>
+          <div className="mt-4 overflow-x-auto overflow-y-visible">
+            <table className="ims-table ims-master-table" aria-busy={showLocationLoadingRows}>
               <thead className="ims-table-head">
                 <tr>
                   {visibleLocationColumns.map((column) => (
-                    <th key={column.key}>
+                    <th key={column.key} data-column-key={column.key}>
                       {!isLocationSortableColumn(column.key) ? column.label : (() => {
                         const sortKey = column.key;
                         return (
@@ -474,7 +474,10 @@ export default function LocationsPage() {
                   {locationPagination.items.map((location) => (
                     <tr key={location.id} className="ims-table-row">
                       {visibleLocationColumns.map((column) => (
-                        <td key={`${location.id}-${column.key}`}>
+                        <td
+                          key={`${location.id}-${column.key}`}
+                          data-column-key={column.key}
+                        >
                           {renderLocationCell(location, column.key)}
                         </td>
                       ))}

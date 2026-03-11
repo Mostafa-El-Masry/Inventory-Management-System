@@ -182,8 +182,13 @@ export async function buildSupplierReport(
   };
 
   let { data, error } = await buildQuery(true);
-  if (isMissingSnapshotColumnError(error)) {
-    ({ data, error } = await buildQuery(false));
+  if (error) {
+    const legacyResult = await buildQuery(false);
+    if (!legacyResult.error) {
+      ({ data, error } = legacyResult);
+    } else if (isMissingSnapshotColumnError(error)) {
+      ({ data, error } = legacyResult);
+    }
   }
 
   if (error) {

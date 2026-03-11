@@ -8,6 +8,8 @@ export default function StockAdjustmentPage() {
       headerSubtitle="Add or remove stock with controlled adjustment entries."
       createTitle="Create Stock Adjustment (single-line quick entry)"
       historyTitle="Stock Adjustment History"
+      detailBasePath="/transactions/stock-adjustment"
+      summaryHistory
     />
   );
 }

@@ -7,6 +7,7 @@ import {
   productImportSchema,
   setPasswordSchema,
   transactionCreateSchema,
+  settingsTestActionSchema,
   transferCreateSchema,
   userCreateSchema,
 } from "@/lib/validation";
@@ -152,6 +153,21 @@ describe("validation schemas", () => {
     expect(parsed.success).toBe(false);
   });
 
+  it("accepts consumption transaction payloads", () => {
+    const parsed = transactionCreateSchema.safeParse({
+      type: "CONSUMPTION",
+      source_location_id: "550e8400-e29b-41d4-a716-446655440000",
+      lines: [
+        {
+          product_id: "550e8400-e29b-41d4-a716-446655440001",
+          qty: 2,
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
   it("requires supplier and supplier invoice for purchase transactions", () => {
     const parsed = transactionCreateSchema.safeParse({
       type: "RECEIPT",
@@ -162,6 +178,23 @@ describe("validation schemas", () => {
           qty: 1,
         },
       ],
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("validates kind-only settings test payload", () => {
+    const parsed = settingsTestActionSchema.safeParse({
+      kind: "purchase",
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it("rejects manual fields in settings test payload", () => {
+    const parsed = settingsTestActionSchema.safeParse({
+      kind: "purchase",
+      supplier_id: "550e8400-e29b-41d4-a716-446655440111",
     });
 
     expect(parsed.success).toBe(false);

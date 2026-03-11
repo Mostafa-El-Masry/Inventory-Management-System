@@ -9,6 +9,10 @@ import type { ExportDataset, ExportFormat } from "@/lib/export/contracts";
 type ExportActionsProps = ExportDataset & {
   buttonClassName?: string;
   className?: string;
+  loadRows?: () => Promise<ExportDataset["rows"]>;
+  menuAlign?: "start" | "end";
+  menuClassName?: string;
+  menuItemClassName?: string;
   triggerLabel?: string;
   variant?: ButtonProps["variant"];
 };
@@ -47,6 +51,10 @@ export function ExportActions({
   emptyMessage,
   filenameBase,
   filterSummary,
+  loadRows,
+  menuAlign = "start",
+  menuClassName,
+  menuItemClassName,
   printOrientation,
   rows,
   title,
@@ -78,17 +86,17 @@ export function ExportActions({
     setError(null);
     setActiveFormat(format);
 
-    const dataset: ExportDataset = {
-      title,
-      filenameBase,
-      columns,
-      rows,
-      filterSummary,
-      emptyMessage,
-      printOrientation,
-    };
-
     try {
+      const dataset: ExportDataset = {
+        title,
+        filenameBase,
+        columns,
+        rows: loadRows ? await loadRows() : rows,
+        filterSummary,
+        emptyMessage,
+        printOrientation,
+      };
+
       if (format === "print") {
         await runPrint(dataset);
       } else {
@@ -130,12 +138,21 @@ export function ExportActions({
       </Button>
 
       {menuOpen ? (
-        <div className="absolute left-0 top-full z-40 mt-2 min-w-[12rem] overflow-hidden rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] shadow-lg">
+        <div
+          className={[
+            "absolute top-full z-40 mt-2 min-w-[10rem] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-[var(--radius-lg)] border border-[var(--line)] bg-[var(--surface)] shadow-lg sm:min-w-[12rem]",
+            menuAlign === "end" ? "right-0 left-auto" : "left-0",
+            menuClassName ?? "",
+          ].join(" ")}
+        >
           {ACTIONS.map((action) => (
             <button
               key={action.format}
               type="button"
-              className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-[var(--text-strong)] transition hover:bg-[var(--surface-muted)]"
+              className={[
+                "flex w-full items-center justify-between px-3 py-2 text-left text-xs text-[var(--text-strong)] transition hover:bg-[var(--surface-muted)] sm:text-sm",
+                menuItemClassName ?? "",
+              ].join(" ")}
               onClick={() => handleAction(action.format)}
             >
               <span>{action.label}</span>

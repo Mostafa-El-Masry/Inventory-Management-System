@@ -10,6 +10,8 @@ export default function PurchaseReturnPage() {
       transactionType="RETURN_OUT"
       locationLabel="Source location"
       locationTarget="source"
+      detailBasePath="/transactions/purchase-return"
+      summaryHistory
     />
   );
 }

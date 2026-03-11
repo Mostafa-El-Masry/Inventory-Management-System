@@ -161,6 +161,7 @@ export const transactionCreateSchema = z.object({
   type: z.enum([
     "RECEIPT",
     "ISSUE",
+    "CONSUMPTION",
     "TRANSFER_OUT",
     "TRANSFER_IN",
     "ADJUSTMENT",
@@ -201,6 +202,12 @@ export const transactionCreateSchema = z.object({
     });
   }
 });
+
+export const settingsTestActionSchema = z
+  .object({
+    kind: z.enum(["purchase", "transfer", "consumption"]),
+  })
+  .strict();
 
 export const transferCreateSchema = z.object({
   from_location_id: uuid,

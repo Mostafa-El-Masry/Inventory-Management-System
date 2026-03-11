@@ -4,9 +4,11 @@ import {
   getAuthContext,
 } from "@/lib/auth/permissions";
 import {
-  isMissingSnapshotColumnError,
-  stripSnapshotFieldsFromRows,
-} from "@/lib/supabase/snapshot-schema-compat";
+  approveTransfer,
+  createTransfer,
+  dispatchTransfer,
+  receiveTransfer,
+} from "@/lib/transfers/mutations";
 import { transferCreateSchema } from "@/lib/validation";
 import { fail, ok, parseBody } from "@/lib/utils/http";
 
@@ -57,101 +59,43 @@ export async function POST(request: Request) {
     return fail("Transfer source and destination must be different.", 422);
   }
 
-  const productIds = Array.from(
-    new Set(payload.data.lines.map((line) => line.product_id)),
-  );
-
-  const { data: productRows, error: productError } = await context.supabase
-    .from("products")
-    .select("id, sku, name, barcode")
-    .in("id", productIds);
-
-  if (productError) {
-    return fail(productError.message, 400);
-  }
-
-  const productById = new Map(
-    (productRows ?? []).map((product) => [product.id, product]),
-  );
-
-  if (productById.size !== productIds.length) {
-    return fail("One or more products were not found.", 404);
-  }
-
   const trimmedNotes = payload.data.notes?.trim();
   const notes = trimmedNotes
     ? `${DIRECT_NOTE_PREFIX} ${trimmedNotes}`
     : DIRECT_NOTE_PREFIX;
 
-  const { data: transfer, error: transferError } = await context.supabase
-    .from("transfers")
-    .insert({
-      transfer_number: `TR-${Date.now()}`,
-      from_location_id: payload.data.from_location_id,
-      to_location_id: payload.data.to_location_id,
-      status: "APPROVED",
-      notes,
-      requested_by: context.user.id,
-      approved_by: context.user.id,
-      approved_at: new Date().toISOString(),
-    })
-    .select("*")
-    .single();
-
-  if (transferError || !transfer) {
-    return fail(transferError?.message ?? "Failed to create direct transfer.", 400);
-  }
-
-  const transferLines = payload.data.lines.map((line) => {
-    const product = productById.get(line.product_id);
-
-    return {
-      transfer_id: transfer.id,
-      product_id: line.product_id,
-      product_sku_snapshot: product?.sku ?? null,
-      product_name_snapshot: product?.name ?? null,
-      product_barcode_snapshot: product?.barcode ?? null,
-      requested_qty: line.requested_qty,
-      dispatched_qty: 0,
-      received_qty: 0,
-    };
+  const created = await createTransfer(context, {
+    from_location_id: payload.data.from_location_id,
+    to_location_id: payload.data.to_location_id,
+    notes,
+    lines: payload.data.lines,
   });
-
-  let { error: linesError } = await context.supabase
-    .from("transfer_lines")
-    .insert(transferLines);
-
-  if (isMissingSnapshotColumnError(linesError)) {
-    ({ error: linesError } = await context.supabase
-      .from("transfer_lines")
-      .insert(stripSnapshotFieldsFromRows(transferLines)));
+  if (!created.ok) {
+    return fail(created.error, created.status);
   }
 
-  if (linesError) {
-    return fail(linesError.message, 400);
+  const approved = await approveTransfer(context, String(created.data.id));
+  if (!approved.ok) {
+    return fail(`Direct transfer approval failed: ${approved.error}`, approved.status);
   }
 
-  const { error: dispatchError } = await context.supabase.rpc("rpc_dispatch_transfer", {
-    p_transfer_id: transfer.id,
-  });
-  if (dispatchError) {
-    return fail(`Direct transfer dispatch failed: ${dispatchError.message}`, 400);
+  const dispatched = await dispatchTransfer(context, String(created.data.id));
+  if (!dispatched.ok) {
+    return fail(`Direct transfer dispatch failed: ${dispatched.error}`, dispatched.status);
   }
 
-  const { error: receiveError } = await context.supabase.rpc("rpc_receive_transfer", {
-    p_transfer_id: transfer.id,
-  });
-  if (receiveError) {
+  const received = await receiveTransfer(context, String(created.data.id));
+  if (!received.ok) {
     return fail(
-      `Direct transfer receive failed: ${receiveError.message}. Transfer remains DISPATCHED and can be received manually.`,
-      400,
+      `Direct transfer receive failed: ${received.error}. Transfer remains DISPATCHED and can be received manually.`,
+      received.status,
     );
   }
 
   const { data, error } = await context.supabase
     .from("transfers")
     .select("*, transfer_lines(*)")
-    .eq("id", transfer.id)
+    .eq("id", created.data.id)
     .single();
 
   if (error || !data) {

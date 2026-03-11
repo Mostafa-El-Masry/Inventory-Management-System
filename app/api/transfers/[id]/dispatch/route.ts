@@ -1,4 +1,5 @@
 import { assertRole, getAuthContext } from "@/lib/auth/permissions";
+import { dispatchTransfer } from "@/lib/transfers/mutations";
 import { fail, ok } from "@/lib/utils/http";
 
 export async function POST(
@@ -16,13 +17,10 @@ export async function POST(
   }
 
   const { id } = await params;
-  const { data, error } = await context.supabase.rpc("rpc_dispatch_transfer", {
-    p_transfer_id: id,
-  });
-
-  if (error) {
-    return fail(error.message, 400);
+  const result = await dispatchTransfer(context, id);
+  if (!result.ok) {
+    return fail(result.error, result.status);
   }
 
-  return ok({ success: true, result: data });
+  return ok(result.data);
 }

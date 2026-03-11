@@ -5,6 +5,7 @@ export type Role = "admin" | "manager" | "staff";
 export type TransactionType =
   | "RECEIPT"
   | "ISSUE"
+  | "CONSUMPTION"
   | "TRANSFER_OUT"
   | "TRANSFER_IN"
   | "ADJUSTMENT"

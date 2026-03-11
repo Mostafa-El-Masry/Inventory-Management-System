@@ -237,7 +237,7 @@ export default function ReportsPage() {
   const [stockView, setStockView] = useState<"totals" | "details">("totals");
   const [stockTotals, setStockTotals] = useState<StockSummaryTotalRow[]>([]);
   const [stockDetails, setStockDetails] = useState<StockSummaryDetailRow[]>([]);
-  const [stockLoading, setStockLoading] = useState(false);
+  const [, setStockLoading] = useState(false);
 
   const [statementProductId, setStatementProductId] = useState("");
   const [statementFromDate, setStatementFromDate] = useState(monthDefaults.fromDate);
@@ -245,7 +245,7 @@ export default function ReportsPage() {
   const [statementLocationId, setStatementLocationId] = useState("");
   const [statementOpeningQty, setStatementOpeningQty] = useState(0);
   const [statementRows, setStatementRows] = useState<ItemStatementRow[]>([]);
-  const [statementLoading, setStatementLoading] = useState(false);
+  const [, setStatementLoading] = useState(false);
 
   const [costProductId, setCostProductId] = useState("");
   const [costFromDate, setCostFromDate] = useState(monthDefaults.fromDate);
@@ -259,7 +259,7 @@ export default function ReportsPage() {
     total_qty_in: 0,
     total_value: 0,
   });
-  const [costLoading, setCostLoading] = useState(false);
+  const [, setCostLoading] = useState(false);
 
   const [supplierFromDate, setSupplierFromDate] = useState(monthDefaults.fromDate);
   const [supplierToDate, setSupplierToDate] = useState(monthDefaults.toDate);
@@ -272,7 +272,8 @@ export default function ReportsPage() {
     total_paid: 0,
     net_pending: 0,
   });
-  const [supplierLoading, setSupplierLoading] = useState(false);
+  const [, setSupplierLoading] = useState(false);
+  const [supplierLoaded, setSupplierLoaded] = useState(false);
 
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
   const [paymentTarget, setPaymentTarget] = useState<SupplierRow | null>(null);
@@ -598,10 +599,18 @@ export default function ReportsPage() {
       loadMetrics(controller.signal),
       loadLookups(controller.signal),
       loadStockSummary(controller.signal),
-      loadSupplierReport(controller.signal),
     ]).catch(() => setError("Failed to load report data."));
     return () => controller.abort();
-  }, [filtersHydrated]);
+  }, [filtersHydrated, loadLookups, loadMetrics, loadStockSummary]);
+
+  useEffect(() => {
+    if (!filtersHydrated || activeTab !== "supplier" || supplierLoaded) {
+      return;
+    }
+
+    setSupplierLoaded(true);
+    void loadSupplierReport();
+  }, [activeTab, filtersHydrated, loadSupplierReport, supplierLoaded]);
 
   useEffect(() => {
     if (!filtersHydrated || activeTab !== "item-statement" || !statementRestorePending) {

@@ -608,50 +608,53 @@ export default function MasterSuppliersPage() {
           </div>
         </div>
 
-          <div className="mt-4 overflow-visible">
-          <table className="ims-table" aria-busy={showSupplierLoadingRows}>
-            <thead className="ims-table-head">
-              <tr>
-                {visibleSupplierColumns.map((column) => (
-                  <th key={column.key}>
-                    {!isSupplierSortableColumn(column.key) ? column.label : (() => {
-                      const sortKey = column.key;
-                      return (
-                        <SortableTableHeader
-                          label={column.label}
-                          active={supplierSortKey === sortKey}
-                          direction={supplierSortDirection}
-                          onClick={() => toggleSupplierSort(sortKey)}
-                        />
-                      );
-                    })()}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            {showSupplierLoadingRows ? (
-              <MasterTableLoadingRows
-                columns={visibleSupplierColumns}
-                rowLimit={supplierRowLimit}
-              />
-            ) : (
-              <tbody>
-                {supplierPagination.items.map((supplier) => (
-                  <tr key={supplier.id} className="ims-table-row">
-                    {visibleSupplierColumns.map((column) => (
-                      <td key={`${supplier.id}-${column.key}`}>
-                        {renderSupplierCell(supplier, column.key)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            )}
-          </table>
-          {!showSupplierLoadingRows && !error && suppliers.length === 0 ? (
-            <p className="ims-empty mt-3">No suppliers found.</p>
-          ) : null}
-        </div>
+          <div className="mt-4 overflow-x-auto overflow-y-visible">
+            <table className="ims-table ims-master-table" aria-busy={showSupplierLoadingRows}>
+              <thead className="ims-table-head">
+                <tr>
+                  {visibleSupplierColumns.map((column) => (
+                    <th key={column.key} data-column-key={column.key}>
+                      {!isSupplierSortableColumn(column.key) ? column.label : (() => {
+                        const sortKey = column.key;
+                        return (
+                          <SortableTableHeader
+                            label={column.label}
+                            active={supplierSortKey === sortKey}
+                            direction={supplierSortDirection}
+                            onClick={() => toggleSupplierSort(sortKey)}
+                          />
+                        );
+                      })()}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              {showSupplierLoadingRows ? (
+                <MasterTableLoadingRows
+                  columns={visibleSupplierColumns}
+                  rowLimit={supplierRowLimit}
+                />
+              ) : (
+                <tbody>
+                  {supplierPagination.items.map((supplier) => (
+                    <tr key={supplier.id} className="ims-table-row">
+                      {visibleSupplierColumns.map((column) => (
+                        <td
+                          key={`${supplier.id}-${column.key}`}
+                          data-column-key={column.key}
+                        >
+                          {renderSupplierCell(supplier, column.key)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              )}
+            </table>
+            {!showSupplierLoadingRows && !error && suppliers.length === 0 ? (
+              <p className="ims-empty mt-3">No suppliers found.</p>
+            ) : null}
+          </div>
 
         <MasterTablePagination
           totalItems={suppliers.length}

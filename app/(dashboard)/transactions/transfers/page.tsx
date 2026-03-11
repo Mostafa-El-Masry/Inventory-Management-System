@@ -1,18 +1,31 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
+import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
+import {
+  MasterRowLimitControl,
+  MasterTablePagination,
+  paginateRows,
+  type RowLimitOption,
+} from "@/components/master/master-table-pagination";
+import {
+  buildDefaultColumnVisibility,
+  useMasterColumns,
+  type MasterColumnDefinition,
+} from "@/components/master/use-master-columns";
+import type { ExportColumn } from "@/lib/export/contracts";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { fetchJson } from "@/lib/utils/fetch-json";
-import { BarcodePrintDialog } from "../_components/barcode-print-dialog";
-import {
-  BarcodeLabel,
-  buildBarcodeLabelsFromLines,
-  printBarcodeLabels,
-} from "../_components/barcode-print";
+import { fetchAllHistoryItems } from "../_components/fetch-all-history-items";
+import { TransactionListSettingsMenu } from "../_components/transaction-list-settings-menu";
+import { TransactionRowActionsMenu } from "../_components/transaction-row-actions-menu";
+import { useHistoryAutoRefresh } from "../_components/use-history-auto-refresh";
 
 type TransferLine = {
   id: string;
@@ -41,45 +54,120 @@ type Lookup = {
   name: string;
   code?: string;
   sku?: string;
-  barcode?: string | null;
 };
 
 type Section = "material-request" | "material-transfer" | "direct-transfer";
 
+type RequestHistoryColumnKey =
+  | "number"
+  | "from"
+  | "to"
+  | "items"
+  | "qty"
+  | "created";
+type TransferQueueColumnKey =
+  | "number"
+  | "status"
+  | "from"
+  | "to"
+  | "items"
+  | "qty"
+  | "created";
+type DirectHistoryColumnKey =
+  | "number"
+  | "status"
+  | "from"
+  | "to"
+  | "created"
+  | "notes";
+
 const DIRECT_NOTE_PREFIX = "[DIRECT]";
+
+const REQUEST_HISTORY_DEFAULT_COLUMN_ORDER: readonly RequestHistoryColumnKey[] = [
+  "number",
+  "from",
+  "to",
+  "items",
+  "qty",
+  "created",
+];
+const TRANSFER_QUEUE_DEFAULT_COLUMN_ORDER: readonly TransferQueueColumnKey[] = [
+  "number",
+  "status",
+  "from",
+  "to",
+  "items",
+  "qty",
+  "created",
+];
+const DIRECT_HISTORY_DEFAULT_COLUMN_ORDER: readonly DirectHistoryColumnKey[] = [
+  "number",
+  "status",
+  "from",
+  "to",
+  "created",
+  "notes",
+];
+
+const REQUEST_HISTORY_DEFAULT_COLUMN_VISIBILITY =
+  buildDefaultColumnVisibility<RequestHistoryColumnKey>(
+    REQUEST_HISTORY_DEFAULT_COLUMN_ORDER,
+  );
+const TRANSFER_QUEUE_DEFAULT_COLUMN_VISIBILITY =
+  buildDefaultColumnVisibility<TransferQueueColumnKey>(
+    TRANSFER_QUEUE_DEFAULT_COLUMN_ORDER,
+  );
+const DIRECT_HISTORY_DEFAULT_COLUMN_VISIBILITY =
+  buildDefaultColumnVisibility<DirectHistoryColumnKey>(
+    DIRECT_HISTORY_DEFAULT_COLUMN_ORDER,
+  );
+
+const REQUEST_EXPORT_COLUMNS: ExportColumn[] = [
+  { key: "number", label: "Number" },
+  { key: "from", label: "From" },
+  { key: "to", label: "To" },
+  { key: "items", label: "Items" },
+  { key: "qty", label: "Qty" },
+  { key: "created_at", label: "Created" },
+];
+
+const TRANSFER_QUEUE_EXPORT_COLUMNS: ExportColumn[] = [
+  { key: "number", label: "Number" },
+  { key: "status", label: "Status" },
+  { key: "from", label: "From" },
+  { key: "to", label: "To" },
+  { key: "items", label: "Items" },
+  { key: "qty", label: "Qty" },
+  { key: "created_at", label: "Created" },
+];
+
+const DIRECT_HISTORY_EXPORT_COLUMNS: ExportColumn[] = [
+  { key: "number", label: "Number" },
+  { key: "status", label: "Status" },
+  { key: "from", label: "From" },
+  { key: "to", label: "To" },
+  { key: "created_at", label: "Created" },
+  { key: "notes", label: "Notes" },
+];
 
 function isDirectTransfer(transfer: Transfer) {
   return (transfer.notes ?? "").startsWith(DIRECT_NOTE_PREFIX);
 }
 
-function hasHistoricalProductSnapshot(line: TransferLine | undefined) {
-  return Boolean(
-    line &&
-      (line.product_sku_snapshot != null ||
-        line.product_name_snapshot != null ||
-        line.product_barcode_snapshot != null),
+function getTransferItemCount(transfer: Transfer) {
+  return transfer.transfer_lines?.length ?? 0;
+}
+
+function getTransferRequestedQty(transfer: Transfer) {
+  return (transfer.transfer_lines ?? []).reduce(
+    (total, line) => total + Number(line.requested_qty ?? 0),
+    0,
   );
 }
 
-function formatHistoricalProduct(
-  line: TransferLine | undefined,
-  productById: Map<string, Lookup>,
-) {
-  if (!line) {
-    return "--";
-  }
-
-  if (hasHistoricalProductSnapshot(line)) {
-    const code = line.product_sku_snapshot?.trim() || "SKU";
-    const name = line.product_name_snapshot?.trim() || null;
-    return name ? `${code} - ${name}` : code;
-  }
-
-  const product = productById.get(line.product_id);
-  return product ? `${product.sku ?? "SKU"} - ${product.name}` : "--";
-}
-
 export default function TransfersPage() {
+  const { userId: authUserId } = useDashboardSession();
+  const router = useRouter();
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [locations, setLocations] = useState<Lookup[]>([]);
   const [products, setProducts] = useState<Lookup[]>([]);
@@ -90,6 +178,12 @@ export default function TransfersPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
   const [editingTransferId, setEditingTransferId] = useState<string | null>(null);
+  const [requestHistoryPage, setRequestHistoryPage] = useState(1);
+  const [requestHistoryRowLimit, setRequestHistoryRowLimit] = useState<RowLimitOption>(10);
+  const [transferQueuePage, setTransferQueuePage] = useState(1);
+  const [transferQueueRowLimit, setTransferQueueRowLimit] = useState<RowLimitOption>(10);
+  const [directHistoryPage, setDirectHistoryPage] = useState(1);
+  const [directHistoryRowLimit, setDirectHistoryRowLimit] = useState<RowLimitOption>(10);
   const [editForm, setEditForm] = useState({
     from_location_id: "",
     to_location_id: "",
@@ -98,26 +192,103 @@ export default function TransfersPage() {
     notes: "",
   });
   const [error, setError] = useState<string | null>(null);
-  const [printDialogOpen, setPrintDialogOpen] = useState(false);
-  const [printLabels, setPrintLabels] = useState<BarcodeLabel[]>([]);
-  const [printTitle, setPrintTitle] = useState("Transfer Barcodes");
+  const requestHistoryColumns = useMemo<
+    readonly MasterColumnDefinition<RequestHistoryColumnKey>[]
+  >(
+    () => [
+      { key: "number", label: "Number" },
+      { key: "from", label: "From" },
+      { key: "to", label: "To" },
+      { key: "items", label: "Items" },
+      { key: "qty", label: "Qty" },
+      { key: "created", label: "Created" },
+    ],
+    [],
+  );
+  const transferQueueColumns = useMemo<
+    readonly MasterColumnDefinition<TransferQueueColumnKey>[]
+  >(
+    () => [
+      { key: "number", label: "Number" },
+      { key: "status", label: "Status" },
+      { key: "from", label: "From" },
+      { key: "to", label: "To" },
+      { key: "items", label: "Items" },
+      { key: "qty", label: "Qty" },
+      { key: "created", label: "Created" },
+    ],
+    [],
+  );
+  const directHistoryColumns = useMemo<
+    readonly MasterColumnDefinition<DirectHistoryColumnKey>[]
+  >(
+    () => [
+      { key: "number", label: "Number" },
+      { key: "status", label: "Status" },
+      { key: "from", label: "From" },
+      { key: "to", label: "To" },
+      { key: "created", label: "Created" },
+      { key: "notes", label: "Notes" },
+    ],
+    [],
+  );
+  const {
+    orderedColumns: orderedRequestHistoryColumns,
+    visibleColumns: visibleRequestHistoryColumns,
+    columnVisibility: requestHistoryColumnVisibility,
+    toggleColumnVisibility: toggleRequestHistoryColumnVisibility,
+    moveColumn: moveRequestHistoryColumn,
+    resetColumnPreferences: resetRequestHistoryColumnPreferences,
+  } = useMasterColumns({
+    userId: authUserId,
+    storageKey: `ims:transfers:requests:columns:${authUserId}`,
+    columns: requestHistoryColumns,
+    defaultOrder: REQUEST_HISTORY_DEFAULT_COLUMN_ORDER,
+    defaultVisibility: REQUEST_HISTORY_DEFAULT_COLUMN_VISIBILITY,
+  });
+  const {
+    orderedColumns: orderedTransferQueueColumns,
+    visibleColumns: visibleTransferQueueColumns,
+    columnVisibility: transferQueueColumnVisibility,
+    toggleColumnVisibility: toggleTransferQueueColumnVisibility,
+    moveColumn: moveTransferQueueColumn,
+    resetColumnPreferences: resetTransferQueueColumnPreferences,
+  } = useMasterColumns({
+    userId: authUserId,
+    storageKey: `ims:transfers:queue:columns:${authUserId}`,
+    columns: transferQueueColumns,
+    defaultOrder: TRANSFER_QUEUE_DEFAULT_COLUMN_ORDER,
+    defaultVisibility: TRANSFER_QUEUE_DEFAULT_COLUMN_VISIBILITY,
+  });
+  const {
+    orderedColumns: orderedDirectHistoryColumns,
+    visibleColumns: visibleDirectHistoryColumns,
+    columnVisibility: directHistoryColumnVisibility,
+    toggleColumnVisibility: toggleDirectHistoryColumnVisibility,
+    moveColumn: moveDirectHistoryColumn,
+    resetColumnPreferences: resetDirectHistoryColumnPreferences,
+  } = useMasterColumns({
+    userId: authUserId,
+    storageKey: `ims:transfers:direct:columns:${authUserId}`,
+    columns: directHistoryColumns,
+    defaultOrder: DIRECT_HISTORY_DEFAULT_COLUMN_ORDER,
+    defaultVisibility: DIRECT_HISTORY_DEFAULT_COLUMN_VISIBILITY,
+  });
 
   async function loadTransfers(signal?: AbortSignal) {
-    const result = await fetchJson<{ items?: Transfer[]; error?: string }>(
-      "/api/transfers?limit=200",
-      {
-        cache: "no-store",
-        signal,
-        fallbackError: "Failed to load transfers.",
-      },
-    );
+    const result = await fetchAllHistoryItems<Transfer>("/api/transfers", {
+      signal,
+      fallbackError: "Failed to load transfers.",
+    });
+
     if (!result.ok) {
       if (result.error !== "Request aborted.") {
         setError(result.error);
       }
       return;
     }
-    setTransfers(result.data.items ?? []);
+
+    setTransfers(result.data);
   }
 
   async function loadLookups(signal?: AbortSignal) {
@@ -157,6 +328,8 @@ export default function TransfersPage() {
     return () => controller.abort();
   }, []);
 
+  useHistoryAutoRefresh(() => loadTransfers());
+
   const locationById = useMemo(() => {
     const mapped = new Map<string, Lookup>();
     for (const location of locations) {
@@ -164,14 +337,6 @@ export default function TransfersPage() {
     }
     return mapped;
   }, [locations]);
-
-  const productById = useMemo(() => {
-    const mapped = new Map<string, Lookup>();
-    for (const product of products) {
-      mapped.set(product.id, product);
-    }
-    return mapped;
-  }, [products]);
 
   const materialTransfers = useMemo(
     () => transfers.filter((transfer) => !isDirectTransfer(transfer)),
@@ -185,6 +350,18 @@ export default function TransfersPage() {
     () => transfers.filter((transfer) => isDirectTransfer(transfer)),
     [transfers],
   );
+  const paginatedMaterialRequests = useMemo(
+    () => paginateRows(materialRequests, requestHistoryRowLimit, requestHistoryPage),
+    [materialRequests, requestHistoryPage, requestHistoryRowLimit],
+  );
+  const paginatedMaterialTransfers = useMemo(
+    () => paginateRows(materialTransfers, transferQueueRowLimit, transferQueuePage),
+    [materialTransfers, transferQueuePage, transferQueueRowLimit],
+  );
+  const paginatedDirectTransfers = useMemo(
+    () => paginateRows(directTransfers, directHistoryRowLimit, directHistoryPage),
+    [directHistoryPage, directHistoryRowLimit, directTransfers],
+  );
 
   function formatLookup(lookup: Lookup | undefined, fallback: string) {
     if (!lookup) {
@@ -193,6 +370,49 @@ export default function TransfersPage() {
     const code = lookup.code ?? lookup.sku ?? fallback;
     return `${code} - ${lookup.name}`;
   }
+
+  const requestExportRows = useMemo(
+    () =>
+      materialRequests.map((transfer) => ({
+        number: transfer.transfer_number,
+        from: formatLookup(locationById.get(transfer.from_location_id), "LOC"),
+        to: formatLookup(locationById.get(transfer.to_location_id), "LOC"),
+        items: getTransferItemCount(transfer),
+        qty: getTransferRequestedQty(transfer),
+        created_at: new Date(transfer.created_at).toLocaleString(),
+      })),
+    [locationById, materialRequests],
+  );
+
+  const transferQueueExportRows = useMemo(
+    () =>
+      materialTransfers.map((transfer) => ({
+        number: transfer.transfer_number,
+        status: transfer.status,
+        from: formatLookup(locationById.get(transfer.from_location_id), "LOC"),
+        to: formatLookup(locationById.get(transfer.to_location_id), "LOC"),
+        items: getTransferItemCount(transfer),
+        qty: getTransferRequestedQty(transfer),
+        created_at: new Date(transfer.created_at).toLocaleString(),
+      })),
+    [locationById, materialTransfers],
+  );
+
+  const directHistoryExportRows = useMemo(
+    () =>
+      directTransfers.map((transfer) => ({
+        number: transfer.transfer_number,
+        status: transfer.status,
+        from: formatLookup(locationById.get(transfer.from_location_id), "LOC"),
+        to: formatLookup(locationById.get(transfer.to_location_id), "LOC"),
+        created_at: new Date(transfer.created_at).toLocaleString(),
+        notes:
+          (transfer.notes ?? "")
+            .replace(DIRECT_NOTE_PREFIX, "")
+            .trim() || "--",
+      })),
+    [directTransfers, locationById],
+  );
 
   async function createMaterialRequest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -429,29 +649,6 @@ export default function TransfersPage() {
     }
   }
 
-  function openPrintForTransfer(transfer: Transfer, titlePrefix: string) {
-    const lines = transfer.transfer_lines ?? [];
-    const prepared = buildBarcodeLabelsFromLines(
-      lines.map((line) => ({
-        productId: line.product_id,
-        productName: line.product_name_snapshot,
-        productSku: line.product_sku_snapshot,
-        productBarcode: line.product_barcode_snapshot,
-        useSnapshot: hasHistoricalProductSnapshot(line),
-      })),
-      productById,
-    );
-    if ("error" in prepared) {
-      setError(prepared.error);
-      return;
-    }
-
-    setError(null);
-    setPrintLabels(prepared.labels);
-    setPrintTitle(`${titlePrefix} - ${transfer.transfer_number}`);
-    setPrintDialogOpen(true);
-  }
-
   return (
     <div className="space-y-6">
       <header>
@@ -534,51 +731,103 @@ export default function TransfersPage() {
           </Card>
 
           <Card className="min-h-[20rem]">
-            <h2 className="text-lg font-semibold">Open Material Requests</h2>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-1">
+                <MasterRowLimitControl
+                  value={requestHistoryRowLimit}
+                  onChange={(limit) => {
+                    setRequestHistoryRowLimit(limit);
+                    setRequestHistoryPage(1);
+                  }}
+                />
+                <div className="min-w-0">
+                  <h2 className="text-lg font-semibold">Open Material Requests</h2>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <TransactionListSettingsMenu
+                  orderedColumns={orderedRequestHistoryColumns}
+                  columnVisibility={requestHistoryColumnVisibility}
+                  onToggleColumn={toggleRequestHistoryColumnVisibility}
+                  onMoveColumn={moveRequestHistoryColumn}
+                  onResetColumns={resetRequestHistoryColumnPreferences}
+                  exportTitle="Open Material Requests"
+                  exportFilenameBase="open-material-requests"
+                  exportColumns={REQUEST_EXPORT_COLUMNS}
+                  exportRows={requestExportRows}
+                  exportEmptyMessage="No open material requests available."
+                />
+              </div>
+            </div>
             <div className="mt-4 max-h-[28rem] overflow-auto">
-              <table className="ims-table">
+              <table className="ims-table ims-master-table">
                 <thead className="ims-table-head">
                   <tr>
-                    <th>Number</th>
-                    <th>From</th>
-                    <th>To</th>
-                    <th>Product</th>
-                    <th>Qty</th>
-                    <th>Created</th>
-                    <th>Action</th>
+                    {visibleRequestHistoryColumns.map((column) => (
+                      <th key={column.key} data-column-key={column.key}>
+                        {column.label}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {materialRequests.map((transfer) => {
-                    const line = transfer.transfer_lines?.[0];
+                  {paginatedMaterialRequests.items.map((transfer) => {
+                    const detailHref = `/transactions/transfers/${transfer.id}`;
                     return (
-                      <tr key={transfer.id} className="ims-table-row">
-                        <td className="font-medium">{transfer.transfer_number}</td>
-                        <td>{formatLookup(locationById.get(transfer.from_location_id), "LOC")}</td>
-                        <td>{formatLookup(locationById.get(transfer.to_location_id), "LOC")}</td>
-                        <td>{formatHistoricalProduct(line, productById)}</td>
-                        <td>{line?.requested_qty ?? "--"}</td>
-                        <td>{new Date(transfer.created_at).toLocaleString()}</td>
-                        <td>
-                          <Button
-                            variant="secondary"
-                            className="ims-control-sm"
-                            onClick={() =>
-                              openPrintForTransfer(transfer, "Material Request Barcode")
-                            }
-                          >
-                            Print Barcode
-                          </Button>
-                        </td>
+                      <tr
+                        key={transfer.id}
+                        className="ims-table-row cursor-pointer"
+                        onClick={() => router.push(detailHref)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            router.push(detailHref);
+                          }
+                        }}
+                        role="link"
+                        tabIndex={0}
+                      >
+                        {visibleRequestHistoryColumns.map((column) => (
+                          <td key={column.key} data-column-key={column.key}>
+                            {column.key === "number" ? (
+                              <Link
+                                href={detailHref}
+                                className="font-medium underline-offset-4 hover:underline"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                {transfer.transfer_number}
+                              </Link>
+                            ) : null}
+                            {column.key === "from"
+                              ? formatLookup(locationById.get(transfer.from_location_id), "LOC")
+                              : null}
+                            {column.key === "to"
+                              ? formatLookup(locationById.get(transfer.to_location_id), "LOC")
+                              : null}
+                            {column.key === "items"
+                              ? `${getTransferItemCount(transfer)} item${getTransferItemCount(transfer) === 1 ? "" : "s"}`
+                              : null}
+                            {column.key === "qty" ? getTransferRequestedQty(transfer) : null}
+                            {column.key === "created"
+                              ? new Date(transfer.created_at).toLocaleString()
+                              : null}
+                          </td>
+                        ))}
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
-              {materialRequests.length === 0 ? (
+              {paginatedMaterialRequests.totalItems === 0 ? (
                 <p className="ims-empty mt-3">No open material requests.</p>
               ) : null}
             </div>
+            <MasterTablePagination
+              totalItems={paginatedMaterialRequests.totalItems}
+              currentPage={paginatedMaterialRequests.currentPage}
+              rowLimit={requestHistoryRowLimit}
+              onPageChange={setRequestHistoryPage}
+            />
           </Card>
         </>
       ) : null}
@@ -677,144 +926,155 @@ export default function TransfersPage() {
           ) : null}
 
           <Card className="min-h-[24rem]">
-            <h2 className="text-lg font-semibold">Material Transfer Queue</h2>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-1">
+                <MasterRowLimitControl
+                  value={transferQueueRowLimit}
+                  onChange={(limit) => {
+                    setTransferQueueRowLimit(limit);
+                    setTransferQueuePage(1);
+                  }}
+                />
+                <div className="min-w-0">
+                  <h2 className="text-lg font-semibold">Material Transfer Queue</h2>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <TransactionListSettingsMenu
+                  orderedColumns={orderedTransferQueueColumns}
+                  columnVisibility={transferQueueColumnVisibility}
+                  onToggleColumn={toggleTransferQueueColumnVisibility}
+                  onMoveColumn={moveTransferQueueColumn}
+                  onResetColumns={resetTransferQueueColumnPreferences}
+                  exportTitle="Material Transfer Queue"
+                  exportFilenameBase="material-transfer-queue"
+                  exportColumns={TRANSFER_QUEUE_EXPORT_COLUMNS}
+                  exportRows={transferQueueExportRows}
+                  exportEmptyMessage="No material transfers available."
+                />
+              </div>
+            </div>
             <div className="mt-4 max-h-[34rem] overflow-auto">
-              <table className="ims-table">
+              <table className="ims-table ims-master-table">
                 <thead className="ims-table-head">
                   <tr>
-                    <th>Number</th>
-                    <th>Status</th>
-                    <th>From</th>
-                    <th>To</th>
-                    <th>Product</th>
-                    <th>Qty</th>
-                    <th>Created</th>
-                    <th>Actions</th>
+                    {visibleTransferQueueColumns.map((column) => (
+                      <th key={column.key} data-column-key={column.key}>
+                        {column.label}
+                      </th>
+                    ))}
+                    <th data-column-key="action">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {materialTransfers.map((transfer) => {
-                    const line = transfer.transfer_lines?.[0];
+                  {paginatedMaterialTransfers.items.map((transfer) => {
+                    const detailHref = `/transactions/transfers/${transfer.id}`;
                     return (
-                      <tr key={transfer.id} className="ims-table-row">
-                        <td className="font-medium">{transfer.transfer_number}</td>
-                        <td>{transfer.status}</td>
-                        <td>{formatLookup(locationById.get(transfer.from_location_id), "LOC")}</td>
-                        <td>{formatLookup(locationById.get(transfer.to_location_id), "LOC")}</td>
-                        <td>{formatHistoricalProduct(line, productById)}</td>
-                        <td>{line?.requested_qty ?? "--"}</td>
-                        <td>{new Date(transfer.created_at).toLocaleString()}</td>
-                        <td>
-                          <div className="flex flex-wrap gap-2">
-                            {transfer.status === "REQUESTED" ? (
-                              <>
-                                <Button
-                                  variant="secondary"
-                                  className="ims-control-sm"
-                                  onClick={() =>
-                                    openPrintForTransfer(transfer, "Material Transfer Barcode")
-                                  }
-                                >
-                                  Print Barcode
-                                </Button>
-                                <Button
-                                  variant="secondary"
-                                  className="ims-control-sm"
-                                  disabled={actionLoading}
-                                  onClick={() => approveTransfer(transfer.id)}
-                                >
-                                  Approve
-                                </Button>
-                                <Button
-                                  variant="secondary"
-                                  className="ims-control-sm"
-                                  disabled={actionLoading || editLoading}
-                                  onClick={() => startEditTransfer(transfer)}
-                                >
-                                  Edit
-                                </Button>
-                                <Button
-                                  variant="danger"
-                                  className="ims-control-sm"
-                                  disabled={actionLoading}
-                                  onClick={() => rejectTransfer(transfer)}
-                                >
-                                  Reject
-                                </Button>
-                              </>
-                            ) : null}
-                            {transfer.status === "APPROVED" ? (
-                              <>
-                                <Button
-                                  variant="secondary"
-                                  className="ims-control-sm"
-                                  onClick={() =>
-                                    openPrintForTransfer(transfer, "Material Transfer Barcode")
-                                  }
-                                >
-                                  Print Barcode
-                                </Button>
-                                <Button
-                                  variant="secondary"
-                                  className="ims-control-sm"
-                                  disabled={actionLoading}
-                                  onClick={() => transferMaterial(transfer)}
-                                >
-                                  Transfer
-                                </Button>
-                                <Button
-                                  variant="danger"
-                                  className="ims-control-sm"
-                                  disabled={actionLoading}
-                                  onClick={() => rejectTransfer(transfer)}
-                                >
-                                  Reject
-                                </Button>
-                              </>
-                            ) : null}
-                            {transfer.status === "DISPATCHED" ? (
-                              <>
-                                <Button
-                                  variant="secondary"
-                                  className="ims-control-sm"
-                                  onClick={() =>
-                                    openPrintForTransfer(transfer, "Material Transfer Barcode")
-                                  }
-                                >
-                                  Print Barcode
-                                </Button>
-                                <Button
-                                  variant="secondary"
-                                  className="ims-control-sm"
-                                  disabled={actionLoading}
-                                  onClick={() => transferMaterial(transfer)}
-                                >
-                                  Receive
-                                </Button>
-                              </>
-                            ) : null}
-                            {transfer.status === "COMPLETED" ? (
-                              <Button
-                                variant="secondary"
-                                className="ims-control-sm"
-                                onClick={() =>
-                                  openPrintForTransfer(transfer, "Material Transfer Barcode")
-                                }
+                      <tr
+                        key={transfer.id}
+                        className="ims-table-row cursor-pointer"
+                        onClick={() => router.push(detailHref)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            router.push(detailHref);
+                          }
+                        }}
+                        role="link"
+                        tabIndex={0}
+                      >
+                        {visibleTransferQueueColumns.map((column) => (
+                          <td key={column.key} data-column-key={column.key}>
+                            {column.key === "number" ? (
+                              <Link
+                                href={detailHref}
+                                className="font-medium underline-offset-4 hover:underline"
+                                onClick={(event) => event.stopPropagation()}
                               >
-                                Print Barcode
-                              </Button>
+                                {transfer.transfer_number}
+                              </Link>
                             ) : null}
-                          </div>
+                            {column.key === "status" ? transfer.status : null}
+                            {column.key === "from"
+                              ? formatLookup(locationById.get(transfer.from_location_id), "LOC")
+                              : null}
+                            {column.key === "to"
+                              ? formatLookup(locationById.get(transfer.to_location_id), "LOC")
+                              : null}
+                            {column.key === "items"
+                              ? `${getTransferItemCount(transfer)} item${getTransferItemCount(transfer) === 1 ? "" : "s"}`
+                              : null}
+                            {column.key === "qty" ? getTransferRequestedQty(transfer) : null}
+                            {column.key === "created"
+                              ? new Date(transfer.created_at).toLocaleString()
+                              : null}
+                          </td>
+                        ))}
+                        <td data-column-key="action">
+                          <TransactionRowActionsMenu
+                            actions={[
+                              ...(transfer.status === "REQUESTED"
+                                ? [
+                                    {
+                                      label: "Approve",
+                                      disabled: actionLoading,
+                                      onSelect: () => approveTransfer(transfer.id),
+                                    },
+                                    {
+                                      label: "Edit",
+                                      disabled: actionLoading || editLoading,
+                                      onSelect: () => startEditTransfer(transfer),
+                                    },
+                                    {
+                                      label: "Reject",
+                                      disabled: actionLoading,
+                                      tone: "danger" as const,
+                                      onSelect: () => rejectTransfer(transfer),
+                                    },
+                                  ]
+                                : []),
+                              ...(transfer.status === "APPROVED"
+                                ? [
+                                    {
+                                      label: "Transfer",
+                                      disabled: actionLoading,
+                                      onSelect: () => transferMaterial(transfer),
+                                    },
+                                    {
+                                      label: "Reject",
+                                      disabled: actionLoading,
+                                      tone: "danger" as const,
+                                      onSelect: () => rejectTransfer(transfer),
+                                    },
+                                  ]
+                                : []),
+                              ...(transfer.status === "DISPATCHED"
+                                ? [
+                                    {
+                                      label: "Receive",
+                                      disabled: actionLoading,
+                                      onSelect: () => transferMaterial(transfer),
+                                    },
+                                  ]
+                                : []),
+                            ]}
+                          />
                         </td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
-              {materialTransfers.length === 0 ? (
+              {paginatedMaterialTransfers.totalItems === 0 ? (
                 <p className="ims-empty mt-3">No material transfers found.</p>
               ) : null}
             </div>
+            <MasterTablePagination
+              totalItems={paginatedMaterialTransfers.totalItems}
+              currentPage={paginatedMaterialTransfers.currentPage}
+              rowLimit={transferQueueRowLimit}
+              onPageChange={setTransferQueuePage}
+            />
           </Card>
         </>
       ) : null}
@@ -864,66 +1124,108 @@ export default function TransfersPage() {
           </Card>
 
           <Card className="min-h-[20rem]">
-            <h2 className="text-lg font-semibold">Direct Transfer History</h2>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-1">
+                <MasterRowLimitControl
+                  value={directHistoryRowLimit}
+                  onChange={(limit) => {
+                    setDirectHistoryRowLimit(limit);
+                    setDirectHistoryPage(1);
+                  }}
+                />
+                <div className="min-w-0">
+                  <h2 className="text-lg font-semibold">Direct Transfer History</h2>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <TransactionListSettingsMenu
+                  orderedColumns={orderedDirectHistoryColumns}
+                  columnVisibility={directHistoryColumnVisibility}
+                  onToggleColumn={toggleDirectHistoryColumnVisibility}
+                  onMoveColumn={moveDirectHistoryColumn}
+                  onResetColumns={resetDirectHistoryColumnPreferences}
+                  exportTitle="Direct Transfer History"
+                  exportFilenameBase="direct-transfer-history"
+                  exportColumns={DIRECT_HISTORY_EXPORT_COLUMNS}
+                  exportRows={directHistoryExportRows}
+                  exportEmptyMessage="No direct transfer history rows available."
+                />
+              </div>
+            </div>
             <div className="mt-4 max-h-[28rem] overflow-auto">
-              <table className="ims-table">
+              <table className="ims-table ims-master-table">
                 <thead className="ims-table-head">
                   <tr>
-                    <th>Number</th>
-                    <th>Status</th>
-                    <th>From</th>
-                    <th>To</th>
-                    <th>Created</th>
-                    <th>Notes</th>
-                    <th>Action</th>
+                    {visibleDirectHistoryColumns.map((column) => (
+                      <th key={column.key} data-column-key={column.key}>
+                        {column.label}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {directTransfers.map((transfer) => (
-                    <tr key={transfer.id} className="ims-table-row">
-                      <td className="font-medium">{transfer.transfer_number}</td>
-                      <td>{transfer.status}</td>
-                      <td>{formatLookup(locationById.get(transfer.from_location_id), "LOC")}</td>
-                      <td>{formatLookup(locationById.get(transfer.to_location_id), "LOC")}</td>
-                      <td>{new Date(transfer.created_at).toLocaleString()}</td>
-                      <td>{(transfer.notes ?? "").replace(DIRECT_NOTE_PREFIX, "").trim() || "--"}</td>
-                      <td>
-                        <Button
-                          variant="secondary"
-                          className="ims-control-sm"
-                          onClick={() => openPrintForTransfer(transfer, "Direct Transfer Barcode")}
-                        >
-                          Print Barcode
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
+                  {paginatedDirectTransfers.items.map((transfer) => {
+                    const detailHref = `/transactions/transfers/${transfer.id}`;
+                    return (
+                      <tr
+                        key={transfer.id}
+                        className="ims-table-row cursor-pointer"
+                        onClick={() => router.push(detailHref)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            router.push(detailHref);
+                          }
+                        }}
+                        role="link"
+                        tabIndex={0}
+                      >
+                        {visibleDirectHistoryColumns.map((column) => (
+                          <td key={column.key} data-column-key={column.key}>
+                            {column.key === "number" ? (
+                              <Link
+                                href={detailHref}
+                                className="font-medium underline-offset-4 hover:underline"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                {transfer.transfer_number}
+                              </Link>
+                            ) : null}
+                            {column.key === "status" ? transfer.status : null}
+                            {column.key === "from"
+                              ? formatLookup(locationById.get(transfer.from_location_id), "LOC")
+                              : null}
+                            {column.key === "to"
+                              ? formatLookup(locationById.get(transfer.to_location_id), "LOC")
+                              : null}
+                            {column.key === "created"
+                              ? new Date(transfer.created_at).toLocaleString()
+                              : null}
+                            {column.key === "notes"
+                              ? (transfer.notes ?? "")
+                                  .replace(DIRECT_NOTE_PREFIX, "")
+                                  .trim() || "--"
+                              : null}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
-              {directTransfers.length === 0 ? (
+              {paginatedDirectTransfers.totalItems === 0 ? (
                 <p className="ims-empty mt-3">No direct transfers found.</p>
               ) : null}
             </div>
+            <MasterTablePagination
+              totalItems={paginatedDirectTransfers.totalItems}
+              currentPage={paginatedDirectTransfers.currentPage}
+              rowLimit={directHistoryRowLimit}
+              onPageChange={setDirectHistoryPage}
+            />
           </Card>
         </>
       ) : null}
-
-      <BarcodePrintDialog
-        open={printDialogOpen}
-        onClose={() => setPrintDialogOpen(false)}
-        onConfirm={async ({ format, quantity }) => {
-          const result = await printBarcodeLabels(printLabels, {
-            format,
-            quantity,
-            title: printTitle,
-          });
-          if ("error" in result) {
-            setError(result.error);
-            return;
-          }
-          setPrintDialogOpen(false);
-        }}
-      />
     </div>
   );
 }
