@@ -14,17 +14,16 @@ end $$;
 -- Master locations
 insert into public.locations (code, name, timezone, is_active)
 values
-  ('SAB-01', 'Sabah Al salem', 'Asia/Kuwait', true),
-  ('DSM-01', 'Dasman', 'Asia/Kuwait', true),
-  ('EGM-01', 'Egaila 89 Mall', 'Asia/Kuwait', true),
-  ('HMS-01', 'Home Service', 'Asia/Kuwait', true),
-  ('KFN-01', 'Kaifan', 'Asia/Kuwait', true),
-  ('ONL-01', 'Online', 'Asia/Kuwait', true),
-  ('QRT-01', 'Qortuba', 'Asia/Kuwait', true),
-  ('SAA-01', 'Saad Al Abdullah', 'Asia/Kuwait', true),
-  ('SRB6-01', 'Surra B6', 'Asia/Kuwait', true),
-  ('MWH-01', 'Main Warehouse', 'Asia/Kuwait', true),
-  ('EHS-01', 'Egaila 89 Mall Hair Spa', 'Asia/Kuwait', true)
+  ('LON-01', 'London', 'Europe/London', true),
+  ('CAI-01', 'Cairo', 'Africa/Cairo', true),
+  ('KUW-01', 'Kuwait City', 'Asia/Kuwait', true),
+  ('RIY-01', 'Riyadh', 'Asia/Riyadh', true),
+  ('DOH-01', 'Doha', 'Asia/Qatar', true),
+  ('MAN-01', 'Manama', 'Asia/Bahrain', true),
+  ('MUS-01', 'Muscat', 'Asia/Muscat', true),
+  ('ABU-01', 'Abu Dhabi', 'Asia/Dubai', true),
+  ('AMM-01', 'Amman', 'Asia/Amman', true),
+  ('BEI-01', 'Beirut', 'Asia/Beirut', true)
 on conflict (code) do update set
   name = excluded.name,
   timezone = excluded.timezone,
@@ -83,7 +82,7 @@ select
     else 6.10
   end
 from public.products p
-join public.locations l on l.code in ('SAB-01', 'DSM-01')
+join public.locations l on l.code in ('LON-01', 'CAI-01')
 on conflict (product_id, location_id, lot_number, expiry_date) do update set
   qty_on_hand = excluded.qty_on_hand,
   unit_cost = excluded.unit_cost,
@@ -215,7 +214,7 @@ end $$;
 insert into public.user_location_access (user_id, location_id)
 select u.id, l.id
 from auth.users u
-join public.locations l on l.code in ('SAB-01', 'DSM-01')
+join public.locations l on l.code in ('LON-01', 'CAI-01')
 where u.email in ('manager@ims.local', 'staff@ims.local')
 on conflict (user_id, location_id) do nothing;
 

@@ -2,11 +2,9 @@
 
 import { type ReactNode, useRef, useState } from "react";
 
-import { ExportActions } from "@/components/ui/export-actions";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FilePicker } from "@/components/ui/file-picker";
-import type { ExportColumn, ExportRow } from "@/lib/export/contracts";
 import {
   MasterEntity,
   MasterImportSummary,
@@ -17,11 +15,7 @@ type MasterCsvSyncProps = {
   entity: MasterEntity;
   canManage: boolean;
   onImported?: () => Promise<void> | void;
-  title: string;
-  filenameBase: string;
-  rows: ExportRow[];
-  columns: ExportColumn[];
-  filterSummary?: string[];
+  showDefaultImportControls?: boolean;
   children?: ReactNode;
   secondaryActions?: ReactNode;
 };
@@ -38,11 +32,7 @@ export function MasterCsvSync({
   entity,
   canManage,
   onImported,
-  title,
-  filenameBase,
-  rows,
-  columns,
-  filterSummary,
+  showDefaultImportControls = true,
   children,
   secondaryActions,
 }: MasterCsvSyncProps) {
@@ -107,6 +97,16 @@ export function MasterCsvSync({
     }
   }
 
+  const showPrimaryImportControls = showDefaultImportControls && canManage;
+  const showSecondaryDivider = Boolean(children || showPrimaryImportControls);
+  const hasVisibleContent = Boolean(
+    error || message || children || secondaryActions || showPrimaryImportControls,
+  );
+
+  if (!hasVisibleContent) {
+    return null;
+  }
+
   return (
     <Card className="space-y-4">
       {error ? <p className="ims-alert-danger">{error}</p> : null}
@@ -114,22 +114,12 @@ export function MasterCsvSync({
 
       {children ? <div>{children}</div> : null}
 
-      <div
-        className={`flex flex-wrap items-center gap-3 ${
-          children ? "border-t border-[var(--line)] pt-4" : ""
-        }`}
-      >
-        <ExportActions
-          title={title}
-          filenameBase={filenameBase}
-          columns={columns}
-          rows={rows}
-          filterSummary={filterSummary}
-          emptyMessage={`No ${ENTITY_LABELS[entity].toLowerCase()} available.`}
-          buttonClassName="ims-control-md rounded-2xl"
-        />
-
-        {canManage ? (
+      {showPrimaryImportControls ? (
+        <div
+          className={`flex flex-wrap items-center gap-3 ${
+            children ? "border-t border-[var(--line)] pt-4" : ""
+          }`}
+        >
           <>
             <a href={`/api/master/import/template?entity=${encodeURIComponent(entity)}`}>
               <Button variant="secondary" className="ims-control-md rounded-2xl">
@@ -154,14 +144,16 @@ export function MasterCsvSync({
               onClick={() => handleImport()}
               disabled={loading || !file}
             >
-              {loading ? "Reimporting..." : "Reimport CSV"}
+              {loading ? "Uploading..." : "Upload"}
             </Button>
           </>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       {secondaryActions ? (
-        <div className="border-t border-[var(--line)] pt-4">{secondaryActions}</div>
+        <div className={showSecondaryDivider ? "border-t border-[var(--line)] pt-4" : undefined}>
+          {secondaryActions}
+        </div>
       ) : null}
     </Card>
   );

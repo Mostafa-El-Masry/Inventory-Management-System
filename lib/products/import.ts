@@ -2,7 +2,7 @@ import { z } from "zod";
 import { normalizeImportName } from "@/lib/import-text/normalize-import-name";
 import { parseCsv } from "@/lib/utils/csv";
 
-export const PRODUCT_IMPORT_MAX_ROWS = 500;
+export const PRODUCT_IMPORT_BATCH_SIZE = 500;
 export const PRODUCT_MAX_COUNT = 10000;
 export const PRODUCT_IMPORT_TEMPLATE_HEADERS = [
   "name",
@@ -16,8 +16,8 @@ export const PRODUCT_IMPORT_TEMPLATE_HEADERS = [
 
 export type ProductImportRow = {
   name: string;
-  category_name: string;
-  subcategory_name: string;
+  category_name: string | null;
+  subcategory_name: string | null;
   barcode: string | null;
   unit: string;
   is_active: boolean;
@@ -26,6 +26,19 @@ export type ProductImportRow = {
 
 export type ProductImportParsedRow = ProductImportRow & {
   row_number: number;
+};
+
+export type ProductImportRejectedRow = {
+  row_number: number;
+  name: string;
+  barcode: string | null;
+  reason: string;
+};
+
+export type ProductImportParseResult = {
+  rows: ProductImportParsedRow[];
+  rejected_rows: ProductImportRejectedRow[];
+  processed_count: number;
 };
 
 export class ProductImportError extends Error {
@@ -42,15 +55,25 @@ export class ProductImportError extends Error {
 
 const productImportRowSchema = z.object({
   name: z.string().min(2).max(160),
-  category_name: z.string().min(2).max(120),
-  subcategory_name: z.string().min(2).max(120),
+  category_name: z.string().min(2).max(120).nullable().optional(),
+  subcategory_name: z.string().min(2).max(120).nullable().optional(),
   barcode: z.string().max(128).nullable().optional(),
   unit: z.string().min(1).max(24).default("unit"),
   description: z.string().max(500).nullable().optional(),
   is_active: z.boolean().default(true),
 });
 
-function parseBoolean(value: string, rowNumber: number) {
+const PRODUCT_IMPORT_COLUMN_LABELS = {
+  name: "name",
+  category_name: "category_name",
+  subcategory_name: "subcategory_name",
+  barcode: "barcode",
+  unit: "unit",
+  is_active: "is_active",
+  description: "description",
+} satisfies Record<string, string>;
+
+function parseBoolean(value: string) {
   const normalized = value.trim().toLowerCase();
   if (!normalized) {
     return true;
@@ -65,7 +88,7 @@ function parseBoolean(value: string, rowNumber: number) {
   }
 
   throw new ProductImportError(
-    `Invalid is_active value at row ${rowNumber}. Use true/false, yes/no, or 1/0.`,
+    'Column "is_active": wrong entry. Use true/false, yes/no, or 1/0.',
   );
 }
 
@@ -76,11 +99,102 @@ function getCell(cells: string[], columnIndex: number | undefined) {
   return cells[columnIndex] ?? "";
 }
 
+function getRejectedRowName(name: string) {
+  const normalizedName = normalizeImportName(name);
+  return normalizedName.length > 0 ? normalizedName : "Unnamed product";
+}
+
+function formatColumnIssue({
+  field,
+  value,
+  issue,
+}: {
+  field: keyof typeof PRODUCT_IMPORT_COLUMN_LABELS;
+  value: string | null;
+  issue: z.ZodIssue;
+}) {
+  const label = PRODUCT_IMPORT_COLUMN_LABELS[field];
+  const trimmedValue = typeof value === "string" ? value.trim() : value;
+
+  if (issue.code === "too_small" && issue.minimum === 1 && trimmedValue === "") {
+    return `Column "${label}": missing data.`;
+  }
+
+  if (issue.code === "too_small" && trimmedValue === "") {
+    return `Column "${label}": missing data.`;
+  }
+
+  if (issue.code === "too_small" && typeof issue.minimum === "number") {
+    return `Column "${label}": wrong entry. Must be at least ${issue.minimum} characters.`;
+  }
+
+  if (issue.code === "too_big" && typeof issue.maximum === "number") {
+    return `Column "${label}": wrong entry. Must be at most ${issue.maximum} characters.`;
+  }
+
+  if (issue.code === "invalid_type") {
+    return `Column "${label}": wrong entry.`;
+  }
+
+  return `Column "${label}": wrong entry.`;
+}
+
+function buildProductImportIssueReason({
+  candidate,
+  rawValues,
+  issues,
+}: {
+  candidate: {
+    name: string;
+    category_name: string | null;
+    subcategory_name: string | null;
+    barcode: string | null;
+    unit: string;
+    description: string | null;
+  };
+  rawValues: {
+    name: string;
+    category_name: string;
+    subcategory_name: string;
+    barcode: string;
+    unit: string;
+    description: string;
+  };
+  issues: z.ZodIssue[];
+}) {
+  const formatted = new Set<string>();
+
+  for (const issue of issues) {
+    const field = issue.path[0];
+    if (typeof field !== "string" || !(field in PRODUCT_IMPORT_COLUMN_LABELS)) {
+      continue;
+    }
+
+    const typedField = field as keyof typeof PRODUCT_IMPORT_COLUMN_LABELS;
+    const value =
+      typedField === "barcode" || typedField === "description"
+        ? rawValues[typedField]
+        : typedField in rawValues
+          ? rawValues[typedField as keyof typeof rawValues]
+          : String(candidate[typedField as keyof typeof candidate] ?? "");
+
+    formatted.add(
+      formatColumnIssue({
+        field: typedField,
+        value: value ?? null,
+        issue,
+      }),
+    );
+  }
+
+  return Array.from(formatted).join(" ");
+}
+
 export function buildProductImportTemplateCsv() {
   return `${PRODUCT_IMPORT_TEMPLATE_HEADERS.join(",")}\n`;
 }
 
-export function parseProductImportCsv(csv: string) {
+export function parseProductImportCsv(csv: string): ProductImportParseResult {
   let parsedRows: string[][];
   try {
     parsedRows = parseCsv(csv);
@@ -127,18 +241,8 @@ export function parseProductImportCsv(csv: string) {
     throw new ProductImportError("CSV has no data rows. Add at least one product row.");
   }
 
-  if (dataRows.length > PRODUCT_IMPORT_MAX_ROWS) {
-    throw new ProductImportError(
-      `CSV contains ${dataRows.length} rows. Maximum allowed per import is ${PRODUCT_IMPORT_MAX_ROWS}.`,
-      422,
-      {
-        max_rows: PRODUCT_IMPORT_MAX_ROWS,
-        row_count: dataRows.length,
-      },
-    );
-  }
-
   const importedRows: ProductImportParsedRow[] = [];
+  const rejectedRows: ProductImportRejectedRow[] = [];
 
   for (const row of dataRows) {
     const name = getCell(row.cells, headerIndex.get("name")).trim();
@@ -148,32 +252,64 @@ export function parseProductImportCsv(csv: string) {
     const barcodeRaw = getCell(row.cells, headerIndex.get("barcode")).trim();
     const descriptionRaw = getCell(row.cells, headerIndex.get("description")).trim();
     const isActiveRaw = getCell(row.cells, headerIndex.get("is_active"));
-    const isActive = parseBoolean(isActiveRaw, row.rowNumber);
+    let isActive = true;
+
+    try {
+      isActive = parseBoolean(isActiveRaw);
+    } catch (error) {
+      if (error instanceof ProductImportError) {
+        rejectedRows.push({
+          row_number: row.rowNumber,
+          name: getRejectedRowName(name),
+          barcode: barcodeRaw.length > 0 ? barcodeRaw : null,
+          reason: error.message,
+        });
+        continue;
+      }
+
+      throw error;
+    }
 
     const candidate = {
       name: normalizeImportName(name),
-      category_name: categoryName,
-      subcategory_name: subcategoryName,
+      category_name:
+        categoryName.length > 0 && subcategoryName.length > 0 ? categoryName : null,
+      subcategory_name:
+        categoryName.length > 0 && subcategoryName.length > 0 ? subcategoryName : null,
       barcode: barcodeRaw.length > 0 ? barcodeRaw : null,
-      unit,
+      unit: unit.length > 0 ? unit : "unit",
       description: descriptionRaw.length > 0 ? descriptionRaw : null,
       is_active: isActive,
     };
 
     const parsed = productImportRowSchema.safeParse(candidate);
     if (!parsed.success) {
-      throw new ProductImportError(
-        `Invalid product data at row ${row.rowNumber}.`,
-        422,
-        parsed.error.flatten(),
-      );
+      rejectedRows.push({
+        row_number: row.rowNumber,
+        name: getRejectedRowName(name),
+        barcode: barcodeRaw.length > 0 ? barcodeRaw : null,
+        reason:
+          buildProductImportIssueReason({
+            candidate,
+            rawValues: {
+              name,
+              category_name: categoryName,
+              subcategory_name: subcategoryName,
+              barcode: barcodeRaw,
+              unit,
+              description: descriptionRaw,
+            },
+            issues: parsed.error.issues,
+          }) || "Invalid product data.",
+      });
+      continue;
     }
 
     importedRows.push({
       row_number: row.rowNumber,
       name: parsed.data.name,
-      category_name: parsed.data.category_name,
-      subcategory_name: parsed.data.subcategory_name,
+      category_name: parsed.data.category_name ?? null,
+      subcategory_name: parsed.data.subcategory_name ?? null,
       barcode: parsed.data.barcode ?? null,
       unit: parsed.data.unit,
       description: parsed.data.description ?? null,
@@ -181,5 +317,9 @@ export function parseProductImportCsv(csv: string) {
     });
   }
 
-  return importedRows;
+  return {
+    rows: importedRows,
+    rejected_rows: rejectedRows,
+    processed_count: dataRows.length,
+  };
 }

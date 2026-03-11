@@ -39,7 +39,7 @@ describe("stock snapshot helpers", () => {
           received_at: "2025-12-01T00:00:00.000Z",
           unit_cost: 2.5,
           products: { name: "Paracetamol", sku: "PAR-01" },
-          locations: { name: "Sabah Al Salem", code: "SAB-01" },
+          locations: { name: "London", code: "LON-01" },
         },
         {
           id: "batch-2",
@@ -50,7 +50,7 @@ describe("stock snapshot helpers", () => {
           received_at: "2025-12-02T00:00:00.000Z",
           unit_cost: 2.5,
           products: { name: "Paracetamol", sku: "PAR-01" },
-          locations: { name: "Sabah Al Salem", code: "SAB-01" },
+          locations: { name: "London", code: "LON-01" },
         },
       ],
     );
@@ -74,7 +74,7 @@ describe("stock snapshot helpers", () => {
         qty_on_hand: 6,
         unit_cost: 2.5,
         products: { name: "Paracetamol", sku: "PAR-01" },
-        locations: { name: "Sabah Al Salem", code: "SAB-01" },
+        locations: { name: "London", code: "LON-01" },
       },
       {
         id: "batch-2",
@@ -86,15 +86,15 @@ describe("stock snapshot helpers", () => {
         qty_on_hand: 4,
         unit_cost: 2.5,
         products: { name: "Paracetamol", sku: "PAR-01" },
-        locations: { name: "Sabah Al Salem", code: "SAB-01" },
+        locations: { name: "London", code: "LON-01" },
       },
     ]);
 
     expect(summary).toEqual([
       {
         location_id: "loc-1",
-        location_code: "SAB-01",
-        location_name: "Sabah Al Salem",
+        location_code: "LON-01",
+        location_name: "London",
         product_id: "product-1",
         sku: "PAR-01",
         product_name: "Paracetamol",

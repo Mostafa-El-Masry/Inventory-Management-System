@@ -2,12 +2,17 @@ import { assertMasterPermission, getAuthContext } from "@/lib/auth/permissions";
 import { createProductWithGeneratedSku } from "@/lib/products/create";
 import {
   parseProductImportCsv,
-  PRODUCT_IMPORT_MAX_ROWS,
+  type ProductImportParseResult,
+  PRODUCT_IMPORT_BATCH_SIZE,
   PRODUCT_MAX_COUNT,
   ProductImportError,
 } from "@/lib/products/import";
 import { normalizeTaxonomyName } from "@/lib/products/taxonomy";
-import { normalizeProductName } from "@/lib/products/uniqueness";
+import {
+  mapProductUniqueViolation,
+  normalizeProductName,
+  normalizeProductSku,
+} from "@/lib/products/uniqueness";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { productImportSchema } from "@/lib/validation";
 import { fail, ok, parseBody } from "@/lib/utils/http";
@@ -21,8 +26,148 @@ type RejectedImportRow = {
   existing_product_id?: string | null;
 };
 
+const LEGACY_IMPORT_SKU_PREFIX = "SKU-";
+const LEGACY_IMPORT_SKU_START = 1001;
+
 function normalizeBarcode(barcode: string) {
   return barcode.trim().toLowerCase();
+}
+
+function chunkRows<T>(rows: T[], size: number) {
+  const chunks: T[][] = [];
+
+  for (let index = 0; index < rows.length; index += size) {
+    chunks.push(rows.slice(index, index + size));
+  }
+
+  return chunks;
+}
+
+function getNextLegacySkuNumber(
+  rows: Array<{
+    sku: string;
+  }>,
+) {
+  let nextNumber = LEGACY_IMPORT_SKU_START;
+
+  for (const row of rows) {
+    const match = /^sku-(\d+)$/i.exec(row.sku.trim());
+    if (!match) {
+      continue;
+    }
+
+    const parsed = Number.parseInt(match[1], 10);
+    if (Number.isNaN(parsed)) {
+      continue;
+    }
+
+    nextNumber = Math.max(nextNumber, parsed + 1);
+  }
+
+  return nextNumber;
+}
+
+function allocateLegacySku(
+  existingSkus: Set<string>,
+  nextLegacySkuNumber: number,
+) {
+  let candidateNumber = nextLegacySkuNumber;
+
+  while (true) {
+    const sku = `${LEGACY_IMPORT_SKU_PREFIX}${candidateNumber}`;
+    const normalizedSku = normalizeProductSku(sku);
+    candidateNumber += 1;
+
+    if (!existingSkus.has(normalizedSku)) {
+      return {
+        sku,
+        normalizedSku,
+        nextLegacySkuNumber: candidateNumber,
+      };
+    }
+  }
+}
+
+async function createImportedProductWithoutTaxonomy(
+  writeClient: {
+    from: (table: string) => {
+      insert: (values: Record<string, unknown>) => {
+        select: (columns: string) => {
+          single: () => PromiseLike<{
+            data: Record<string, unknown> | null;
+            error:
+              | {
+                  code?: string;
+                  message?: string;
+                  details?: string;
+                }
+              | null;
+          }>;
+        };
+      };
+    };
+  },
+  input: {
+    name: string;
+    barcode: string | null;
+    description: string | null;
+    unit: string;
+    is_active: boolean;
+  },
+  existingSkus: Set<string>,
+  nextLegacySkuNumber: number,
+) {
+  let nextSkuNumber = nextLegacySkuNumber;
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const allocation = allocateLegacySku(existingSkus, nextSkuNumber);
+    nextSkuNumber = allocation.nextLegacySkuNumber;
+
+    const { data, error } = await writeClient
+      .from("products")
+      .insert({
+        sku: allocation.sku,
+        name: input.name,
+        barcode: input.barcode,
+        description: input.description,
+        unit: input.unit,
+        is_active: input.is_active,
+        category_id: null,
+        subcategory_id: null,
+      })
+      .select("*")
+      .single();
+
+    if (!error && data) {
+      existingSkus.add(allocation.normalizedSku);
+      return {
+        data,
+        error: null,
+        status: 201 as const,
+        nextLegacySkuNumber: nextSkuNumber,
+      };
+    }
+
+    const mapped = mapProductUniqueViolation(error ?? {});
+    if (mapped === "Product SKU already exists.") {
+      existingSkus.add(allocation.normalizedSku);
+      continue;
+    }
+
+    return {
+      data: null,
+      error: mapped ?? error?.message ?? "Failed to insert product.",
+      status: mapped ? (409 as const) : (400 as const),
+      nextLegacySkuNumber: nextSkuNumber,
+    };
+  }
+
+  return {
+    data: null,
+    error: "Failed to generate a unique product SKU.",
+    status: 409 as const,
+    nextLegacySkuNumber: nextSkuNumber,
+  };
 }
 
 export async function POST(request: Request) {
@@ -42,9 +187,9 @@ export async function POST(request: Request) {
     return payload.error;
   }
 
-  let rows;
+  let parsedRows: ProductImportParseResult;
   try {
-    rows = parseProductImportCsv(payload.data.csv);
+    parsedRows = parseProductImportCsv(payload.data.csv);
   } catch (error) {
     if (error instanceof ProductImportError) {
       return fail(error.message, error.status, error.details);
@@ -69,7 +214,7 @@ export async function POST(request: Request) {
 
   const { data: existingRows, error: existingError } = await writeClient
     .from("products")
-    .select("id, name, barcode");
+    .select("id, sku, name, barcode");
   if (existingError) {
     return fail(existingError.message, 400);
   }
@@ -90,12 +235,15 @@ export async function POST(request: Request) {
 
   const existingNames = new Map<string, { id: string }>();
   const existingBarcodes = new Map<string, { id: string }>();
+  const existingSkus = new Set<string>();
   for (const row of (existingRows ?? []) as Array<{
     id: string;
+    sku: string;
     name: string;
     barcode: string | null;
   }>) {
     existingNames.set(normalizeProductName(row.name), { id: row.id });
+    existingSkus.add(normalizeProductSku(row.sku));
     if (row.barcode) {
       const normalizedBarcode = normalizeBarcode(row.barcode);
       if (normalizedBarcode) {
@@ -138,152 +286,185 @@ export async function POST(request: Request) {
 
   const seenNameRows = new Map<string, number>();
   const seenBarcodeRows = new Map<string, number>();
-  const rejectedRows: RejectedImportRow[] = [];
+  const rejectedRows: RejectedImportRow[] = [...parsedRows.rejected_rows];
+  let nextLegacySkuNumber = getNextLegacySkuNumber(
+    (existingRows ?? []) as Array<{ sku: string }>,
+  );
 
   let insertedCount = 0;
 
-  for (const row of rows) {
-    if (currentCount + insertedCount >= PRODUCT_MAX_COUNT) {
-      rejectedRows.push({
-        row_number: row.row_number,
-        name: row.name,
-        barcode: row.barcode,
-        reason: `Max total products (${PRODUCT_MAX_COUNT}) reached.`,
-      });
-      continue;
-    }
-
-    const normalizedName = normalizeProductName(row.name);
-    const firstNameRow = seenNameRows.get(normalizedName);
-    if (typeof firstNameRow === "number") {
-      rejectedRows.push({
-        row_number: row.row_number,
-        name: row.name,
-        barcode: row.barcode,
-        reason: "Duplicate name in CSV.",
-        first_row_number: firstNameRow,
-      });
-      continue;
-    }
-
-    const existingNameConflict = existingNames.get(normalizedName);
-    if (existingNameConflict) {
-      rejectedRows.push({
-        row_number: row.row_number,
-        name: row.name,
-        barcode: row.barcode,
-        reason: "Name already exists in catalog.",
-        existing_product_id: existingNameConflict.id,
-      });
-      continue;
-    }
-
-    let normalizedBarcode: string | null = null;
-    if (row.barcode) {
-      const candidate = normalizeBarcode(row.barcode);
-      if (candidate) {
-        normalizedBarcode = candidate;
-      }
-    }
-
-    if (normalizedBarcode) {
-      const firstBarcodeRow = seenBarcodeRows.get(normalizedBarcode);
-      if (typeof firstBarcodeRow === "number") {
+  for (const batchRows of chunkRows(parsedRows.rows, PRODUCT_IMPORT_BATCH_SIZE)) {
+    for (const row of batchRows) {
+      if (currentCount + insertedCount >= PRODUCT_MAX_COUNT) {
         rejectedRows.push({
           row_number: row.row_number,
           name: row.name,
           barcode: row.barcode,
-          reason: "Duplicate barcode in CSV.",
-          first_row_number: firstBarcodeRow,
+          reason: `Max total products (${PRODUCT_MAX_COUNT}) reached.`,
         });
         continue;
       }
 
-      const existingBarcodeConflict = existingBarcodes.get(normalizedBarcode);
-      if (existingBarcodeConflict) {
+      const normalizedName = normalizeProductName(row.name);
+      const firstNameRow = seenNameRows.get(normalizedName);
+      if (typeof firstNameRow === "number") {
         rejectedRows.push({
           row_number: row.row_number,
           name: row.name,
           barcode: row.barcode,
-          reason: "Barcode already exists in catalog.",
-          existing_product_id: existingBarcodeConflict.id,
+          reason: "Duplicate name in CSV.",
+          first_row_number: firstNameRow,
         });
         continue;
       }
-    }
 
-    const category = categoriesByName.get(
-      normalizeTaxonomyName(row.category_name),
-    );
-    if (!category) {
-      rejectedRows.push({
-        row_number: row.row_number,
-        name: row.name,
-        barcode: row.barcode,
-        reason: `Category "${row.category_name}" does not exist in masters.`,
-      });
-      continue;
-    }
+      const existingNameConflict = existingNames.get(normalizedName);
+      if (existingNameConflict) {
+        rejectedRows.push({
+          row_number: row.row_number,
+          name: row.name,
+          barcode: row.barcode,
+          reason: "Name already exists in catalog.",
+          existing_product_id: existingNameConflict.id,
+        });
+        continue;
+      }
 
-    if (!category.is_active) {
-      rejectedRows.push({
-        row_number: row.row_number,
-        name: row.name,
-        barcode: row.barcode,
-        reason: `Category "${row.category_name}" is archived.`,
-      });
-      continue;
-    }
+      let normalizedBarcode: string | null = null;
+      if (row.barcode) {
+        const candidate = normalizeBarcode(row.barcode);
+        if (candidate) {
+          normalizedBarcode = candidate;
+        }
+      }
 
-    const subcategory = subcategoriesByCategoryAndName.get(
-      `${category.id}:${normalizeTaxonomyName(row.subcategory_name)}`,
-    );
-    if (!subcategory) {
-      rejectedRows.push({
-        row_number: row.row_number,
-        name: row.name,
-        barcode: row.barcode,
-        reason: `Subcategory "${row.subcategory_name}" does not exist under category "${row.category_name}".`,
-      });
-      continue;
-    }
+      if (normalizedBarcode) {
+        const firstBarcodeRow = seenBarcodeRows.get(normalizedBarcode);
+        if (typeof firstBarcodeRow === "number") {
+          rejectedRows.push({
+            row_number: row.row_number,
+            name: row.name,
+            barcode: row.barcode,
+            reason: "Duplicate barcode in CSV.",
+            first_row_number: firstBarcodeRow,
+          });
+          continue;
+        }
 
-    if (!subcategory.is_active) {
-      rejectedRows.push({
-        row_number: row.row_number,
-        name: row.name,
-        barcode: row.barcode,
-        reason: `Subcategory "${row.subcategory_name}" is archived.`,
-      });
-      continue;
-    }
+        const existingBarcodeConflict = existingBarcodes.get(normalizedBarcode);
+        if (existingBarcodeConflict) {
+          rejectedRows.push({
+            row_number: row.row_number,
+            name: row.name,
+            barcode: row.barcode,
+            reason: "Barcode already exists in catalog.",
+            existing_product_id: existingBarcodeConflict.id,
+          });
+          continue;
+        }
+      }
 
-    const created = await createProductWithGeneratedSku(writeClient, {
-      name: row.name.trim(),
-      barcode: row.barcode,
-      description: row.description,
-      unit: row.unit.trim(),
-      is_active: row.is_active,
-      category_id: category.id,
-      subcategory_id: subcategory.id,
-    });
-    if (created.error) {
-      rejectedRows.push({
-        row_number: row.row_number,
-        name: row.name,
-        barcode: row.barcode,
-        reason: created.error,
-      });
-      continue;
-    }
+      let created:
+        | Awaited<ReturnType<typeof createProductWithGeneratedSku>>
+        | Awaited<ReturnType<typeof createImportedProductWithoutTaxonomy>>;
 
-    insertedCount += 1;
-    seenNameRows.set(normalizedName, row.row_number);
-    if (normalizedBarcode) {
-      seenBarcodeRows.set(normalizedBarcode, row.row_number);
-      existingBarcodes.set(normalizedBarcode, { id: "inserted-this-import" });
+      const categoryName = row.category_name;
+      const subcategoryName = row.subcategory_name;
+
+      if (!categoryName || !subcategoryName) {
+        const importedProduct = await createImportedProductWithoutTaxonomy(
+          writeClient,
+          {
+            name: row.name.trim(),
+            barcode: row.barcode,
+            description: row.description,
+            unit: row.unit.trim(),
+            is_active: row.is_active,
+          },
+          existingSkus,
+          nextLegacySkuNumber,
+        );
+        nextLegacySkuNumber = importedProduct.nextLegacySkuNumber;
+        created = importedProduct;
+      } else {
+        const category = categoriesByName.get(
+          normalizeTaxonomyName(categoryName),
+        );
+        if (!category) {
+          rejectedRows.push({
+            row_number: row.row_number,
+            name: row.name,
+            barcode: row.barcode,
+            reason: `Category "${categoryName}" does not exist in masters.`,
+          });
+          continue;
+        }
+
+        if (!category.is_active) {
+          rejectedRows.push({
+            row_number: row.row_number,
+            name: row.name,
+            barcode: row.barcode,
+            reason: `Category "${categoryName}" is archived.`,
+          });
+          continue;
+        }
+
+        const subcategory = subcategoriesByCategoryAndName.get(
+          `${category.id}:${normalizeTaxonomyName(subcategoryName)}`,
+        );
+        if (!subcategory) {
+          rejectedRows.push({
+            row_number: row.row_number,
+            name: row.name,
+            barcode: row.barcode,
+            reason: `Subcategory "${subcategoryName}" does not exist under category "${categoryName}".`,
+          });
+          continue;
+        }
+
+        if (!subcategory.is_active) {
+          rejectedRows.push({
+            row_number: row.row_number,
+            name: row.name,
+            barcode: row.barcode,
+            reason: `Subcategory "${subcategoryName}" is archived.`,
+          });
+          continue;
+        }
+
+        created = await createProductWithGeneratedSku(writeClient, {
+          name: row.name.trim(),
+          barcode: row.barcode,
+          description: row.description,
+          unit: row.unit.trim(),
+          is_active: row.is_active,
+          category_id: category.id,
+          subcategory_id: subcategory.id,
+        });
+      }
+
+      if (created.error) {
+        rejectedRows.push({
+          row_number: row.row_number,
+          name: row.name,
+          barcode: row.barcode,
+          reason: created.error,
+        });
+        continue;
+      }
+
+      insertedCount += 1;
+      seenNameRows.set(normalizedName, row.row_number);
+      if ("data" in created && created.data && typeof created.data.sku === "string") {
+        existingSkus.add(normalizeProductSku(created.data.sku));
+      }
+      if (normalizedBarcode) {
+        seenBarcodeRows.set(normalizedBarcode, row.row_number);
+        existingBarcodes.set(normalizedBarcode, { id: "inserted-this-import" });
+      }
+      existingNames.set(normalizedName, { id: "inserted-this-import" });
     }
-    existingNames.set(normalizedName, { id: "inserted-this-import" });
   }
 
   const rejectedCount = rejectedRows.length;
@@ -291,9 +472,9 @@ export async function POST(request: Request) {
     {
       inserted_count: insertedCount,
       rejected_count: rejectedCount,
-      processed_count: rows.length,
+      processed_count: parsedRows.processed_count,
       rejected_rows: rejectedRows,
-      max_rows: PRODUCT_IMPORT_MAX_ROWS,
+      batch_size: PRODUCT_IMPORT_BATCH_SIZE,
       max_products: PRODUCT_MAX_COUNT,
       current_count: currentCount + insertedCount,
     },

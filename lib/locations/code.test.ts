@@ -12,10 +12,10 @@ describe("prefixed code helpers", () => {
   });
 
   it("picks the next suffix from existing codes", () => {
-    expect(nextPrefixedCode("SAB", ["SAB-01", "SAB-02"])).toBe("SAB-03");
+    expect(nextPrefixedCode("LON", ["LON-01", "LON-02"])).toBe("LON-03");
   });
 
   it("handles suffix values above 99 without truncation", () => {
-    expect(nextPrefixedCode("SAB", ["SAB-99"])).toBe("SAB-100");
+    expect(nextPrefixedCode("LON", ["LON-99"])).toBe("LON-100");
   });
 });

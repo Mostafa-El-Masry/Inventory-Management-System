@@ -3,21 +3,21 @@ import { describe, expect, it } from "vitest";
 import { MasterCsvImportError, parseMasterImportCsv } from "@/lib/master-sync/parse";
 
 describe("master csv parser", () => {
-  it("parses and normalizes supplier rows", () => {
+  it("parses and normalizes supplier rows without a code column", () => {
     const result = parseMasterImportCsv(
       "suppliers",
       [
-        "code,name,phone,email,is_active",
-        " sup-01 ,   aLpHa   suPPLIER   ,12345, SALES@EXAMPLE.COM ,yes",
+        "name,phone,email,is_active",
+        "   aLpHa   suPPLIER   ,12345, SALES@EXAMPLE.COM ,yes",
       ].join("\n"),
     );
 
     expect(result.processed_count).toBe(1);
     expect(result.rejected_rows).toEqual([]);
     expect(result.rows[0]).toMatchObject({
-      key: "SUP-01",
+      key: "name:alpha supplier",
       value: {
-        code: "SUP-01",
+        code: null,
         name: "Alpha Supplier",
         phone: "12345",
         email: "sales@example.com",
@@ -30,9 +30,9 @@ describe("master csv parser", () => {
     const result = parseMasterImportCsv(
       "locations",
       [
-        "code,name,timezone,is_active",
-        "LOC-01,Main,Asia/Kuwait,true",
-        "loc-01,Backup,Asia/Kuwait,false",
+        "name,timezone,is_active",
+        "Main,Europe/London,true",
+        " main ,Africa/Cairo,false",
       ].join("\n"),
     );
 
@@ -40,7 +40,7 @@ describe("master csv parser", () => {
     expect(result.rejected_rows).toEqual([
       {
         row_number: 3,
-        key: "LOC-01",
+        key: "name:main",
         reason: "Duplicate key in CSV.",
         first_row_number: 2,
       },
@@ -55,36 +55,56 @@ describe("master csv parser", () => {
 
   it("throws when file exceeds entity row limit", () => {
     const dataRows = Array.from({ length: 501 }, (_, index) =>
-      `SKU-${index + 1},P${index + 1},,box,true,,01,001`,
+      `P${index + 1},,box,true,,Hair,Shampoo`,
     );
 
     expect(() =>
       parseMasterImportCsv(
         "products",
         [
-          "sku,name,barcode,unit,is_active,description,category_code,subcategory_code",
+          "name,barcode,unit,is_active,description,category_name,subcategory_name",
           ...dataRows,
         ].join("\n"),
       ),
     ).toThrow(MasterCsvImportError);
   });
 
-  it("proper-cases master product names while keeping codes normalized", () => {
+  it("proper-cases master product names while allowing generated sku and blank barcode", () => {
     const result = parseMasterImportCsv(
       "products",
       [
-        "sku,name,barcode,unit,is_active,description,category_code,subcategory_code",
-        "sku-01,  hAIR   maSk  ,,box,true,,01,001",
+        "name,barcode,unit,is_active,description,category_name,subcategory_name",
+        "  hAIR   maSk  ,,box,true,,Hair,Conditioner",
       ].join("\n"),
     );
 
     expect(result.rows[0]).toMatchObject({
-      key: "SKU-01",
+      key: "name:hair mask",
       value: {
-        sku: "SKU-01",
+        sku: null,
         name: "Hair Mask",
-        category_code: "01",
-        subcategory_code: "001",
+        barcode: null,
+        category_name: "Hair",
+        subcategory_name: "Conditioner",
+      },
+    });
+  });
+
+  it("still accepts legacy code columns for backwards compatibility", () => {
+    const result = parseMasterImportCsv(
+      "categories",
+      [
+        "code,name,is_active",
+        "01,  hAIR  ,true",
+      ].join("\n"),
+    );
+
+    expect(result.rows[0]).toMatchObject({
+      key: "01",
+      value: {
+        code: "01",
+        name: "Hair",
+        is_active: true,
       },
     });
   });

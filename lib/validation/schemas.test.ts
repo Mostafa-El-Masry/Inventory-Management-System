@@ -124,8 +124,8 @@ describe("validation schemas", () => {
 
   it("accepts location payload without code", () => {
     const parsed = locationCreateSchema.safeParse({
-      name: "Sabah Al Salem",
-      timezone: "Asia/Kuwait",
+      name: "London",
+      timezone: "Europe/London",
       is_active: true,
     });
 
@@ -134,9 +134,9 @@ describe("validation schemas", () => {
 
   it("accepts location payload with code for compatibility", () => {
     const parsed = locationCreateSchema.safeParse({
-      code: "SAB-01",
-      name: "Sabah Al Salem",
-      timezone: "Asia/Kuwait",
+      code: "LON-01",
+      name: "London",
+      timezone: "Europe/London",
       is_active: true,
     });
 

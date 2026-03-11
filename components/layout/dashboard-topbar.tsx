@@ -1,10 +1,33 @@
 "use client";
 
 import Link from "next/link";
-import { type ReactNode, type SVGProps, useEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  type SVGProps,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
-import { THEME_STORAGE_KEY, ThemeMode, normalizeThemeMode } from "@/lib/theme";
+import {
+  THEME_STORAGE_KEY,
+  ThemeMode,
+  buildThemeCookieString,
+  normalizeThemeMode,
+} from "@/lib/theme";
 import { Role } from "@/lib/types/domain";
+
+const THEME_CHANGE_EVENT = "ims:theme-change";
+
+function subscribeToThemeMode(onStoreChange: () => void) {
+  window.addEventListener(THEME_CHANGE_EVENT, onStoreChange);
+  return () => window.removeEventListener(THEME_CHANGE_EVENT, onStoreChange);
+}
+
+function getThemeModeSnapshot() {
+  return normalizeThemeMode(document.documentElement.dataset.theme);
+}
 
 function SvgIcon({
   children,
@@ -63,17 +86,19 @@ function MoonIcon(props: SVGProps<SVGSVGElement>) {
 export function DashboardTopbar({
   companyName,
   displayName,
+  initialTheme,
   role,
 }: {
   companyName: string;
   displayName: string;
+  initialTheme: ThemeMode;
   role: Role;
 }) {
   const [open, setOpen] = useState(false);
-  const [themeMode, setThemeMode] = useState<ThemeMode>(() =>
-    typeof document === "undefined"
-      ? "light"
-      : normalizeThemeMode(document.documentElement.dataset.theme),
+  const themeMode = useSyncExternalStore(
+    subscribeToThemeMode,
+    getThemeModeSnapshot,
+    () => initialTheme,
   );
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -112,13 +137,22 @@ export function DashboardTopbar({
 
   function setTheme(nextTheme: ThemeMode) {
     document.documentElement.dataset.theme = nextTheme;
-    setThemeMode(nextTheme);
 
     try {
       window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
     } catch {
       // Ignore localStorage write errors in privacy-restricted environments.
     }
+
+    try {
+      document.cookie = buildThemeCookieString(nextTheme, {
+        secure: window.location.protocol === "https:",
+      });
+    } catch {
+      // Ignore cookie write errors in privacy-restricted environments.
+    }
+
+    window.dispatchEvent(new Event(THEME_CHANGE_EVENT));
   }
 
   function toggleTheme() {

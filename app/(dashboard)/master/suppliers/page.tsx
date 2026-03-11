@@ -3,9 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
-import { MasterArchivedToggle } from "@/components/master/master-archived-toggle";
-import { MasterColumnsMenu } from "@/components/master/master-columns-menu";
 import { MasterCsvSync } from "@/components/master/master-csv-sync";
+import { MasterListSettingsMenu } from "@/components/master/master-list-settings-menu";
 import { MasterPageHeader } from "@/components/master/master-page-header";
 import { MasterPanelReveal } from "@/components/master/master-panel-reveal";
 import { MasterTableLoadingRows } from "@/components/master/master-table-loading";
@@ -47,7 +46,7 @@ type Supplier = {
 };
 
 const SUPPLIER_COLUMN_DEFINITIONS = [
-  { key: "code", label: "Code" },
+  { key: "code", label: "SKU" },
   { key: "name", label: "Name" },
   { key: "phone", label: "Phone" },
   { key: "email", label: "Email" },
@@ -76,7 +75,7 @@ const SUPPLIER_DEFAULT_COLUMN_VISIBILITY = buildDefaultColumnVisibility(
 );
 
 const SUPPLIER_EXPORT_COLUMNS: ExportColumn[] = [
-  { key: "code", label: "Code" },
+  { key: "code", label: "SKU" },
   { key: "name", label: "Name" },
   { key: "phone", label: "Phone" },
   { key: "email", label: "Email" },
@@ -203,6 +202,14 @@ export default function MasterSuppliersPage() {
     return next;
   }, [suppliers, supplierSortDirection, supplierSortKey]);
   const supplierPagination = paginateRows(sortedSuppliers, supplierRowLimit, supplierPage);
+  const supplierExportRows = suppliers.map((supplier) => ({
+    code: supplier.code,
+    name: supplier.name,
+    phone: supplier.phone ?? "",
+    email: supplier.email ?? "",
+    is_active: supplier.is_active,
+  }));
+  const supplierFilterSummary = [`Disabled included: ${showInactive ? "Yes" : "No"}`];
 
   useEffect(() => {
     setSupplierPage(1);
@@ -494,17 +501,6 @@ export default function MasterSuppliersPage() {
             <MasterCsvSync
               entity="suppliers"
               canManage={canImportSuppliers}
-              title="Suppliers"
-              filenameBase="suppliers"
-              columns={SUPPLIER_EXPORT_COLUMNS}
-              rows={suppliers.map((supplier) => ({
-                code: supplier.code,
-                name: supplier.name,
-                phone: supplier.phone ?? "",
-                email: supplier.email ?? "",
-                is_active: supplier.is_active,
-              }))}
-              filterSummary={[`Disabled included: ${showInactive ? "Yes" : "No"}`]}
               onImported={async () => {
                 await loadSuppliers();
               }}
@@ -574,17 +570,6 @@ export default function MasterSuppliersPage() {
         <MasterCsvSync
           entity="suppliers"
           canManage={canImportSuppliers}
-          title="Suppliers"
-          filenameBase="suppliers"
-          columns={SUPPLIER_EXPORT_COLUMNS}
-          rows={suppliers.map((supplier) => ({
-            code: supplier.code,
-            name: supplier.name,
-            phone: supplier.phone ?? "",
-            email: supplier.email ?? "",
-            is_active: supplier.is_active,
-          }))}
-          filterSummary={[`Disabled included: ${showInactive ? "Yes" : "No"}`]}
           onImported={async () => {
             await loadSuppliers();
           }}
@@ -604,17 +589,21 @@ export default function MasterSuppliersPage() {
             <h2 className="min-w-0 text-lg font-semibold">Supplier List</h2>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <MasterColumnsMenu
+            <MasterListSettingsMenu
               orderedColumns={orderedSupplierColumns}
               columnVisibility={supplierColumnVisibility}
               onToggleColumn={toggleSupplierColumnVisibility}
               onMoveColumn={moveSupplierColumn}
-              onReset={resetSupplierColumnPreferences}
-              helperText="Toggle and reorder supplier columns."
-            />
-            <MasterArchivedToggle
-              pressed={showInactive}
-              onPressedChange={(pressed) => setShowInactive(pressed)}
+              onResetColumns={resetSupplierColumnPreferences}
+              columnsHelperText="Toggle and reorder supplier columns."
+              showInactive={showInactive}
+              onShowInactiveChange={(pressed) => setShowInactive(pressed)}
+              exportTitle="Suppliers"
+              exportFilenameBase="suppliers"
+              exportColumns={SUPPLIER_EXPORT_COLUMNS}
+              exportRows={supplierExportRows}
+              exportFilterSummary={supplierFilterSummary}
+              exportEmptyMessage="No suppliers available."
             />
           </div>
         </div>

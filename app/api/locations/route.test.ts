@@ -77,15 +77,15 @@ describe("POST /api/locations", () => {
 
   it("creates with generated code when code is omitted", async () => {
     likeMock.mockResolvedValue({
-      data: [{ code: "SAB-01" }],
+      data: [{ code: "LON-01" }],
       error: null,
     });
     insertSingleMock.mockResolvedValue({
       data: {
         id: "loc-1",
-        code: "SAB-02",
-        name: "Sabah Al Salem",
-        timezone: "Asia/Kuwait",
+        code: "LON-02",
+        name: "London",
+        timezone: "Europe/London",
         is_active: true,
       },
       error: null,
@@ -95,19 +95,19 @@ describe("POST /api/locations", () => {
       new Request("https://app.example.com/api/locations", {
         method: "POST",
         body: JSON.stringify({
-          name: "Sabah Al Salem",
-          timezone: "Asia/Kuwait",
+          name: "London",
+          timezone: "Europe/London",
           is_active: true,
         }),
       }),
     );
 
     expect(response.status).toBe(201);
-    expect(likeMock).toHaveBeenCalledWith("code", "SAB-%");
+    expect(likeMock).toHaveBeenCalledWith("code", "LON-%");
     expect(insertMock).toHaveBeenCalledWith({
-      code: "SAB-02",
-      name: "Sabah Al Salem",
-      timezone: "Asia/Kuwait",
+      code: "LON-02",
+      name: "London",
+      timezone: "Europe/London",
       is_active: true,
     });
   });
@@ -120,9 +120,9 @@ describe("POST /api/locations", () => {
     insertSingleMock.mockResolvedValue({
       data: {
         id: "loc-2",
-        code: "SAB-01",
-        name: "Sabah Al Salem",
-        timezone: "Asia/Kuwait",
+        code: "LON-01",
+        name: "London",
+        timezone: "Europe/London",
         is_active: true,
       },
       error: null,
@@ -133,8 +133,8 @@ describe("POST /api/locations", () => {
         method: "POST",
         body: JSON.stringify({
           code: "CUSTOM-99",
-          name: "Sabah Al Salem",
-          timezone: "Asia/Kuwait",
+          name: "London",
+          timezone: "Europe/London",
           is_active: true,
         }),
       }),
@@ -142,9 +142,9 @@ describe("POST /api/locations", () => {
 
     expect(response.status).toBe(201);
     expect(insertMock).toHaveBeenCalledWith({
-      code: "SAB-01",
-      name: "Sabah Al Salem",
-      timezone: "Asia/Kuwait",
+      code: "LON-01",
+      name: "London",
+      timezone: "Europe/London",
       is_active: true,
     });
   });
@@ -152,11 +152,11 @@ describe("POST /api/locations", () => {
   it("retries on unique code collision and succeeds", async () => {
     likeMock
       .mockResolvedValueOnce({
-        data: [{ code: "SAB-01" }],
+        data: [{ code: "LON-01" }],
         error: null,
       })
       .mockResolvedValueOnce({
-        data: [{ code: "SAB-01" }, { code: "SAB-02" }],
+        data: [{ code: "LON-01" }, { code: "LON-02" }],
         error: null,
       });
 
@@ -171,9 +171,9 @@ describe("POST /api/locations", () => {
       .mockResolvedValueOnce({
         data: {
           id: "loc-3",
-          code: "SAB-03",
-          name: "Sabah Al Salem",
-          timezone: "Asia/Kuwait",
+          code: "LON-03",
+          name: "London",
+          timezone: "Europe/London",
           is_active: true,
         },
         error: null,
@@ -183,8 +183,8 @@ describe("POST /api/locations", () => {
       new Request("https://app.example.com/api/locations", {
         method: "POST",
         body: JSON.stringify({
-          name: "Sabah Al Salem",
-          timezone: "Asia/Kuwait",
+          name: "London",
+          timezone: "Europe/London",
           is_active: true,
         }),
       }),
@@ -192,15 +192,15 @@ describe("POST /api/locations", () => {
 
     expect(response.status).toBe(201);
     expect(insertMock).toHaveBeenNthCalledWith(1, {
-      code: "SAB-02",
-      name: "Sabah Al Salem",
-      timezone: "Asia/Kuwait",
+      code: "LON-02",
+      name: "London",
+      timezone: "Europe/London",
       is_active: true,
     });
     expect(insertMock).toHaveBeenNthCalledWith(2, {
-      code: "SAB-03",
-      name: "Sabah Al Salem",
-      timezone: "Asia/Kuwait",
+      code: "LON-03",
+      name: "London",
+      timezone: "Europe/London",
       is_active: true,
     });
   });
@@ -222,8 +222,8 @@ describe("POST /api/locations", () => {
       new Request("https://app.example.com/api/locations", {
         method: "POST",
         body: JSON.stringify({
-          name: "Sabah Al Salem",
-          timezone: "Asia/Kuwait",
+          name: "London",
+          timezone: "Europe/London",
           is_active: true,
         }),
       }),

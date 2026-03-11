@@ -1,10 +1,12 @@
 import { ReactNode } from "react";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { DashboardNav } from "@/components/layout/dashboard-nav";
 import { DashboardSessionProvider } from "@/components/layout/dashboard-session-provider";
 import { DashboardTopbar } from "@/components/layout/dashboard-topbar";
 import { getAuthContext } from "@/lib/auth/permissions";
+import { DEFAULT_THEME_MODE, THEME_COOKIE_NAME, normalizeThemeMode } from "@/lib/theme";
 
 export default async function DashboardLayout({
   children,
@@ -15,6 +17,11 @@ export default async function DashboardLayout({
   if (context instanceof Response) {
     redirect("/login");
   }
+
+  const cookieStore = await cookies();
+  const initialTheme = normalizeThemeMode(
+    cookieStore.get(THEME_COOKIE_NAME)?.value ?? DEFAULT_THEME_MODE,
+  );
 
   const { data: companySetting, error: companySettingError } = await context.supabase
     .from("system_settings")
@@ -48,6 +55,7 @@ export default async function DashboardLayout({
         <DashboardTopbar
           companyName={companyName}
           displayName={displayName}
+          initialTheme={initialTheme}
           role={context.profile.role}
         />
         <div className="ims-dashboard-shell">

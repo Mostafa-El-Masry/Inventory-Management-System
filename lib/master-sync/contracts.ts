@@ -8,20 +8,19 @@ export const MASTER_ENTITIES = [
 
 export type MasterEntity = (typeof MASTER_ENTITIES)[number];
 
-export const MASTER_IMPORT_HEADERS: Record<MasterEntity, readonly string[]> = {
-  locations: ["code", "name", "timezone", "is_active"],
-  suppliers: ["code", "name", "phone", "email", "is_active"],
-  categories: ["code", "name", "is_active"],
-  subcategories: ["category_code", "code", "name", "is_active"],
+export const MASTER_IMPORT_TEMPLATE_HEADERS: Record<MasterEntity, readonly string[]> = {
+  locations: ["name", "timezone", "is_active"],
+  suppliers: ["name", "phone", "email", "is_active"],
+  categories: ["name", "is_active"],
+  subcategories: ["category_name", "name", "is_active"],
   products: [
-    "sku",
     "name",
     "barcode",
     "unit",
     "is_active",
     "description",
-    "category_code",
-    "subcategory_code",
+    "category_name",
+    "subcategory_name",
   ],
 };
 
@@ -50,14 +49,14 @@ export type MasterImportSummary = {
 };
 
 export type LocationImportRow = {
-  code: string;
+  code: string | null;
   name: string;
   timezone: string;
   is_active: boolean;
 };
 
 export type SupplierImportRow = {
-  code: string;
+  code: string | null;
   name: string;
   phone: string | null;
   email: string | null;
@@ -65,27 +64,30 @@ export type SupplierImportRow = {
 };
 
 export type CategoryImportRow = {
-  code: string;
+  code: string | null;
   name: string;
   is_active: boolean;
 };
 
 export type SubcategoryImportRow = {
-  category_code: string;
-  code: string;
+  category_code: string | null;
+  category_name: string | null;
+  code: string | null;
   name: string;
   is_active: boolean;
 };
 
 export type ProductImportRow = {
-  sku: string;
+  sku: string | null;
   name: string;
   barcode: string | null;
   unit: string;
   is_active: boolean;
   description: string | null;
-  category_code: string;
-  subcategory_code: string;
+  category_code: string | null;
+  category_name: string | null;
+  subcategory_code: string | null;
+  subcategory_name: string | null;
 };
 
 export type MasterImportRowByEntity = {

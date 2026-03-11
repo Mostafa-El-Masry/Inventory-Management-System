@@ -2,7 +2,7 @@
 
 import { type ReactNode, type SVGProps, useEffect, useRef, useState } from "react";
 
-import { Button } from "@/components/ui/button";
+import { Button, type ButtonProps } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
 
 import { MasterColumnDefinition } from "./use-master-columns";
@@ -56,6 +56,9 @@ type MasterColumnsMenuProps<K extends string> = {
   onMoveColumn: (columnKey: K, direction: -1 | 1) => void;
   onReset: () => void;
   helperText?: string;
+  triggerLabel?: string;
+  triggerVariant?: ButtonProps["variant"];
+  triggerButtonClassName?: string;
 };
 
 export function MasterColumnsMenu<K extends string>({
@@ -65,6 +68,9 @@ export function MasterColumnsMenu<K extends string>({
   onMoveColumn,
   onReset,
   helperText = "Toggle and reorder the visible columns for this list.",
+  triggerLabel = "Columns",
+  triggerVariant = "ghost",
+  triggerButtonClassName,
 }: MasterColumnsMenuProps<K>) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -98,18 +104,37 @@ export function MasterColumnsMenu<K extends string>({
   return (
     <div ref={containerRef} className="relative">
       <Button
-        variant="ghost"
+        variant={triggerVariant}
         className={cn(
-          "ims-control-sm rounded-full border-0 bg-transparent px-2 shadow-none hover:bg-transparent",
-          open
-            ? "text-[var(--brand-primary-hover)]"
-            : "text-[var(--text-strong)] hover:text-[var(--brand-primary-hover)]",
+          triggerVariant === "ghost"
+            ? "ims-control-sm rounded-full border-0 bg-transparent px-2 shadow-none hover:bg-transparent"
+            : "w-full justify-between rounded-xl px-3 shadow-none",
+          triggerVariant === "ghost"
+            ? open
+              ? "text-[var(--brand-primary-hover)]"
+              : "text-[var(--text-strong)] hover:text-[var(--brand-primary-hover)]"
+            : open
+              ? "border-[var(--brand-primary)] text-[var(--brand-primary-hover)]"
+              : "",
+          triggerButtonClassName,
         )}
         aria-expanded={open}
         aria-label="Configure visible columns"
         onClick={() => setOpen((current) => !current)}
       >
-        Columns
+        <span>{triggerLabel}</span>
+        {triggerVariant === "ghost" ? null : (
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 12 12"
+            className="ml-2 h-3 w-3"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          >
+            <path d="M3 4.5L6 7.5L9 4.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
       </Button>
 
       {open ? (

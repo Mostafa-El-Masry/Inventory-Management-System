@@ -2,7 +2,7 @@ import { parseCsv } from "@/lib/utils/csv";
 import { normalizeImportName } from "@/lib/import-text/normalize-import-name";
 
 import {
-  MASTER_IMPORT_HEADERS,
+  MASTER_IMPORT_TEMPLATE_HEADERS,
   MASTER_IMPORT_MAX_ROWS,
   MasterEntity,
   MasterImportRejectedRow,
@@ -19,6 +19,22 @@ const LOCATION_CODE_REGEX = /^[A-Z0-9-]{2,32}$/;
 const CATEGORY_CODE_REGEX = /^[0-9]{2}$/;
 const SUBCATEGORY_CODE_REGEX = /^[0-9]{3}$/;
 const SKU_REGEX = /^[A-Z0-9-]{2,64}$/;
+
+const MASTER_IMPORT_REQUIRED_HEADER_GROUPS: Record<MasterEntity, readonly (readonly string[])[]> = {
+  locations: [["name"], ["timezone"], ["is_active"]],
+  suppliers: [["name"], ["phone"], ["email"], ["is_active"]],
+  categories: [["name"], ["is_active"]],
+  subcategories: [["category_name", "category_code"], ["name"], ["is_active"]],
+  products: [
+    ["name"],
+    ["barcode"],
+    ["unit"],
+    ["is_active"],
+    ["description"],
+    ["category_name", "category_code"],
+    ["subcategory_name", "subcategory_code"],
+  ],
+};
 
 export class MasterCsvImportError extends Error {
   status: number;
@@ -48,6 +64,10 @@ function normalizeHeader(value: string) {
 
 function normalizeCode(value: string) {
   return value.trim().toUpperCase();
+}
+
+function normalizeNameKey(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
 function normalizeNullableString(value: string) {
@@ -122,8 +142,13 @@ function parseLocationRow(
   headerIndex: Map<string, number>,
 ): ParsedMasterRow<"locations"> {
   const code = normalizeCode(getCell(cells, headerIndex.get("code")));
-  const key = code || `row-${rowNumber}`;
-  const name = requireName(getCell(cells, headerIndex.get("name")), "name", rowNumber, key);
+  const name = requireName(
+    getCell(cells, headerIndex.get("name")),
+    "name",
+    rowNumber,
+    code || `row-${rowNumber}`,
+  );
+  const key = code || `name:${normalizeNameKey(name)}`;
   const timezone = requireValue(
     getCell(cells, headerIndex.get("timezone")),
     "timezone",
@@ -132,7 +157,7 @@ function parseLocationRow(
   );
   const isActive = parseBoolean(getCell(cells, headerIndex.get("is_active")), rowNumber, key);
 
-  if (!LOCATION_CODE_REGEX.test(code)) {
+  if (code && !LOCATION_CODE_REGEX.test(code)) {
     throw new MasterCsvRowError(
       `Invalid location code at row ${rowNumber}. Use 2-32 characters: A-Z, 0-9, and '-'.`,
       key,
@@ -143,7 +168,7 @@ function parseLocationRow(
   ensureLength(timezone, "timezone", rowNumber, key, 3, 64);
 
   const value: LocationImportRow = {
-    code,
+    code: code || null,
     name,
     timezone,
     is_active: isActive,
@@ -162,14 +187,19 @@ function parseSupplierRow(
   headerIndex: Map<string, number>,
 ): ParsedMasterRow<"suppliers"> {
   const code = normalizeCode(getCell(cells, headerIndex.get("code")));
-  const key = code || `row-${rowNumber}`;
-  const name = requireName(getCell(cells, headerIndex.get("name")), "name", rowNumber, key);
+  const name = requireName(
+    getCell(cells, headerIndex.get("name")),
+    "name",
+    rowNumber,
+    code || `row-${rowNumber}`,
+  );
+  const key = code || `name:${normalizeNameKey(name)}`;
   const phone = normalizeNullableString(getCell(cells, headerIndex.get("phone")));
   const emailRaw = normalizeNullableString(getCell(cells, headerIndex.get("email")));
   const email = emailRaw ? emailRaw.toLowerCase() : null;
   const isActive = parseBoolean(getCell(cells, headerIndex.get("is_active")), rowNumber, key);
 
-  if (!LOCATION_CODE_REGEX.test(code)) {
+  if (code && !LOCATION_CODE_REGEX.test(code)) {
     throw new MasterCsvRowError(
       `Invalid supplier code at row ${rowNumber}. Use 2-32 characters: A-Z, 0-9, and '-'.`,
       key,
@@ -188,7 +218,7 @@ function parseSupplierRow(
   }
 
   const value: SupplierImportRow = {
-    code,
+    code: code || null,
     name,
     phone,
     email,
@@ -208,11 +238,16 @@ function parseCategoryRow(
   headerIndex: Map<string, number>,
 ): ParsedMasterRow<"categories"> {
   const code = normalizeCode(getCell(cells, headerIndex.get("code")));
-  const key = code || `row-${rowNumber}`;
-  const name = requireName(getCell(cells, headerIndex.get("name")), "name", rowNumber, key);
+  const name = requireName(
+    getCell(cells, headerIndex.get("name")),
+    "name",
+    rowNumber,
+    code || `row-${rowNumber}`,
+  );
+  const key = code || `name:${normalizeNameKey(name)}`;
   const isActive = parseBoolean(getCell(cells, headerIndex.get("is_active")), rowNumber, key);
 
-  if (!CATEGORY_CODE_REGEX.test(code)) {
+  if (code && !CATEGORY_CODE_REGEX.test(code)) {
     throw new MasterCsvRowError(
       `Invalid category code at row ${rowNumber}. Expected 2 digits (e.g., 01).`,
       key,
@@ -222,7 +257,7 @@ function parseCategoryRow(
   ensureLength(name, "name", rowNumber, key, 2, 120);
 
   const value: CategoryImportRow = {
-    code,
+    code: code || null,
     name,
     is_active: isActive,
   };
@@ -240,19 +275,35 @@ function parseSubcategoryRow(
   headerIndex: Map<string, number>,
 ): ParsedMasterRow<"subcategories"> {
   const categoryCode = normalizeCode(getCell(cells, headerIndex.get("category_code")));
+  const categoryName = normalizeNullableString(getCell(cells, headerIndex.get("category_name")));
   const code = normalizeCode(getCell(cells, headerIndex.get("code")));
-  const key = categoryCode && code ? `${categoryCode}:${code}` : `row-${rowNumber}`;
-  const name = requireName(getCell(cells, headerIndex.get("name")), "name", rowNumber, key);
+  const name = requireName(
+    getCell(cells, headerIndex.get("name")),
+    "name",
+    rowNumber,
+    code || categoryCode || categoryName || `row-${rowNumber}`,
+  );
+  const categoryRef = categoryCode || categoryName || `row-${rowNumber}`;
+  const key = code
+    ? `${categoryRef}:${code}`
+    : `${categoryRef}:name:${normalizeNameKey(name)}`;
   const isActive = parseBoolean(getCell(cells, headerIndex.get("is_active")), rowNumber, key);
 
-  if (!CATEGORY_CODE_REGEX.test(categoryCode)) {
+  if (!categoryCode && !categoryName) {
+    throw new MasterCsvRowError(
+      `category_name or category_code is required at row ${rowNumber}.`,
+      key,
+    );
+  }
+
+  if (categoryCode && !CATEGORY_CODE_REGEX.test(categoryCode)) {
     throw new MasterCsvRowError(
       `Invalid category_code at row ${rowNumber}. Expected 2 digits (e.g., 01).`,
       key,
     );
   }
 
-  if (!SUBCATEGORY_CODE_REGEX.test(code)) {
+  if (code && !SUBCATEGORY_CODE_REGEX.test(code)) {
     throw new MasterCsvRowError(
       `Invalid subcategory code at row ${rowNumber}. Expected 3 digits (e.g., 001).`,
       key,
@@ -262,8 +313,9 @@ function parseSubcategoryRow(
   ensureLength(name, "name", rowNumber, key, 2, 120);
 
   const value: SubcategoryImportRow = {
-    category_code: categoryCode,
-    code,
+    category_code: categoryCode || null,
+    category_name: categoryName,
+    code: code || null,
     name,
     is_active: isActive,
   };
@@ -281,32 +333,54 @@ function parseProductRow(
   headerIndex: Map<string, number>,
 ): ParsedMasterRow<"products"> {
   const sku = normalizeCode(getCell(cells, headerIndex.get("sku")));
-  const key = sku || `row-${rowNumber}`;
-
-  const name = requireName(getCell(cells, headerIndex.get("name")), "name", rowNumber, key);
+  const name = requireName(
+    getCell(cells, headerIndex.get("name")),
+    "name",
+    rowNumber,
+    sku || `row-${rowNumber}`,
+  );
+  const key = sku || `name:${normalizeNameKey(name)}`;
   const unit = requireValue(getCell(cells, headerIndex.get("unit")), "unit", rowNumber, key);
   const categoryCode = normalizeCode(getCell(cells, headerIndex.get("category_code")));
+  const categoryName = normalizeNullableString(getCell(cells, headerIndex.get("category_name")));
   const subcategoryCode = normalizeCode(getCell(cells, headerIndex.get("subcategory_code")));
+  const subcategoryName = normalizeNullableString(
+    getCell(cells, headerIndex.get("subcategory_name")),
+  );
 
   const barcode = normalizeNullableString(getCell(cells, headerIndex.get("barcode")));
   const description = normalizeNullableString(getCell(cells, headerIndex.get("description")));
   const isActive = parseBoolean(getCell(cells, headerIndex.get("is_active")), rowNumber, key);
 
-  if (!SKU_REGEX.test(sku)) {
+  if (sku && !SKU_REGEX.test(sku)) {
     throw new MasterCsvRowError(
       `Invalid SKU at row ${rowNumber}. Use 2-64 characters: A-Z, 0-9, and '-'.`,
       key,
     );
   }
 
-  if (!CATEGORY_CODE_REGEX.test(categoryCode)) {
+  if (!categoryCode && !categoryName) {
+    throw new MasterCsvRowError(
+      `category_name or category_code is required at row ${rowNumber}.`,
+      key,
+    );
+  }
+
+  if (categoryCode && !CATEGORY_CODE_REGEX.test(categoryCode)) {
     throw new MasterCsvRowError(
       `Invalid category_code at row ${rowNumber}. Expected 2 digits (e.g., 01).`,
       key,
     );
   }
 
-  if (!SUBCATEGORY_CODE_REGEX.test(subcategoryCode)) {
+  if (!subcategoryCode && !subcategoryName) {
+    throw new MasterCsvRowError(
+      `subcategory_name or subcategory_code is required at row ${rowNumber}.`,
+      key,
+    );
+  }
+
+  if (subcategoryCode && !SUBCATEGORY_CODE_REGEX.test(subcategoryCode)) {
     throw new MasterCsvRowError(
       `Invalid subcategory_code at row ${rowNumber}. Expected 3 digits (e.g., 001).`,
       key,
@@ -323,14 +397,16 @@ function parseProductRow(
   }
 
   const value: ProductImportRow = {
-    sku,
+    sku: sku || null,
     name,
     barcode,
     unit,
     is_active: isActive,
     description,
-    category_code: categoryCode,
-    subcategory_code: subcategoryCode,
+    category_code: categoryCode || null,
+    category_name: categoryName,
+    subcategory_code: subcategoryCode || null,
+    subcategory_name: subcategoryName,
   };
 
   return {
@@ -387,8 +463,10 @@ export function parseMasterImportCsv<E extends MasterEntity>(
     throw new MasterCsvImportError("CSV header row is empty.");
   }
 
-  const expectedHeaders = MASTER_IMPORT_HEADERS[entity];
-  const missingHeaders = expectedHeaders.filter((header) => !headers.includes(header));
+  const expectedHeaders = MASTER_IMPORT_TEMPLATE_HEADERS[entity];
+  const missingHeaders = MASTER_IMPORT_REQUIRED_HEADER_GROUPS[entity]
+    .filter((group) => !group.some((header) => headers.includes(header)))
+    .map((group) => group.join(" or "));
   if (missingHeaders.length > 0) {
     throw new MasterCsvImportError(
       `Missing required column(s): ${missingHeaders.join(", ")}.`,

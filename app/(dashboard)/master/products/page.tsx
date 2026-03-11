@@ -3,10 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
-import { MasterArchivedToggle } from "@/components/master/master-archived-toggle";
-import { MasterColumnsMenu } from "@/components/master/master-columns-menu";
 import { MasterPageHeader } from "@/components/master/master-page-header";
 import { MasterCsvSync } from "@/components/master/master-csv-sync";
+import { MasterListSettingsMenu } from "@/components/master/master-list-settings-menu";
 import { MasterPanelReveal } from "@/components/master/master-panel-reveal";
 import { MasterTableLoadingRows } from "@/components/master/master-table-loading";
 import {
@@ -76,8 +75,8 @@ const PRODUCT_EXPORT_COLUMNS: ExportColumn[] = [
   { key: "unit", label: "Unit" },
   { key: "is_active", label: "Active" },
   { key: "description", label: "Description" },
-  { key: "category_code", label: "Category Code" },
-  { key: "subcategory_code", label: "Subcategory Code" },
+  { key: "category_code", label: "Category SKU" },
+  { key: "subcategory_code", label: "Subcategory SKU" },
 ];
 
 type Product = {
@@ -128,10 +127,9 @@ export default function ProductsPage() {
   const [stateLoading, setStateLoading] = useState(false);
   const [importLoading, setImportLoading] = useState(false);
   const [taxonomyLoading, setTaxonomyLoading] = useState(false);
-  const [taxonomySaving, setTaxonomySaving] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importMessage, setImportMessage] = useState<string | null>(null);
-  const [taxonomyMessage, setTaxonomyMessage] = useState<string | null>(null);
+  const [importErrors, setImportErrors] = useState<string[]>([]);
   const [masterPanelOpen, setMasterPanelOpen] = useState(false);
   const [productRowLimit, setProductRowLimit] = useState<RowLimitOption>(10);
   const [productRowLimitPrefsLoaded, setProductRowLimitPrefsLoaded] = useState(false);
@@ -146,15 +144,6 @@ export default function ProductsPage() {
     subcategory_id: "",
     barcode: "",
     unit: "unit",
-    is_active: true,
-  });
-  const [newCategory, setNewCategory] = useState({
-    name: "",
-    is_active: true,
-  });
-  const [newSubcategory, setNewSubcategory] = useState({
-    category_id: "",
-    name: "",
     is_active: true,
   });
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -268,17 +257,8 @@ export default function ProductsPage() {
   const canImportProducts = capabilities.master.products.import;
   const canArchiveProducts = capabilities.master.products.archive;
   const canDeleteProducts = capabilities.master.products.delete;
-  const canCreateCategoryPermission = capabilities.master.categories.create;
-  const canCreateSubcategoryPermission = capabilities.master.subcategories.create;
-  const canShowProductPanel =
-    canCreateProductPermission ||
-    canImportProducts ||
-    canCreateCategoryPermission ||
-    canCreateSubcategoryPermission;
-  const needsTaxonomyForPanel =
-    canCreateProductPermission ||
-    canCreateCategoryPermission ||
-    canCreateSubcategoryPermission;
+  const canShowProductPanel = canCreateProductPermission || canImportProducts;
+  const needsTaxonomyForPanel = canCreateProductPermission;
   const showProductLoadingRows = !archivedFilterHydrated || productsLoading;
 
   useEffect(() => {
@@ -376,11 +356,6 @@ export default function ProductsPage() {
     newProduct.unit.trim().length >= 1 &&
     newProduct.category_id.length > 0 &&
     newProduct.subcategory_id.length > 0;
-
-  const canCreateCategoryForm = newCategory.name.trim().length >= 2;
-  const canCreateSubcategoryForm =
-    newSubcategory.name.trim().length >= 2 &&
-    newSubcategory.category_id.length > 0;
   const sortedProducts = useMemo(() => {
     const next = [...products];
     next.sort((left, right) => {
@@ -416,6 +391,17 @@ export default function ProductsPage() {
     [productPage, productRowLimit, sortedProducts],
   );
   const visibleProducts = productPagination.items;
+  const productExportRows = products.map((product) => ({
+    sku: product.sku,
+    name: product.name,
+    barcode: product.barcode ?? "",
+    unit: product.unit,
+    is_active: product.is_active,
+    description: product.description ?? "",
+    category_code: product.category_code ?? "",
+    subcategory_code: product.subcategory_code ?? "",
+  }));
+  const productFilterSummary = [`Inactive included: ${showInactive ? "Yes" : "No"}`];
 
   useEffect(() => {
     if (productPage > productPagination.totalPages) {
@@ -474,78 +460,6 @@ export default function ProductsPage() {
     }
   }
 
-  async function createCategory() {
-    if (!canCreateCategoryPermission || !canCreateCategoryForm) {
-      return;
-    }
-
-    setTaxonomySaving(true);
-    setError(null);
-    setTaxonomyMessage(null);
-    try {
-      const result = await fetchJson<{ error?: string }>("/api/product-categories", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: newCategory.name.trim(),
-          is_active: newCategory.is_active,
-        }),
-        fallbackError: "Failed to create category.",
-      });
-
-      if (!result.ok) {
-        setError(result.error);
-        return;
-      }
-
-      setNewCategory({
-        name: "",
-        is_active: true,
-      });
-      setTaxonomyMessage("Category created. Product dropdowns refreshed.");
-      await loadTaxonomy();
-    } finally {
-      setTaxonomySaving(false);
-    }
-  }
-
-  async function createSubcategory() {
-    if (!canCreateSubcategoryPermission || !canCreateSubcategoryForm) {
-      return;
-    }
-
-    setTaxonomySaving(true);
-    setError(null);
-    setTaxonomyMessage(null);
-    try {
-      const result = await fetchJson<{ error?: string }>("/api/product-subcategories", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          category_id: newSubcategory.category_id,
-          name: newSubcategory.name.trim(),
-          is_active: newSubcategory.is_active,
-        }),
-        fallbackError: "Failed to create subcategory.",
-      });
-
-      if (!result.ok) {
-        setError(result.error);
-        return;
-      }
-
-      setNewSubcategory((current) => ({
-        ...current,
-        name: "",
-        is_active: true,
-      }));
-      setTaxonomyMessage("Subcategory created. Product dropdowns refreshed.");
-      await loadTaxonomy();
-    } finally {
-      setTaxonomySaving(false);
-    }
-  }
-
   async function importProductsFromCsv() {
     if (!canImportProducts || !importFile) {
       return;
@@ -553,13 +467,14 @@ export default function ProductsPage() {
 
     setImportLoading(true);
     setImportMessage(null);
+    setImportErrors([]);
     setError(null);
 
     let csvText = "";
     try {
       csvText = await importFile.text();
     } catch {
-      setError("Failed to read the selected CSV file.");
+      setImportErrors(["Failed to read the selected CSV file."]);
       setImportLoading(false);
       return;
     }
@@ -625,9 +540,9 @@ export default function ProductsPage() {
         if (hasBarcodeDetails) {
           parts.push(`Barcodes: ${duplicateBarcodes.join(", ")}`);
         }
-        setError(parts.join(" "));
+        setImportErrors(parts);
       } else {
-        setError(json.error ?? result.error);
+        setImportErrors([json.error ?? result.error]);
       }
       setImportLoading(false);
       return;
@@ -636,15 +551,25 @@ export default function ProductsPage() {
     const inserted = json.inserted_count ?? 0;
     const processed = json.processed_count ?? inserted;
     const rejected = json.rejected_count ?? 0;
-    const preview = (json.rejected_rows ?? [])
-      .slice(0, 3)
-      .map((row) => `row ${row.row_number} (${row.name}): ${row.reason}`)
-      .join("; ");
+    const rejectedPreviewRows = (json.rejected_rows ?? []).slice(0, 3);
+    const skippedErrors = rejectedPreviewRows.map(
+      (row) => `Row ${row.row_number} (${row.name}): ${row.reason}`,
+    );
+    const remainingRejectedCount = Math.max(rejected - rejectedPreviewRows.length, 0);
 
     setImportMessage(
+      inserted > 0 ? `Upload completed: ${inserted} of ${processed} product row(s) inserted.` : null,
+    );
+    setImportErrors(
       rejected > 0
-        ? `Import completed: ${inserted} inserted, ${rejected} rejected out of ${processed}. ${preview}`
-        : `Import completed: ${inserted} of ${processed} product row(s) inserted.`,
+        ? [
+            `Skipped ${rejected} row(s) out of ${processed}.`,
+            ...skippedErrors,
+            remainingRejectedCount > 0
+              ? `Showing first ${rejectedPreviewRows.length} errors.`
+              : "",
+          ].filter(Boolean)
+        : [],
     );
 
     setImportFile(null);
@@ -787,7 +712,6 @@ export default function ProductsPage() {
     <div className="space-y-6">
       <MasterPageHeader
         title="Products"
-        subtitle="Product master is admin-managed."
         showAction={canShowProductPanel}
         panelOpen={masterPanelOpen}
         onTogglePanel={canShowProductPanel ? () => setMasterPanelOpen((current) => !current) : undefined}
@@ -797,30 +721,22 @@ export default function ProductsPage() {
 
       {error ? <p className="ims-alert-danger">{error}</p> : null}
       {importMessage ? <p className="ims-alert-success">{importMessage}</p> : null}
-      {taxonomyMessage ? <p className="ims-alert-success">{taxonomyMessage}</p> : null}
+      {importErrors.length > 0 ? (
+        <div className="ims-alert-danger space-y-1">
+          {importErrors.map((line, index) => (
+            <p key={`${line}-${index}`}>{line}</p>
+          ))}
+        </div>
+      ) : null}
 
       {canShowProductPanel ? (
         <MasterPanelReveal open={masterPanelOpen} className="space-y-4">
           <MasterCsvSync
             entity="products"
             canManage={canImportProducts}
-            title="Products"
-            filenameBase="products"
-            columns={PRODUCT_EXPORT_COLUMNS}
-            rows={products.map((product) => ({
-              sku: product.sku,
-              name: product.name,
-              barcode: product.barcode ?? "",
-              unit: product.unit,
-              is_active: product.is_active,
-              description: product.description ?? "",
-              category_code: product.category_code ?? "",
-              subcategory_code: product.subcategory_code ?? "",
-            }))}
-            filterSummary={[`Inactive included: ${showInactive ? "Yes" : "No"}`]}
+            showDefaultImportControls={false}
             onImported={async () => {
               await loadProducts();
-              await loadTaxonomy();
             }}
             secondaryActions={canImportProducts ? (
               <div className="flex flex-wrap items-center gap-3">
@@ -837,6 +753,7 @@ export default function ProductsPage() {
                   className="ims-control-lg w-full max-w-xl"
                   onChange={(event) => {
                     setImportMessage(null);
+                    setImportErrors([]);
                     setImportFile(event.target.files?.[0] ?? null);
                   }}
                 />
@@ -846,7 +763,7 @@ export default function ProductsPage() {
                   onClick={() => importProductsFromCsv()}
                   disabled={importLoading || !importFile}
                 >
-                  {importLoading ? "Importing..." : "Import CSV"}
+                  {importLoading ? "Uploading..." : "Upload"}
                 </Button>
               </div>
             ) : null}
@@ -907,7 +824,7 @@ export default function ProductsPage() {
                 </Select>
                 {!taxonomyLoading && activeCategories.length === 0 ? (
                   <p className="ims-alert-warn mt-1 text-xs">
-                    Create an active category first in taxonomy or categories.
+                    Create an active category first in Categories.
                   </p>
                 ) : null}
               </div>
@@ -935,7 +852,7 @@ export default function ProductsPage() {
                 !taxonomyLoading &&
                 createRowSubcategories.length === 0 ? (
                   <p className="ims-alert-warn mt-1 text-xs">
-                    This category has no active subcategories. Create one first.
+                    This category has no active subcategories. Create one in Subcategories first.
                   </p>
                 ) : null}
               </div>
@@ -978,133 +895,6 @@ export default function ProductsPage() {
               </div>
             ) : null}
           </MasterCsvSync>
-
-          {canCreateCategoryPermission || canCreateSubcategoryPermission ? (
-            <Card className="space-y-4">
-            <div className="space-y-1">
-              <h2 className="text-lg font-semibold">Quick Taxonomy</h2>
-              <p className="text-sm text-[var(--text-muted)]">
-                Create categories and subcategories without leaving the products screen.
-              </p>
-            </div>
-            <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface-muted)] p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold">Quick Create Taxonomy</h3>
-                <span className="text-xs text-[var(--text-muted)]">
-                  {taxonomyLoading ? "Refreshing masters..." : `${categories.length} categories`}
-                </span>
-              </div>
-              <div
-                className={`mt-3 grid gap-4 ${
-                  canCreateCategoryPermission && canCreateSubcategoryPermission
-                    ? "lg:grid-cols-2"
-                    : "lg:grid-cols-1"
-                }`}
-              >
-                {canCreateCategoryPermission ? (
-                <div className="space-y-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3">
-                  <p className="text-sm font-medium">Category</p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Input
-                      value={newCategory.name}
-                      placeholder="Category name"
-                      className="ims-control-md flex-1"
-                      onChange={(event) =>
-                        setNewCategory((current) => ({
-                          ...current,
-                          name: event.target.value,
-                        }))
-                      }
-                    />
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={newCategory.is_active}
-                        onChange={(event) =>
-                          setNewCategory((current) => ({
-                            ...current,
-                            is_active: event.target.checked,
-                          }))
-                        }
-                      />
-                      Active
-                    </label>
-                    <Button
-                      className="ims-control-md"
-                      disabled={!canCreateCategoryForm || taxonomySaving}
-                      onClick={() => createCategory()}
-                    >
-                      Add
-                    </Button>
-                  </div>
-                </div>
-                ) : null}
-
-                {canCreateSubcategoryPermission ? (
-                <div className="space-y-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3">
-                  <p className="text-sm font-medium">Subcategory</p>
-                  <Select
-                    className="ims-control-md"
-                    value={newSubcategory.category_id}
-                    onChange={(event) =>
-                      setNewSubcategory((current) => ({
-                        ...current,
-                        category_id: event.target.value,
-                      }))
-                    }
-                  >
-                    <option value="">Select category</option>
-                    {activeCategories.map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {category.code} - {category.name}
-                      </option>
-                    ))}
-                  </Select>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Input
-                      value={newSubcategory.name}
-                      placeholder="Subcategory name"
-                      className="ims-control-md flex-1"
-                      onChange={(event) =>
-                        setNewSubcategory((current) => ({
-                          ...current,
-                          name: event.target.value,
-                        }))
-                      }
-                    />
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={newSubcategory.is_active}
-                        onChange={(event) =>
-                          setNewSubcategory((current) => ({
-                            ...current,
-                            is_active: event.target.checked,
-                          }))
-                        }
-                      />
-                      Active
-                    </label>
-                    <Button
-                      className="ims-control-md"
-                      disabled={!canCreateSubcategoryForm || taxonomySaving}
-                      onClick={() => createSubcategory()}
-                    >
-                      Add
-                    </Button>
-                  </div>
-                  {activeCategories.length === 0 ? (
-                    <p className="ims-alert-warn text-xs">
-                      Create an active category first to add subcategories.
-                    </p>
-                  ) : null}
-                </div>
-                ) : null}
-              </div>
-            </div>
-            </Card>
-          ) : null}
-
         </MasterPanelReveal>
       ) : null}
 
@@ -1112,23 +902,8 @@ export default function ProductsPage() {
         <MasterCsvSync
           entity="products"
           canManage={canImportProducts}
-          title="Products"
-          filenameBase="products"
-          columns={PRODUCT_EXPORT_COLUMNS}
-          rows={products.map((product) => ({
-            sku: product.sku,
-            name: product.name,
-            barcode: product.barcode ?? "",
-            unit: product.unit,
-            is_active: product.is_active,
-            description: product.description ?? "",
-            category_code: product.category_code ?? "",
-            subcategory_code: product.subcategory_code ?? "",
-          }))}
-          filterSummary={[`Inactive included: ${showInactive ? "Yes" : "No"}`]}
           onImported={async () => {
             await loadProducts();
-            await loadTaxonomy();
           }}
         />
       ) : null}
@@ -1152,17 +927,22 @@ export default function ProductsPage() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <MasterColumnsMenu
+              <MasterListSettingsMenu
                 orderedColumns={orderedColumns}
                 columnVisibility={columnVisibility}
                 onToggleColumn={toggleColumnVisibility}
                 onMoveColumn={moveColumn}
-                onReset={resetColumnPreferences}
-                helperText="Default view shows Name and Barcode only."
-              />
-              <MasterArchivedToggle
-                pressed={showInactive}
-                onPressedChange={(pressed) => setShowInactive(pressed)}
+                onResetColumns={resetColumnPreferences}
+                columnsHelperText="Default view shows Name and Barcode only."
+                showInactive={showInactive}
+                onShowInactiveChange={(pressed) => setShowInactive(pressed)}
+                inactiveLabel="Disabled"
+                exportTitle="Products"
+                exportFilenameBase="products"
+                exportColumns={PRODUCT_EXPORT_COLUMNS}
+                exportRows={productExportRows}
+                exportFilterSummary={productFilterSummary}
+                exportEmptyMessage="No products available."
               />
             </div>
           </div>

@@ -3,9 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
-import { MasterArchivedToggle } from "@/components/master/master-archived-toggle";
-import { MasterColumnsMenu } from "@/components/master/master-columns-menu";
 import { MasterCsvSync } from "@/components/master/master-csv-sync";
+import { MasterListSettingsMenu } from "@/components/master/master-list-settings-menu";
 import { MasterPageHeader } from "@/components/master/master-page-header";
 import { MasterPanelReveal } from "@/components/master/master-panel-reveal";
 import { MasterTableLoadingRows } from "@/components/master/master-table-loading";
@@ -46,7 +45,7 @@ type Location = {
 };
 
 const LOCATION_COLUMN_DEFINITIONS = [
-  { key: "code", label: "Code" },
+  { key: "code", label: "SKU" },
   { key: "name", label: "Name" },
   { key: "timezone", label: "Timezone" },
   { key: "active", label: "Active" },
@@ -73,7 +72,7 @@ const LOCATION_DEFAULT_COLUMN_VISIBILITY = buildDefaultColumnVisibility(
 );
 
 const LOCATION_EXPORT_COLUMNS: ExportColumn[] = [
-  { key: "code", label: "Code" },
+  { key: "code", label: "SKU" },
   { key: "name", label: "Name" },
   { key: "timezone", label: "Timezone" },
   { key: "is_active", label: "Active" },
@@ -96,7 +95,7 @@ export default function LocationsPage() {
     useState<SortDirection>("asc");
   const [newLocation, setNewLocation] = useState({
     name: "",
-    timezone: "Asia/Kuwait",
+    timezone: "",
     is_active: true,
   });
   const archivedFilterStorageKey = buildFilterStorageKey(authUserId, "master", "locations");
@@ -192,6 +191,13 @@ export default function LocationsPage() {
     return next;
   }, [locationSortDirection, locationSortKey, locations]);
   const locationPagination = paginateRows(sortedLocations, locationRowLimit, locationPage);
+  const locationExportRows = locations.map((location) => ({
+    code: location.code,
+    name: location.name,
+    timezone: location.timezone,
+    is_active: location.is_active,
+  }));
+  const locationFilterSummary = [`Disabled included: ${showInactive ? "Yes" : "No"}`];
 
   useEffect(() => {
     setLocationPage(1);
@@ -242,7 +248,7 @@ export default function LocationsPage() {
 
       setNewLocation({
         name: "",
-        timezone: "Asia/Kuwait",
+        timezone: "",
         is_active: true,
       });
       await loadLocations();
@@ -340,16 +346,6 @@ export default function LocationsPage() {
             <MasterCsvSync
               entity="locations"
               canManage={canImportLocations}
-              title="Locations"
-              filenameBase="locations"
-              columns={LOCATION_EXPORT_COLUMNS}
-              rows={locations.map((location) => ({
-                code: location.code,
-                name: location.name,
-                timezone: location.timezone,
-                is_active: location.is_active,
-              }))}
-              filterSummary={[`Disabled included: ${showInactive ? "Yes" : "No"}`]}
               onImported={async () => {
                 await loadLocations();
               }}
@@ -408,16 +404,6 @@ export default function LocationsPage() {
         <MasterCsvSync
           entity="locations"
           canManage={canImportLocations}
-          title="Locations"
-          filenameBase="locations"
-          columns={LOCATION_EXPORT_COLUMNS}
-          rows={locations.map((location) => ({
-            code: location.code,
-            name: location.name,
-            timezone: location.timezone,
-            is_active: location.is_active,
-          }))}
-          filterSummary={[`Disabled included: ${showInactive ? "Yes" : "No"}`]}
           onImported={async () => {
             await loadLocations();
           }}
@@ -438,17 +424,21 @@ export default function LocationsPage() {
               <h2 className="min-w-0 text-lg font-semibold">Location List</h2>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <MasterColumnsMenu
+              <MasterListSettingsMenu
                 orderedColumns={orderedLocationColumns}
                 columnVisibility={locationColumnVisibility}
                 onToggleColumn={toggleLocationColumnVisibility}
                 onMoveColumn={moveLocationColumn}
-                onReset={resetLocationColumnPreferences}
-                helperText="Toggle and reorder location columns."
-              />
-              <MasterArchivedToggle
-                pressed={showInactive}
-                onPressedChange={(pressed) => setShowInactive(pressed)}
+                onResetColumns={resetLocationColumnPreferences}
+                columnsHelperText="Toggle and reorder location columns."
+                showInactive={showInactive}
+                onShowInactiveChange={(pressed) => setShowInactive(pressed)}
+                exportTitle="Locations"
+                exportFilenameBase="locations"
+                exportColumns={LOCATION_EXPORT_COLUMNS}
+                exportRows={locationExportRows}
+                exportFilterSummary={locationFilterSummary}
+                exportEmptyMessage="No locations available."
               />
             </div>
           </div>

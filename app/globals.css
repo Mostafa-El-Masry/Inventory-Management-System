@@ -541,28 +541,6 @@ h6 {
   }
 }
 
-@keyframes ims-master-panel-enter {
-  0% {
-    opacity: 0;
-    transform: translateY(-0.75rem) scale(0.985);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes ims-master-panel-exit {
-  0% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: translateY(-0.75rem) scale(0.985);
-  }
-}
-
 .ims-alert-danger,
 .ims-alert-warn,
 .ims-alert-success {

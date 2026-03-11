@@ -4,17 +4,21 @@ import {
   useEffect,
   useReducer,
   useState,
-  type AnimationEvent,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 
 import { cn } from "@/lib/utils/cn";
 
-type RevealPhase = "idle" | "entering" | "exiting";
+const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+const PANEL_TRANSITION_MS = 320;
+const PANEL_EASING = "cubic-bezier(0.22, 1, 0.36, 1)";
+
 type RevealState = {
   rendered: boolean;
-  phase: RevealPhase;
+  visible: boolean;
 };
+
 type RevealAction =
   | {
       type: "sync";
@@ -22,12 +26,11 @@ type RevealAction =
       prefersReduced: boolean;
     }
   | {
-      type: "animation-end";
-      open: boolean;
+      type: "activate";
+    }
+  | {
+      type: "hide";
     };
-
-const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
-const PANEL_ANIMATION_MS = 1000;
 
 function prefersReducedMotion() {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -39,77 +42,68 @@ function prefersReducedMotion() {
 
 function createInitialRevealState({
   open,
-  prefersReduced,
 }: {
   open: boolean;
-  prefersReduced: boolean;
 }): RevealState {
   return {
     rendered: open,
-    phase: open && !prefersReduced ? "entering" : "idle",
+    visible: open,
   };
 }
 
 function revealReducer(state: RevealState, action: RevealAction): RevealState {
   if (action.type === "sync") {
     if (action.prefersReduced) {
-      if (state.rendered === action.open && state.phase === "idle") {
+      if (state.rendered === action.open && state.visible === action.open) {
         return state;
       }
 
       return {
         rendered: action.open,
-        phase: "idle",
+        visible: action.open,
       };
     }
 
     if (action.open) {
-      if (state.rendered && state.phase === "entering") {
+      if (state.rendered && state.visible) {
         return state;
       }
 
       return {
         rendered: true,
-        phase: "entering",
+        visible: false,
       };
     }
 
     if (!state.rendered) {
-      if (state.phase === "idle") {
-        return state;
-      }
-
-      return {
-        rendered: false,
-        phase: "idle",
-      };
-    }
-
-    if (state.phase === "exiting") {
       return state;
     }
 
     return {
       rendered: true,
-      phase: "exiting",
+      visible: false,
     };
   }
 
-  if (state.phase === "entering") {
+  if (action.type === "activate") {
+    if (!state.rendered || state.visible) {
+      return state;
+    }
+
     return {
-      ...state,
-      phase: "idle",
+      rendered: true,
+      visible: true,
     };
   }
 
-  if (state.phase === "exiting" && !action.open) {
-    return {
-      rendered: false,
-      phase: "idle",
-    };
+  if (!state.rendered) {
+    return state;
   }
 
-  return state;
+  return {
+    rendered: false,
+    visible: false,
+  };
 }
 
 export function MasterPanelReveal({
@@ -121,12 +115,9 @@ export function MasterPanelReveal({
   children: ReactNode;
   className?: string;
 }) {
-  const reducedMotion = prefersReducedMotion();
-  const [state, dispatch] = useReducer(revealReducer, {
-    open,
-    prefersReduced: reducedMotion,
-  }, createInitialRevealState);
-  const [prefersReduced, setPrefersReduced] = useState(reducedMotion);
+  const initialReducedMotion = prefersReducedMotion();
+  const [prefersReduced, setPrefersReduced] = useState(initialReducedMotion);
+  const [state, dispatch] = useReducer(revealReducer, { open }, createInitialRevealState);
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -158,51 +149,56 @@ export function MasterPanelReveal({
   }, [open, prefersReduced]);
 
   useEffect(() => {
-    if (prefersReduced || state.phase === "idle") {
+    if (prefersReduced || !state.rendered) {
       return;
     }
 
-    const timeoutId = window.setTimeout(() => {
-      dispatch({
-        type: "animation-end",
-        open,
+    if (open && !state.visible) {
+      const frameId = window.requestAnimationFrame(() => {
+        dispatch({ type: "activate" });
       });
-    }, PANEL_ANIMATION_MS);
 
-    return () => window.clearTimeout(timeoutId);
-  }, [open, prefersReduced, state.phase]);
-
-  function handleAnimationEnd(event: AnimationEvent<HTMLDivElement>) {
-    if (event.target !== event.currentTarget) {
-      return;
+      return () => window.cancelAnimationFrame(frameId);
     }
 
-    dispatch({
-      type: "animation-end",
-      open,
-    });
-  }
+    if (!open && !state.visible) {
+      const timeoutId = window.setTimeout(() => {
+        dispatch({ type: "hide" });
+      }, PANEL_TRANSITION_MS);
+
+      return () => window.clearTimeout(timeoutId);
+    }
+  }, [open, prefersReduced, state.rendered, state.visible]);
 
   if (!state.rendered) {
     return null;
   }
 
+  const animatedStyle: CSSProperties | undefined = prefersReduced
+    ? undefined
+    : {
+        gridTemplateRows: state.visible ? "1fr" : "0fr",
+        opacity: state.visible ? 1 : 0,
+        transform: state.visible
+          ? "translateY(0) scale(1)"
+          : "translateY(-0.75rem) scale(0.985)",
+        pointerEvents: state.visible ? "auto" : "none",
+        transition: [
+          `grid-template-rows ${PANEL_TRANSITION_MS}ms ${PANEL_EASING}`,
+          `opacity ${PANEL_TRANSITION_MS}ms ${PANEL_EASING}`,
+          `transform ${PANEL_TRANSITION_MS}ms ${PANEL_EASING}`,
+        ].join(", "),
+      };
+
   return (
     <div
       className={cn(
-        "origin-top motion-reduce:animate-none",
-        state.phase === "entering"
-          ? `[animation:ims-master-panel-enter_${PANEL_ANIMATION_MS}ms_cubic-bezier(0.22,1,0.36,1)_both]`
-          : "",
-        state.phase === "exiting"
-          ? `pointer-events-none [animation:ims-master-panel-exit_${PANEL_ANIMATION_MS}ms_cubic-bezier(0.22,1,0.36,1)_both]`
-          : "",
-        className,
+        "grid origin-top overflow-hidden motion-reduce:overflow-visible",
       )}
       aria-hidden={!open}
-      onAnimationEnd={handleAnimationEnd}
+      style={animatedStyle}
     >
-      {children}
+      <div className={cn("min-h-0", className)}>{children}</div>
     </div>
   );
 }

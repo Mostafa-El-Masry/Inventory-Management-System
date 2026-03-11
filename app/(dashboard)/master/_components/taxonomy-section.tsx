@@ -3,9 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
-import { MasterArchivedToggle } from "@/components/master/master-archived-toggle";
-import { MasterColumnsMenu } from "@/components/master/master-columns-menu";
 import { MasterCsvSync } from "@/components/master/master-csv-sync";
+import { MasterListSettingsMenu } from "@/components/master/master-list-settings-menu";
 import { MasterPageHeader } from "@/components/master/master-page-header";
 import { MasterPanelReveal } from "@/components/master/master-panel-reveal";
 import { MasterTableLoadingRows } from "@/components/master/master-table-loading";
@@ -59,20 +58,20 @@ type CategorySortKey = "code" | "name" | "active";
 type SubcategorySortKey = "parent" | "code" | "name" | "active";
 
 const CATEGORY_EXPORT_COLUMNS: ExportColumn[] = [
-  { key: "code", label: "Code" },
+  { key: "code", label: "SKU" },
   { key: "name", label: "Name" },
   { key: "is_active", label: "Active" },
 ];
 
 const SUBCATEGORY_EXPORT_COLUMNS: ExportColumn[] = [
-  { key: "category_code", label: "Category Code" },
-  { key: "code", label: "Code" },
+  { key: "category_code", label: "Category SKU" },
+  { key: "code", label: "SKU" },
   { key: "name", label: "Name" },
   { key: "is_active", label: "Active" },
 ];
 
 const CATEGORY_COLUMN_DEFINITIONS = [
-  { key: "code", label: "Code" },
+  { key: "code", label: "SKU" },
   { key: "name", label: "Name" },
   { key: "active", label: "Active" },
   { key: "action", label: "Action" },
@@ -80,7 +79,7 @@ const CATEGORY_COLUMN_DEFINITIONS = [
 
 const SUBCATEGORY_COLUMN_DEFINITIONS = [
   { key: "parent", label: "Parent Category" },
-  { key: "code", label: "Code" },
+  { key: "code", label: "SKU" },
   { key: "name", label: "Name" },
   { key: "active", label: "Active" },
   { key: "action", label: "Action" },
@@ -398,6 +397,18 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
   );
   const visibleCategories = categoryPagination.items;
   const visibleSubcategories = subcategoryPagination.items;
+  const categoryExportRows = filteredCategories.map((category) => ({
+    code: category.code,
+    name: category.name,
+    is_active: category.is_active,
+  }));
+  const subcategoryExportRows = filteredSubcategories.map((subcategory) => ({
+    category_code: categoriesById.get(subcategory.category_id)?.code ?? "",
+    code: subcategory.code,
+    name: subcategory.name,
+    is_active: subcategory.is_active,
+  }));
+  const taxonomyFilterSummary = [`Disabled included: ${showInactive ? "Yes" : "No"}`];
 
   useEffect(() => {
     setCategoryPage(1);
@@ -791,24 +802,6 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
             <MasterCsvSync
               entity={isCategoriesSection ? "categories" : "subcategories"}
               canManage={canImportTaxonomy}
-              title={isCategoriesSection ? "Categories" : "Subcategories"}
-              filenameBase={isCategoriesSection ? "categories" : "subcategories"}
-              columns={isCategoriesSection ? CATEGORY_EXPORT_COLUMNS : SUBCATEGORY_EXPORT_COLUMNS}
-              rows={
-                isCategoriesSection
-                  ? filteredCategories.map((category) => ({
-                      code: category.code,
-                      name: category.name,
-                      is_active: category.is_active,
-                    }))
-                  : filteredSubcategories.map((subcategory) => ({
-                      category_code: categoriesById.get(subcategory.category_id)?.code ?? "",
-                      code: subcategory.code,
-                      name: subcategory.name,
-                      is_active: subcategory.is_active,
-                    }))
-              }
-              filterSummary={[`Disabled included: ${showInactive ? "Yes" : "No"}`]}
               onImported={async () => {
                 await loadTaxonomy();
               }}
@@ -912,24 +905,6 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
         <MasterCsvSync
           entity={isCategoriesSection ? "categories" : "subcategories"}
           canManage={canImportTaxonomy}
-          title={isCategoriesSection ? "Categories" : "Subcategories"}
-          filenameBase={isCategoriesSection ? "categories" : "subcategories"}
-          columns={isCategoriesSection ? CATEGORY_EXPORT_COLUMNS : SUBCATEGORY_EXPORT_COLUMNS}
-          rows={
-            isCategoriesSection
-              ? filteredCategories.map((category) => ({
-                  code: category.code,
-                  name: category.name,
-                  is_active: category.is_active,
-                }))
-              : filteredSubcategories.map((subcategory) => ({
-                  category_code: categoriesById.get(subcategory.category_id)?.code ?? "",
-                  code: subcategory.code,
-                  name: subcategory.name,
-                  is_active: subcategory.is_active,
-                }))
-          }
-          filterSummary={[`Disabled included: ${showInactive ? "Yes" : "No"}`]}
           onImported={async () => {
             await loadTaxonomy();
           }}
@@ -954,17 +929,21 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
                 {taxonomyLoading ? (
                   <span className="text-xs text-[var(--text-muted)]">Refreshing...</span>
                 ) : null}
-                <MasterColumnsMenu
+                <MasterListSettingsMenu
                   orderedColumns={categoryColumns.orderedColumns}
                   columnVisibility={categoryColumns.columnVisibility}
                   onToggleColumn={categoryColumns.toggleColumnVisibility}
                   onMoveColumn={categoryColumns.moveColumn}
-                  onReset={categoryColumns.resetColumnPreferences}
-                  helperText="Toggle and reorder category columns."
-                />
-                <MasterArchivedToggle
-                  pressed={showInactive}
-                  onPressedChange={(pressed) => setShowInactive(pressed)}
+                  onResetColumns={categoryColumns.resetColumnPreferences}
+                  columnsHelperText="Toggle and reorder category columns."
+                  showInactive={showInactive}
+                  onShowInactiveChange={(pressed) => setShowInactive(pressed)}
+                  exportTitle="Categories"
+                  exportFilenameBase="categories"
+                  exportColumns={CATEGORY_EXPORT_COLUMNS}
+                  exportRows={categoryExportRows}
+                  exportFilterSummary={taxonomyFilterSummary}
+                  exportEmptyMessage="No categories available."
                 />
               </div>
             </div>
@@ -1041,17 +1020,21 @@ export function TaxonomySection({ section }: { section: "categories" | "subcateg
                 {taxonomyLoading ? (
                   <span className="text-xs text-[var(--text-muted)]">Refreshing...</span>
                 ) : null}
-                <MasterColumnsMenu
+                <MasterListSettingsMenu
                   orderedColumns={subcategoryColumns.orderedColumns}
                   columnVisibility={subcategoryColumns.columnVisibility}
                   onToggleColumn={subcategoryColumns.toggleColumnVisibility}
                   onMoveColumn={subcategoryColumns.moveColumn}
-                  onReset={subcategoryColumns.resetColumnPreferences}
-                  helperText="Toggle and reorder subcategory columns."
-                />
-                <MasterArchivedToggle
-                  pressed={showInactive}
-                  onPressedChange={(pressed) => setShowInactive(pressed)}
+                  onResetColumns={subcategoryColumns.resetColumnPreferences}
+                  columnsHelperText="Toggle and reorder subcategory columns."
+                  showInactive={showInactive}
+                  onShowInactiveChange={(pressed) => setShowInactive(pressed)}
+                  exportTitle="Subcategories"
+                  exportFilenameBase="subcategories"
+                  exportColumns={SUBCATEGORY_EXPORT_COLUMNS}
+                  exportRows={subcategoryExportRows}
+                  exportFilterSummary={taxonomyFilterSummary}
+                  exportEmptyMessage="No subcategories available."
                 />
               </div>
             </div>

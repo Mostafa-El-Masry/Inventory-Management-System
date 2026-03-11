@@ -34,7 +34,7 @@ describe("GET /api/master/import/template", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/csv");
-    await expect(response.text()).resolves.toBe("code,name,timezone,is_active\n");
+    await expect(response.text()).resolves.toBe("name,timezone,is_active\n");
   });
 
   it("returns 422 for unsupported entity", async () => {

@@ -1,4 +1,10 @@
-import { normalizeTaxonomyName } from "@/lib/products/taxonomy";
+import { deriveNamePrefix, nextPrefixedCode } from "@/lib/locations/code";
+import { createProductWithGeneratedSku } from "@/lib/products/create";
+import {
+  nextCategoryCode,
+  nextSubcategoryCode,
+  normalizeTaxonomyName,
+} from "@/lib/products/taxonomy";
 import {
   mapProductUniqueViolation,
   normalizeProductName,
@@ -15,6 +21,13 @@ import {
 
 type SupabaseClientLike = {
   from: (table: string) => unknown;
+  rpc?: (
+    fn: string,
+    args: Record<string, unknown>,
+  ) => PromiseLike<{
+    data: string | null;
+    error: DbErrorLike | null;
+  }>;
 };
 
 type DbErrorLike = {
@@ -34,10 +47,6 @@ type SupabaseQueryLike = {
   }>;
   order: (column: string, options?: { ascending?: boolean }) => SupabaseQueryLike;
 };
-
-function asQuery(value: unknown) {
-  return value as SupabaseQueryLike;
-}
 
 type UpsertCounters = {
   inserted_count: number;
@@ -88,6 +97,23 @@ type ProductRecord = {
   subcategory_id: string | null;
 };
 
+type CategoryLookupRecord = {
+  id: string;
+  code: string;
+  name: string;
+};
+
+type SubcategoryLookupRecord = {
+  id: string;
+  category_id: string;
+  code: string;
+  name: string;
+};
+
+function asQuery(value: unknown) {
+  return value as SupabaseQueryLike;
+}
+
 function normalizeCode(value: string) {
   return value.trim().toUpperCase();
 }
@@ -96,8 +122,12 @@ function normalizeBarcode(value: string) {
   return value.trim().toLowerCase();
 }
 
-function normalizeSupplierName(value: string) {
+function normalizeSimpleName(value: string) {
   return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function normalizeSupplierName(value: string) {
+  return normalizeSimpleName(value);
 }
 
 function addRejectedRow(
@@ -116,6 +146,95 @@ function getErrorMessage(error: DbErrorLike | null | undefined, fallback: string
   return error?.message ?? fallback;
 }
 
+function getNestedMap<T>(source: Map<string, Map<string, T>>, key: string) {
+  const existing = source.get(key);
+  if (existing) {
+    return existing;
+  }
+
+  const created = new Map<string, T>();
+  source.set(key, created);
+  return created;
+}
+
+function getCategoryCodePool(byCode: Map<string, CategoryRecord>, attemptedCodes: string[]) {
+  return [...byCode.keys(), ...attemptedCodes];
+}
+
+function getSubcategoryCodePool(
+  byCompositeKey: Map<string, SubcategoryRecord>,
+  categoryId: string,
+  attemptedCodes: string[],
+) {
+  return [
+    ...Array.from(byCompositeKey.values())
+      .filter((record) => record.category_id === categoryId)
+      .map((record) => record.code),
+    ...attemptedCodes,
+  ];
+}
+
+function resolveCategory(
+  row: ParsedMasterRow<"subcategories"> | ParsedMasterRow<"products">,
+  categoryByCode: Map<string, CategoryLookupRecord>,
+  categoryByName: Map<string, CategoryLookupRecord>,
+) {
+  if (row.value.category_code) {
+    return (
+      categoryByCode.get(row.value.category_code) ?? {
+        id: "",
+        code: row.value.category_code,
+        name: row.value.category_name ?? row.value.category_code,
+      }
+    );
+  }
+
+  if (row.value.category_name) {
+    return (
+      categoryByName.get(normalizeTaxonomyName(row.value.category_name)) ?? {
+        id: "",
+        code: row.value.category_code ?? "",
+        name: row.value.category_name,
+      }
+    );
+  }
+
+  return null;
+}
+
+function resolveSubcategory(
+  row: ParsedMasterRow<"products">,
+  categoryId: string,
+  subcategoryByCompositeCode: Map<string, SubcategoryLookupRecord>,
+  subcategoryByCompositeName: Map<string, SubcategoryLookupRecord>,
+) {
+  if (row.value.subcategory_code) {
+    return (
+      subcategoryByCompositeCode.get(`${categoryId}:${row.value.subcategory_code}`) ?? {
+        id: "",
+        category_id: categoryId,
+        code: row.value.subcategory_code,
+        name: row.value.subcategory_name ?? row.value.subcategory_code,
+      }
+    );
+  }
+
+  if (row.value.subcategory_name) {
+    return (
+      subcategoryByCompositeName.get(
+        `${categoryId}:${normalizeTaxonomyName(row.value.subcategory_name)}`,
+      ) ?? {
+        id: "",
+        category_id: categoryId,
+        code: row.value.subcategory_code ?? "",
+        name: row.value.subcategory_name,
+      }
+    );
+  }
+
+  return null;
+}
+
 async function selectRows<T>(
   query: PromiseLike<{ data: T[] | null; error: DbErrorLike | null }> | unknown,
 ) {
@@ -123,6 +242,7 @@ async function selectRows<T>(
     data: T[] | null;
     error: DbErrorLike | null;
   }>);
+
   return {
     data: data ?? [],
     error,
@@ -132,10 +252,10 @@ async function selectRows<T>(
 async function selectSingle<T>(
   query: PromiseLike<{ data: T | null; error: DbErrorLike | null }> | unknown,
 ) {
-  return (query as PromiseLike<{
+  return query as PromiseLike<{
     data: T | null;
     error: DbErrorLike | null;
-  }>);
+  }>;
 }
 
 async function upsertLocations(
@@ -153,12 +273,25 @@ async function upsertLocations(
   }
 
   const byCode = new Map<string, LocationRecord>();
-  for (const row of existingResult.data) {
-    byCode.set(normalizeCode(row.code), row);
+  const byName = new Map<string, LocationRecord>();
+
+  for (const record of existingResult.data) {
+    const normalizedCode = normalizeCode(record.code);
+    const normalized = { ...record, code: normalizedCode };
+    byCode.set(normalizedCode, normalized);
+    byName.set(normalizeSimpleName(record.name), normalized);
   }
 
   for (const row of rows) {
-    const existing = byCode.get(row.value.code);
+    const normalizedName = normalizeSimpleName(row.value.name);
+    const existingByCode = row.value.code ? byCode.get(row.value.code) : undefined;
+    const existingByName = byName.get(normalizedName);
+    const existing = existingByCode ?? (!row.value.code ? existingByName : undefined);
+
+    if (existingByName && existingByName.id !== existing?.id) {
+      addRejectedRow(rejectedRows, row, "Location name already exists.");
+      continue;
+    }
 
     if (existing) {
       const updateResult = await selectSingle<LocationRecord>(
@@ -182,38 +315,102 @@ async function upsertLocations(
         continue;
       }
 
-      byCode.set(row.value.code, updateResult.data);
+      const updated = {
+        ...updateResult.data,
+        code: normalizeCode(updateResult.data.code),
+      };
+      const oldName = normalizeSimpleName(existing.name);
+      if (oldName !== normalizedName && byName.get(oldName)?.id === existing.id) {
+        byName.delete(oldName);
+      }
+      byName.set(normalizedName, updated);
+      byCode.set(updated.code, updated);
       counters.updated_count += 1;
       continue;
     }
 
-    const insertResult = await selectSingle<LocationRecord>(
-      asQuery(supabase.from("locations"))
-        .insert({
-          code: row.value.code,
-          name: row.value.name,
-          timezone: row.value.timezone,
-          is_active: row.value.is_active,
-        })
-        .select("id, code, name, timezone, is_active")
-        .single(),
-    );
+    if (row.value.code) {
+      const insertResult = await selectSingle<LocationRecord>(
+        asQuery(supabase.from("locations"))
+          .insert({
+            code: row.value.code,
+            name: row.value.name,
+            timezone: row.value.timezone,
+            is_active: row.value.is_active,
+          })
+          .select("id, code, name, timezone, is_active")
+          .single(),
+      );
 
-    if (insertResult.error || !insertResult.data) {
-      if (insertResult.error?.code === "23505") {
-        addRejectedRow(rejectedRows, row, "Location code already exists.");
-      } else {
+      if (insertResult.error || !insertResult.data) {
+        if (insertResult.error?.code === "23505") {
+          addRejectedRow(rejectedRows, row, "Location code already exists.");
+        } else {
+          addRejectedRow(
+            rejectedRows,
+            row,
+            getErrorMessage(insertResult.error, "Failed to insert location."),
+          );
+        }
+        continue;
+      }
+
+      const inserted = {
+        ...insertResult.data,
+        code: normalizeCode(insertResult.data.code),
+      };
+      byCode.set(inserted.code, inserted);
+      byName.set(normalizedName, inserted);
+      counters.inserted_count += 1;
+      continue;
+    }
+
+    const prefix = deriveNamePrefix(row.value.name, "LOC");
+    const attemptedCodes: string[] = [];
+    let inserted = false;
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const generatedCode = nextPrefixedCode(prefix, [...byCode.keys(), ...attemptedCodes]);
+      attemptedCodes.push(generatedCode);
+
+      const insertResult = await selectSingle<LocationRecord>(
+        asQuery(supabase.from("locations"))
+          .insert({
+            code: generatedCode,
+            name: row.value.name,
+            timezone: row.value.timezone,
+            is_active: row.value.is_active,
+          })
+          .select("id, code, name, timezone, is_active")
+          .single(),
+      );
+
+      if (!insertResult.error && insertResult.data) {
+        const created = {
+          ...insertResult.data,
+          code: normalizeCode(insertResult.data.code),
+        };
+        byCode.set(created.code, created);
+        byName.set(normalizedName, created);
+        counters.inserted_count += 1;
+        inserted = true;
+        break;
+      }
+
+      if (insertResult.error?.code !== "23505") {
         addRejectedRow(
           rejectedRows,
           row,
           getErrorMessage(insertResult.error, "Failed to insert location."),
         );
+        inserted = true;
+        break;
       }
-      continue;
     }
 
-    byCode.set(row.value.code, insertResult.data);
-    counters.inserted_count += 1;
+    if (!inserted) {
+      addRejectedRow(rejectedRows, row, "Failed to generate a unique location code.");
+    }
   }
 
   return counters;
@@ -234,19 +431,22 @@ async function upsertSuppliers(
   }
 
   const byCode = new Map<string, SupplierRecord>();
-  const nameToId = new Map<string, string>();
+  const byName = new Map<string, SupplierRecord>();
 
-  for (const row of existingResult.data) {
-    byCode.set(normalizeCode(row.code), row);
-    nameToId.set(normalizeSupplierName(row.name), row.id);
+  for (const record of existingResult.data) {
+    const normalizedCode = normalizeCode(record.code);
+    const normalized = { ...record, code: normalizedCode };
+    byCode.set(normalizedCode, normalized);
+    byName.set(normalizeSupplierName(record.name), normalized);
   }
 
   for (const row of rows) {
-    const existing = byCode.get(row.value.code);
     const normalizedName = normalizeSupplierName(row.value.name);
-    const nameConflictId = nameToId.get(normalizedName);
+    const existingByCode = row.value.code ? byCode.get(row.value.code) : undefined;
+    const existingByName = byName.get(normalizedName);
+    const existing = existingByCode ?? (!row.value.code ? existingByName : undefined);
 
-    if (nameConflictId && nameConflictId !== existing?.id) {
+    if (existingByName && existingByName.id !== existing?.id) {
       addRejectedRow(rejectedRows, row, "Supplier name already exists.");
       continue;
     }
@@ -274,45 +474,104 @@ async function upsertSuppliers(
         continue;
       }
 
+      const updated = {
+        ...updateResult.data,
+        code: normalizeCode(updateResult.data.code),
+      };
       const oldName = normalizeSupplierName(existing.name);
-      if (oldName !== normalizedName && nameToId.get(oldName) === existing.id) {
-        nameToId.delete(oldName);
+      if (oldName !== normalizedName && byName.get(oldName)?.id === existing.id) {
+        byName.delete(oldName);
       }
-      nameToId.set(normalizedName, existing.id);
-      byCode.set(row.value.code, updateResult.data);
+      byName.set(normalizedName, updated);
+      byCode.set(updated.code, updated);
       counters.updated_count += 1;
       continue;
     }
 
-    const insertResult = await selectSingle<SupplierRecord>(
-      asQuery(supabase.from("suppliers"))
-        .insert({
-          code: row.value.code,
-          name: row.value.name,
-          phone: row.value.phone,
-          email: row.value.email,
-          is_active: row.value.is_active,
-        })
-        .select("id, code, name, phone, email, is_active")
-        .single(),
-    );
+    if (row.value.code) {
+      const insertResult = await selectSingle<SupplierRecord>(
+        asQuery(supabase.from("suppliers"))
+          .insert({
+            code: row.value.code,
+            name: row.value.name,
+            phone: row.value.phone,
+            email: row.value.email,
+            is_active: row.value.is_active,
+          })
+          .select("id, code, name, phone, email, is_active")
+          .single(),
+      );
 
-    if (insertResult.error || !insertResult.data) {
-      if (insertResult.error?.code === "23505") {
-        addRejectedRow(rejectedRows, row, "Supplier code already exists.");
-      } else {
+      if (insertResult.error || !insertResult.data) {
+        if (insertResult.error?.code === "23505") {
+          addRejectedRow(rejectedRows, row, "Supplier code already exists.");
+        } else {
+          addRejectedRow(
+            rejectedRows,
+            row,
+            getErrorMessage(insertResult.error, "Failed to insert supplier."),
+          );
+        }
+        continue;
+      }
+
+      const inserted = {
+        ...insertResult.data,
+        code: normalizeCode(insertResult.data.code),
+      };
+      byCode.set(inserted.code, inserted);
+      byName.set(normalizedName, inserted);
+      counters.inserted_count += 1;
+      continue;
+    }
+
+    const prefix = deriveNamePrefix(row.value.name, "SUP");
+    const attemptedCodes: string[] = [];
+    let inserted = false;
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const generatedCode = nextPrefixedCode(prefix, [...byCode.keys(), ...attemptedCodes]);
+      attemptedCodes.push(generatedCode);
+
+      const insertResult = await selectSingle<SupplierRecord>(
+        asQuery(supabase.from("suppliers"))
+          .insert({
+            code: generatedCode,
+            name: row.value.name,
+            phone: row.value.phone,
+            email: row.value.email,
+            is_active: row.value.is_active,
+          })
+          .select("id, code, name, phone, email, is_active")
+          .single(),
+      );
+
+      if (!insertResult.error && insertResult.data) {
+        const created = {
+          ...insertResult.data,
+          code: normalizeCode(insertResult.data.code),
+        };
+        byCode.set(created.code, created);
+        byName.set(normalizedName, created);
+        counters.inserted_count += 1;
+        inserted = true;
+        break;
+      }
+
+      if (insertResult.error?.code !== "23505") {
         addRejectedRow(
           rejectedRows,
           row,
           getErrorMessage(insertResult.error, "Failed to insert supplier."),
         );
+        inserted = true;
+        break;
       }
-      continue;
     }
 
-    byCode.set(row.value.code, insertResult.data);
-    nameToId.set(normalizedName, insertResult.data.id);
-    counters.inserted_count += 1;
+    if (!inserted) {
+      addRejectedRow(rejectedRows, row, "Failed to generate a unique supplier code.");
+    }
   }
 
   return counters;
@@ -333,19 +592,22 @@ async function upsertCategories(
   }
 
   const byCode = new Map<string, CategoryRecord>();
-  const nameToId = new Map<string, string>();
+  const byName = new Map<string, CategoryRecord>();
 
-  for (const row of existingResult.data) {
-    byCode.set(normalizeCode(row.code), row);
-    nameToId.set(normalizeTaxonomyName(row.name), row.id);
+  for (const record of existingResult.data) {
+    const normalizedCode = normalizeCode(record.code);
+    const normalized = { ...record, code: normalizedCode };
+    byCode.set(normalizedCode, normalized);
+    byName.set(normalizeTaxonomyName(record.name), normalized);
   }
 
   for (const row of rows) {
-    const existing = byCode.get(row.value.code);
     const normalizedName = normalizeTaxonomyName(row.value.name);
-    const nameConflictId = nameToId.get(normalizedName);
+    const existingByCode = row.value.code ? byCode.get(row.value.code) : undefined;
+    const existingByName = byName.get(normalizedName);
+    const existing = existingByCode ?? (!row.value.code ? existingByName : undefined);
 
-    if (nameConflictId && nameConflictId !== existing?.id) {
+    if (existingByName && existingByName.id !== existing?.id) {
       addRejectedRow(rejectedRows, row, "Category name already exists.");
       continue;
     }
@@ -371,57 +633,107 @@ async function upsertCategories(
         continue;
       }
 
+      const updated = {
+        ...updateResult.data,
+        code: normalizeCode(updateResult.data.code),
+      };
       const oldName = normalizeTaxonomyName(existing.name);
-      if (oldName !== normalizedName && nameToId.get(oldName) === existing.id) {
-        nameToId.delete(oldName);
+      if (oldName !== normalizedName && byName.get(oldName)?.id === existing.id) {
+        byName.delete(oldName);
       }
-      nameToId.set(normalizedName, existing.id);
-      byCode.set(row.value.code, updateResult.data);
+      byName.set(normalizedName, updated);
+      byCode.set(updated.code, updated);
       counters.updated_count += 1;
       continue;
     }
 
-    const insertResult = await selectSingle<CategoryRecord>(
-      asQuery(supabase.from("product_categories"))
-        .insert({
-          code: row.value.code,
-          name: row.value.name,
-          is_active: row.value.is_active,
-        })
-        .select("id, code, name, is_active")
-        .single(),
-    );
+    if (row.value.code) {
+      const insertResult = await selectSingle<CategoryRecord>(
+        asQuery(supabase.from("product_categories"))
+          .insert({
+            code: row.value.code,
+            name: row.value.name,
+            is_active: row.value.is_active,
+          })
+          .select("id, code, name, is_active")
+          .single(),
+      );
 
-    if (insertResult.error || !insertResult.data) {
-      if (insertResult.error?.code === "23505") {
-        addRejectedRow(rejectedRows, row, "Category code or name already exists.");
-      } else {
+      if (insertResult.error || !insertResult.data) {
+        if (insertResult.error?.code === "23505") {
+          addRejectedRow(rejectedRows, row, "Category code or name already exists.");
+        } else {
+          addRejectedRow(
+            rejectedRows,
+            row,
+            getErrorMessage(insertResult.error, "Failed to insert category."),
+          );
+        }
+        continue;
+      }
+
+      const inserted = {
+        ...insertResult.data,
+        code: normalizeCode(insertResult.data.code),
+      };
+      byCode.set(inserted.code, inserted);
+      byName.set(normalizedName, inserted);
+      counters.inserted_count += 1;
+      continue;
+    }
+
+    const attemptedCodes: string[] = [];
+    let inserted = false;
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const generatedCode = nextCategoryCode(getCategoryCodePool(byCode, attemptedCodes));
+      if (!generatedCode) {
+        addRejectedRow(rejectedRows, row, "Category code space exhausted.");
+        inserted = true;
+        break;
+      }
+      attemptedCodes.push(generatedCode);
+
+      const insertResult = await selectSingle<CategoryRecord>(
+        asQuery(supabase.from("product_categories"))
+          .insert({
+            code: generatedCode,
+            name: row.value.name,
+            is_active: row.value.is_active,
+          })
+          .select("id, code, name, is_active")
+          .single(),
+      );
+
+      if (!insertResult.error && insertResult.data) {
+        const created = {
+          ...insertResult.data,
+          code: normalizeCode(insertResult.data.code),
+        };
+        byCode.set(created.code, created);
+        byName.set(normalizedName, created);
+        counters.inserted_count += 1;
+        inserted = true;
+        break;
+      }
+
+      if (insertResult.error?.code !== "23505") {
         addRejectedRow(
           rejectedRows,
           row,
           getErrorMessage(insertResult.error, "Failed to insert category."),
         );
+        inserted = true;
+        break;
       }
-      continue;
     }
 
-    byCode.set(row.value.code, insertResult.data);
-    nameToId.set(normalizedName, insertResult.data.id);
-    counters.inserted_count += 1;
+    if (!inserted) {
+      addRejectedRow(rejectedRows, row, "Category code space exhausted.");
+    }
   }
 
   return counters;
-}
-
-function getNestedNameMap(source: Map<string, Map<string, string>>, key: string) {
-  const existing = source.get(key);
-  if (existing) {
-    return existing;
-  }
-
-  const created = new Map<string, string>();
-  source.set(key, created);
-  return created;
 }
 
 async function upsertSubcategories(
@@ -431,63 +743,61 @@ async function upsertSubcategories(
 ): Promise<UpsertCounters> {
   const counters: UpsertCounters = { inserted_count: 0, updated_count: 0 };
 
-  const categoriesResult = await selectRows<{ id: string; code: string }>(
-    asQuery(supabase.from("product_categories")).select("id, code"),
+  const categoriesResult = await selectRows<CategoryLookupRecord>(
+    asQuery(supabase.from("product_categories")).select("id, code, name"),
   );
   if (categoriesResult.error) {
     throw new Error(categoriesResult.error.message ?? "Failed to load categories.");
   }
 
-  const categoryIdByCode = new Map<string, string>();
+  const categoryByCode = new Map<string, CategoryLookupRecord>();
+  const categoryByName = new Map<string, CategoryLookupRecord>();
   for (const category of categoriesResult.data) {
-    categoryIdByCode.set(normalizeCode(category.code), category.id);
+    const normalizedCode = normalizeCode(category.code);
+    const normalized = { ...category, code: normalizedCode };
+    categoryByCode.set(normalizedCode, normalized);
+    categoryByName.set(normalizeTaxonomyName(category.name), normalized);
   }
 
   const existingResult = await selectRows<SubcategoryRecord>(
-    asQuery(supabase.from("product_subcategories"))
-      .select("id, category_id, code, name, is_active"),
+    asQuery(supabase.from("product_subcategories")).select("id, category_id, code, name, is_active"),
   );
   if (existingResult.error) {
     throw new Error(existingResult.error.message ?? "Failed to load subcategories.");
   }
 
   const byCompositeKey = new Map<string, SubcategoryRecord>();
-  const categoryNameToId = new Map<string, Map<string, string>>();
+  const byCategoryName = new Map<string, Map<string, SubcategoryRecord>>();
 
-  for (const row of existingResult.data) {
-    const normalizedCode = normalizeCode(row.code);
-    byCompositeKey.set(`${row.category_id}:${normalizedCode}`, {
-      ...row,
-      code: normalizedCode,
-    });
-
-    const nameMap = getNestedNameMap(categoryNameToId, row.category_id);
-    nameMap.set(normalizeTaxonomyName(row.name), row.id);
+  for (const record of existingResult.data) {
+    const normalizedCode = normalizeCode(record.code);
+    const normalized = { ...record, code: normalizedCode };
+    byCompositeKey.set(`${record.category_id}:${normalizedCode}`, normalized);
+    getNestedMap(byCategoryName, record.category_id).set(
+      normalizeTaxonomyName(record.name),
+      normalized,
+    );
   }
 
   for (const row of rows) {
-    const categoryId = categoryIdByCode.get(row.value.category_code);
-    if (!categoryId) {
-      addRejectedRow(
-        rejectedRows,
-        row,
-        `Category code "${row.value.category_code}" does not exist.`,
-      );
+    const category = resolveCategory(row, categoryByCode, categoryByName);
+    if (!category || !category.id) {
+      const label = row.value.category_name ?? row.value.category_code ?? "unknown";
+      const field = row.value.category_name ? "Category name" : "Category code";
+      addRejectedRow(rejectedRows, row, `${field} "${label}" does not exist.`);
       continue;
     }
 
-    const composite = `${categoryId}:${row.value.code}`;
-    const existing = byCompositeKey.get(composite);
-    const nameMap = getNestedNameMap(categoryNameToId, categoryId);
     const normalizedName = normalizeTaxonomyName(row.value.name);
-    const nameConflictId = nameMap.get(normalizedName);
+    const existingByCode = row.value.code
+      ? byCompositeKey.get(`${category.id}:${row.value.code}`)
+      : undefined;
+    const nameMap = getNestedMap(byCategoryName, category.id);
+    const existingByName = nameMap.get(normalizedName);
+    const existing = existingByCode ?? (!row.value.code ? existingByName : undefined);
 
-    if (nameConflictId && nameConflictId !== existing?.id) {
-      addRejectedRow(
-        rejectedRows,
-        row,
-        "Subcategory name already exists in this category.",
-      );
+    if (existingByName && existingByName.id !== existing?.id) {
+      addRejectedRow(rejectedRows, row, "Subcategory name already exists in this category.");
       continue;
     }
 
@@ -512,50 +822,108 @@ async function upsertSubcategories(
         continue;
       }
 
-      const oldName = normalizeTaxonomyName(existing.name);
-      if (oldName !== normalizedName && nameMap.get(oldName) === existing.id) {
-        nameMap.delete(oldName);
-      }
-      nameMap.set(normalizedName, existing.id);
-      byCompositeKey.set(composite, {
+      const updated = {
         ...updateResult.data,
         code: normalizeCode(updateResult.data.code),
-      });
+      };
+      const oldName = normalizeTaxonomyName(existing.name);
+      if (oldName !== normalizedName && nameMap.get(oldName)?.id === existing.id) {
+        nameMap.delete(oldName);
+      }
+      nameMap.set(normalizedName, updated);
+      byCompositeKey.set(`${category.id}:${updated.code}`, updated);
       counters.updated_count += 1;
       continue;
     }
 
-    const insertResult = await selectSingle<SubcategoryRecord>(
-      asQuery(supabase.from("product_subcategories"))
-        .insert({
-          category_id: categoryId,
-          code: row.value.code,
-          name: row.value.name,
-          is_active: row.value.is_active,
-        })
-        .select("id, category_id, code, name, is_active")
-        .single(),
-    );
+    if (row.value.code) {
+      const insertResult = await selectSingle<SubcategoryRecord>(
+        asQuery(supabase.from("product_subcategories"))
+          .insert({
+            category_id: category.id,
+            code: row.value.code,
+            name: row.value.name,
+            is_active: row.value.is_active,
+          })
+          .select("id, category_id, code, name, is_active")
+          .single(),
+      );
 
-    if (insertResult.error || !insertResult.data) {
-      if (insertResult.error?.code === "23505") {
-        addRejectedRow(rejectedRows, row, "Subcategory code or name already exists.");
-      } else {
+      if (insertResult.error || !insertResult.data) {
+        if (insertResult.error?.code === "23505") {
+          addRejectedRow(rejectedRows, row, "Subcategory code or name already exists.");
+        } else {
+          addRejectedRow(
+            rejectedRows,
+            row,
+            getErrorMessage(insertResult.error, "Failed to insert subcategory."),
+          );
+        }
+        continue;
+      }
+
+      const inserted = {
+        ...insertResult.data,
+        code: normalizeCode(insertResult.data.code),
+      };
+      byCompositeKey.set(`${category.id}:${inserted.code}`, inserted);
+      nameMap.set(normalizedName, inserted);
+      counters.inserted_count += 1;
+      continue;
+    }
+
+    const attemptedCodes: string[] = [];
+    let inserted = false;
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const generatedCode = nextSubcategoryCode(
+        getSubcategoryCodePool(byCompositeKey, category.id, attemptedCodes),
+      );
+      if (!generatedCode) {
+        addRejectedRow(rejectedRows, row, "Subcategory code space exhausted for this category.");
+        inserted = true;
+        break;
+      }
+      attemptedCodes.push(generatedCode);
+
+      const insertResult = await selectSingle<SubcategoryRecord>(
+        asQuery(supabase.from("product_subcategories"))
+          .insert({
+            category_id: category.id,
+            code: generatedCode,
+            name: row.value.name,
+            is_active: row.value.is_active,
+          })
+          .select("id, category_id, code, name, is_active")
+          .single(),
+      );
+
+      if (!insertResult.error && insertResult.data) {
+        const created = {
+          ...insertResult.data,
+          code: normalizeCode(insertResult.data.code),
+        };
+        byCompositeKey.set(`${category.id}:${created.code}`, created);
+        nameMap.set(normalizedName, created);
+        counters.inserted_count += 1;
+        inserted = true;
+        break;
+      }
+
+      if (insertResult.error?.code !== "23505") {
         addRejectedRow(
           rejectedRows,
           row,
           getErrorMessage(insertResult.error, "Failed to insert subcategory."),
         );
+        inserted = true;
+        break;
       }
-      continue;
     }
 
-    byCompositeKey.set(composite, {
-      ...insertResult.data,
-      code: normalizeCode(insertResult.data.code),
-    });
-    nameMap.set(normalizedName, insertResult.data.id);
-    counters.inserted_count += 1;
+    if (!inserted) {
+      addRejectedRow(rejectedRows, row, "Failed to generate a unique subcategory code.");
+    }
   }
 
   return counters;
@@ -568,99 +936,127 @@ async function upsertProducts(
 ): Promise<UpsertCounters> {
   const counters: UpsertCounters = { inserted_count: 0, updated_count: 0 };
 
-  const categoriesResult = await selectRows<{ id: string; code: string }>(
-    asQuery(supabase.from("product_categories")).select("id, code"),
+  const categoriesResult = await selectRows<CategoryLookupRecord>(
+    asQuery(supabase.from("product_categories")).select("id, code, name"),
   );
   if (categoriesResult.error) {
     throw new Error(categoriesResult.error.message ?? "Failed to load categories.");
   }
 
-  const categoryIdByCode = new Map<string, string>();
+  const categoryByCode = new Map<string, CategoryLookupRecord>();
+  const categoryByName = new Map<string, CategoryLookupRecord>();
   for (const category of categoriesResult.data) {
-    categoryIdByCode.set(normalizeCode(category.code), category.id);
+    const normalizedCode = normalizeCode(category.code);
+    const normalized = { ...category, code: normalizedCode };
+    categoryByCode.set(normalizedCode, normalized);
+    categoryByName.set(normalizeTaxonomyName(category.name), normalized);
   }
 
-  const subcategoriesResult = await selectRows<{ id: string; category_id: string; code: string }>(
-    asQuery(supabase.from("product_subcategories")).select("id, category_id, code"),
+  const subcategoriesResult = await selectRows<SubcategoryLookupRecord>(
+    asQuery(supabase.from("product_subcategories")).select("id, category_id, code, name"),
   );
   if (subcategoriesResult.error) {
     throw new Error(subcategoriesResult.error.message ?? "Failed to load subcategories.");
   }
 
-  const subcategoryIdByComposite = new Map<string, string>();
+  const subcategoryByCompositeCode = new Map<string, SubcategoryLookupRecord>();
+  const subcategoryByCompositeName = new Map<string, SubcategoryLookupRecord>();
   for (const subcategory of subcategoriesResult.data) {
-    subcategoryIdByComposite.set(
-      `${subcategory.category_id}:${normalizeCode(subcategory.code)}`,
-      subcategory.id,
+    const normalizedCode = normalizeCode(subcategory.code);
+    const normalized = { ...subcategory, code: normalizedCode };
+    subcategoryByCompositeCode.set(`${subcategory.category_id}:${normalizedCode}`, normalized);
+    subcategoryByCompositeName.set(
+      `${subcategory.category_id}:${normalizeTaxonomyName(subcategory.name)}`,
+      normalized,
     );
   }
 
   const existingResult = await selectRows<ProductRecord>(
-    asQuery(supabase.from("products"))
-      .select("id, sku, barcode, name, description, unit, is_active, category_id, subcategory_id"),
+    asQuery(supabase.from("products")).select(
+      "id, sku, barcode, name, description, unit, is_active, category_id, subcategory_id",
+    ),
   );
   if (existingResult.error) {
     throw new Error(existingResult.error.message ?? "Failed to load products.");
   }
 
   const bySku = new Map<string, ProductRecord>();
-  const nameToId = new Map<string, string>();
-  const barcodeToId = new Map<string, string>();
+  const byName = new Map<string, ProductRecord>();
+  const byBarcode = new Map<string, ProductRecord>();
 
-  for (const row of existingResult.data) {
-    const normalizedSku = normalizeProductSku(row.sku);
-    bySku.set(normalizedSku, {
-      ...row,
-      sku: normalizedSku,
-    });
-    nameToId.set(normalizeProductName(row.name), row.id);
-    if (row.barcode) {
-      const normalizedBarcode = normalizeBarcode(row.barcode);
+  for (const record of existingResult.data) {
+    const normalizedSku = normalizeProductSku(record.sku);
+    const normalized = { ...record, sku: normalizedSku };
+    bySku.set(normalizedSku, normalized);
+    byName.set(normalizeProductName(record.name), normalized);
+    if (record.barcode) {
+      const normalizedBarcode = normalizeBarcode(record.barcode);
       if (normalizedBarcode) {
-        barcodeToId.set(normalizedBarcode, row.id);
+        byBarcode.set(normalizedBarcode, normalized);
       }
     }
   }
 
   for (const row of rows) {
-    const categoryId = categoryIdByCode.get(row.value.category_code);
-    if (!categoryId) {
-      addRejectedRow(
-        rejectedRows,
-        row,
-        `Category code "${row.value.category_code}" does not exist.`,
-      );
+    const category = resolveCategory(row, categoryByCode, categoryByName);
+    if (!category || !category.id) {
+      const label = row.value.category_name ?? row.value.category_code ?? "unknown";
+      const field = row.value.category_name ? "Category name" : "Category code";
+      addRejectedRow(rejectedRows, row, `${field} "${label}" does not exist.`);
       continue;
     }
 
-    const subcategoryId = subcategoryIdByComposite.get(
-      `${categoryId}:${row.value.subcategory_code}`,
+    const subcategory = resolveSubcategory(
+      row,
+      category.id,
+      subcategoryByCompositeCode,
+      subcategoryByCompositeName,
     );
-    if (!subcategoryId) {
+    if (!subcategory || !subcategory.id) {
+      const categoryLabel = row.value.category_name ?? row.value.category_code ?? category.name;
+      const subcategoryLabel =
+        row.value.subcategory_name ?? row.value.subcategory_code ?? "unknown";
+      const field = row.value.subcategory_name ? "Subcategory name" : "Subcategory code";
       addRejectedRow(
         rejectedRows,
         row,
-        `Subcategory code "${row.value.subcategory_code}" does not exist under category "${row.value.category_code}".`,
+        `${field} "${subcategoryLabel}" does not exist under category "${categoryLabel}".`,
       );
       continue;
     }
-
-    const existing = bySku.get(row.value.sku);
 
     const normalizedName = normalizeProductName(row.value.name);
-    const nameConflictId = nameToId.get(normalizedName);
-    if (nameConflictId && nameConflictId !== existing?.id) {
+    const normalizedBarcode = row.value.barcode ? normalizeBarcode(row.value.barcode) : null;
+
+    const existingBySku = row.value.sku ? bySku.get(row.value.sku) : undefined;
+    const existingByName = byName.get(normalizedName);
+    const existingByBarcode = normalizedBarcode ? byBarcode.get(normalizedBarcode) : undefined;
+
+    if (
+      !row.value.sku &&
+      existingByName &&
+      existingByBarcode &&
+      existingByName.id !== existingByBarcode.id
+    ) {
+      addRejectedRow(
+        rejectedRows,
+        row,
+        "Product name and barcode match different existing products.",
+      );
+      continue;
+    }
+
+    const existing =
+      existingBySku ?? (!row.value.sku ? existingByName ?? existingByBarcode : undefined);
+
+    if (existingByName && existingByName.id !== existing?.id) {
       addRejectedRow(rejectedRows, row, "Product name already exists.");
       continue;
     }
 
-    const normalizedBarcode = row.value.barcode ? normalizeBarcode(row.value.barcode) : null;
-    if (normalizedBarcode) {
-      const barcodeConflictId = barcodeToId.get(normalizedBarcode);
-      if (barcodeConflictId && barcodeConflictId !== existing?.id) {
-        addRejectedRow(rejectedRows, row, "Product barcode already exists.");
-        continue;
-      }
+    if (normalizedBarcode && existingByBarcode && existingByBarcode.id !== existing?.id) {
+      addRejectedRow(rejectedRows, row, "Product barcode already exists.");
+      continue;
     }
 
     if (existing) {
@@ -672,8 +1068,8 @@ async function upsertProducts(
             description: row.value.description,
             unit: row.value.unit,
             is_active: row.value.is_active,
-            category_id: categoryId,
-            subcategory_id: subcategoryId,
+            category_id: category.id,
+            subcategory_id: subcategory.id,
           })
           .eq("id", existing.id)
           .select("id, sku, barcode, name, description, unit, is_active, category_id, subcategory_id")
@@ -690,65 +1086,100 @@ async function upsertProducts(
         continue;
       }
 
-      const oldName = normalizeProductName(existing.name);
-      if (oldName !== normalizedName && nameToId.get(oldName) === existing.id) {
-        nameToId.delete(oldName);
-      }
-      nameToId.set(normalizedName, existing.id);
-
-      const oldBarcode = existing.barcode ? normalizeBarcode(existing.barcode) : null;
-      if (
-        oldBarcode &&
-        oldBarcode !== normalizedBarcode &&
-        barcodeToId.get(oldBarcode) === existing.id
-      ) {
-        barcodeToId.delete(oldBarcode);
-      }
-      if (normalizedBarcode) {
-        barcodeToId.set(normalizedBarcode, existing.id);
-      }
-
-      bySku.set(row.value.sku, {
+      const updated = {
         ...updateResult.data,
         sku: normalizeProductSku(updateResult.data.sku),
-      });
+      };
+      const oldName = normalizeProductName(existing.name);
+      if (oldName !== normalizedName && byName.get(oldName)?.id === existing.id) {
+        byName.delete(oldName);
+      }
+      byName.set(normalizedName, updated);
+
+      const oldBarcode = existing.barcode ? normalizeBarcode(existing.barcode) : null;
+      if (oldBarcode && oldBarcode !== normalizedBarcode && byBarcode.get(oldBarcode)?.id === existing.id) {
+        byBarcode.delete(oldBarcode);
+      }
+      if (normalizedBarcode) {
+        byBarcode.set(normalizedBarcode, updated);
+      }
+
+      bySku.set(updated.sku, updated);
       counters.updated_count += 1;
       continue;
     }
 
-    const insertResult = await selectSingle<ProductRecord>(
-      asQuery(supabase.from("products"))
-        .insert({
-          sku: row.value.sku,
-          name: row.value.name,
-          barcode: row.value.barcode,
-          description: row.value.description,
-          unit: row.value.unit,
-          is_active: row.value.is_active,
-          category_id: categoryId,
-          subcategory_id: subcategoryId,
-        })
-        .select("id, sku, barcode, name, description, unit, is_active, category_id, subcategory_id")
-        .single(),
-    );
-
-    if (insertResult.error || !insertResult.data) {
-      const mappedUnique = mapProductUniqueViolation(insertResult.error ?? {});
-      addRejectedRow(
-        rejectedRows,
-        row,
-        mappedUnique ?? getErrorMessage(insertResult.error, "Failed to insert product."),
+    if (row.value.sku) {
+      const insertResult = await selectSingle<ProductRecord>(
+        asQuery(supabase.from("products"))
+          .insert({
+            sku: row.value.sku,
+            name: row.value.name,
+            barcode: row.value.barcode,
+            description: row.value.description,
+            unit: row.value.unit,
+            is_active: row.value.is_active,
+            category_id: category.id,
+            subcategory_id: subcategory.id,
+          })
+          .select("id, sku, barcode, name, description, unit, is_active, category_id, subcategory_id")
+          .single(),
       );
+
+      if (insertResult.error || !insertResult.data) {
+        const mappedUnique = mapProductUniqueViolation(insertResult.error ?? {});
+        addRejectedRow(
+          rejectedRows,
+          row,
+          mappedUnique ?? getErrorMessage(insertResult.error, "Failed to insert product."),
+        );
+        continue;
+      }
+
+      const inserted = {
+        ...insertResult.data,
+        sku: normalizeProductSku(insertResult.data.sku),
+      };
+      bySku.set(inserted.sku, inserted);
+      byName.set(normalizedName, inserted);
+      if (normalizedBarcode) {
+        byBarcode.set(normalizedBarcode, inserted);
+      }
+      counters.inserted_count += 1;
       continue;
     }
 
-    bySku.set(row.value.sku, {
-      ...insertResult.data,
-      sku: normalizeProductSku(insertResult.data.sku),
+    if (!supabase.rpc) {
+      addRejectedRow(rejectedRows, row, "Failed to allocate SKU.");
+      continue;
+    }
+
+    const created = await createProductWithGeneratedSku(supabase as Parameters<
+      typeof createProductWithGeneratedSku
+    >[0], {
+      name: row.value.name,
+      barcode: row.value.barcode,
+      description: row.value.description,
+      unit: row.value.unit,
+      is_active: row.value.is_active,
+      category_id: category.id,
+      subcategory_id: subcategory.id,
     });
-    nameToId.set(normalizedName, insertResult.data.id);
+
+    if (created.error || !created.data) {
+      addRejectedRow(rejectedRows, row, created.error ?? "Failed to insert product.");
+      continue;
+    }
+
+    const createdRecord = created.data as ProductRecord;
+    const inserted = {
+      ...createdRecord,
+      sku: normalizeProductSku(String(createdRecord.sku)),
+    };
+    bySku.set(inserted.sku, inserted);
+    byName.set(normalizedName, inserted);
     if (normalizedBarcode) {
-      barcodeToId.set(normalizedBarcode, insertResult.data.id);
+      byBarcode.set(normalizedBarcode, inserted);
     }
     counters.inserted_count += 1;
   }

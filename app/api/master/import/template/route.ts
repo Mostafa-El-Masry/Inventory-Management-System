@@ -1,5 +1,9 @@
 import { assertMasterPermission, getAuthContext } from "@/lib/auth/permissions";
-import { MASTER_ENTITIES, MASTER_IMPORT_HEADERS, type MasterEntity } from "@/lib/master-sync/contracts";
+import {
+  MASTER_ENTITIES,
+  MASTER_IMPORT_TEMPLATE_HEADERS,
+  type MasterEntity,
+} from "@/lib/master-sync/contracts";
 import { fail } from "@/lib/utils/http";
 
 function parseEntity(raw: string | null): MasterEntity | null {
@@ -29,7 +33,7 @@ export async function GET(request: Request) {
     return permissionError;
   }
 
-  const csv = `${MASTER_IMPORT_HEADERS[entity].join(",")}\n`;
+  const csv = `${MASTER_IMPORT_TEMPLATE_HEADERS[entity].join(",")}\n`;
 
   return new Response(csv, {
     status: 200,

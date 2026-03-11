@@ -72,7 +72,7 @@ describe("POST /api/master/import", () => {
     const response = await POST(
       new Request("https://app.example.com/api/master/import?entity=locations", {
         method: "POST",
-        body: JSON.stringify({ csv: "code,name,timezone,is_active\nLOC-01,Main,Asia/Kuwait,true" }),
+        body: JSON.stringify({ csv: "name,timezone,is_active\nLondon,Europe/London,true" }),
       }),
     );
 
