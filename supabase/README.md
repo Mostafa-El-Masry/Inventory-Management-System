@@ -37,6 +37,7 @@ The following SQL functions are used by API routes:
 - `rpc_reverse_transaction(p_transaction_id uuid, p_reason text)`
 - `rpc_dispatch_transfer(p_transfer_id uuid)`
 - `rpc_receive_transfer(p_transfer_id uuid)`
+- `rpc_clear_transaction_data()`
 - `rpc_refresh_alerts()`
 
 ## Notes

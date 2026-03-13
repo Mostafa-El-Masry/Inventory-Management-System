@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { MAIN_WAREHOUSE_NAME } from "@/lib/locations/main-warehouse";
+import { MAIN_WAREHOUSE_NAME } from "@/lib/locations/main-warehouse-constants";
 import type { TransactionDetailResponse } from "@/lib/types/api";
 import { fetchJson } from "@/lib/utils/fetch-json";
 

@@ -30,7 +30,7 @@ import {
   type MasterColumnDefinition,
 } from "@/components/master/use-master-columns";
 import type { ExportColumn } from "@/lib/export/contracts";
-import { MAIN_WAREHOUSE_NAME } from "@/lib/locations/main-warehouse";
+import { MAIN_WAREHOUSE_NAME } from "@/lib/locations/main-warehouse-constants";
 
 import { fetchAllHistoryItems } from "./fetch-all-history-items";
 import { TransactionListSettingsMenu } from "./transaction-list-settings-menu";

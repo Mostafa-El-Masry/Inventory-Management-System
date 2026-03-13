@@ -6,14 +6,9 @@ import {
   isMainWarehouseLocation,
 } from "@/lib/locations/main-warehouse";
 import type {
-  SettingsConsumptionTestPreview,
-  SettingsPreviewLookup,
-  SettingsPreviewProduct,
   SettingsTestActionKind,
   SettingsTestActionResponse,
-  SettingsTestDefaultsResponse,
   SettingsTestRecordSummary,
-  SettingsTransferTestPreview,
 } from "@/lib/types/api";
 import {
   createInventoryTransaction,
@@ -154,31 +149,6 @@ function sortBySkuThenId<T extends { sku: string | null; id: string }>(items: T[
     const rightSku = (right.sku ?? "").trim().toUpperCase();
     return leftSku.localeCompare(rightSku) || left.id.localeCompare(right.id);
   });
-}
-
-function normalizeCode(value: string | null | undefined, fallback: string) {
-  const trimmed = (value ?? "").trim().toUpperCase();
-  const sanitized = trimmed.replace(/[^A-Z0-9-]/g, "");
-  return sanitized.length > 0 ? sanitized : fallback;
-}
-
-function toPreviewLookup(
-  item: ActiveLocation | ActiveSupplier,
-  fallbackPrefix: "LOC" | "SUP",
-): SettingsPreviewLookup {
-  return {
-    id: item.id,
-    code: normalizeCode(item.code, `${fallbackPrefix}-${item.id}`),
-    name: item.name ?? item.id,
-  };
-}
-
-function toPreviewProduct(product: ActiveProduct): SettingsPreviewProduct {
-  return {
-    id: product.id,
-    sku: normalizeCode(product.sku, `SKU-${product.id}`),
-    name: product.name ?? product.id,
-  };
 }
 
 function buildTestNotes(suffix: string) {
@@ -485,64 +455,6 @@ function resolveConsumptionDefaults(
     product,
     qty: AUTO_CONSUMPTION_QTY,
     bootstrap_required: true,
-  });
-}
-
-function buildTransferPreview(masterData: AutoTestMasterData): SettingsTransferTestPreview {
-  const defaults = resolveTransferDefaults(masterData);
-  if (!defaults.ok) {
-    return {
-      source_location: masterData.locations[0]
-        ? toPreviewLookup(masterData.locations[0], "LOC")
-        : null,
-      destination_location: masterData.locations[1]
-        ? toPreviewLookup(masterData.locations[1], "LOC")
-        : null,
-      product: null,
-      qty: AUTO_TRANSFER_QTY,
-      bootstrap_required: true,
-    };
-  }
-
-  return {
-    source_location: toPreviewLookup(defaults.data.source_location, "LOC"),
-    destination_location: toPreviewLookup(defaults.data.destination_location, "LOC"),
-    product: toPreviewProduct(defaults.data.product),
-    qty: defaults.data.qty,
-    bootstrap_required: defaults.data.bootstrap_required,
-  };
-}
-
-function buildConsumptionPreview(masterData: AutoTestMasterData): SettingsConsumptionTestPreview {
-  const defaults = resolveConsumptionDefaults(masterData);
-  if (!defaults.ok) {
-    return {
-      location: masterData.locations[0] ? toPreviewLookup(masterData.locations[0], "LOC") : null,
-      product: null,
-      qty: AUTO_CONSUMPTION_QTY,
-      bootstrap_required: true,
-    };
-  }
-
-  return {
-    location: toPreviewLookup(defaults.data.location, "LOC"),
-    product: toPreviewProduct(defaults.data.product),
-    qty: defaults.data.qty,
-    bootstrap_required: defaults.data.bootstrap_required,
-  };
-}
-
-export async function getSettingsTestDefaults(
-  context: AuthContext,
-): Promise<ServiceResult<SettingsTestDefaultsResponse>> {
-  const masterData = await loadAutoTestMasterData(context);
-  if (!masterData.ok) {
-    return masterData;
-  }
-
-  return serviceOk({
-    transfer: buildTransferPreview(masterData.data),
-    consumption: buildConsumptionPreview(masterData.data),
   });
 }
 

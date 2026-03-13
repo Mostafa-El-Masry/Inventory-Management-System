@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  getSettingsTestDefaults,
-  runSettingsTestAction,
-} from "@/lib/admin/settings-test-actions";
+import { runSettingsTestAction } from "@/lib/admin/settings-test-actions";
 
 const {
   createInventoryTransactionMock,
@@ -123,32 +120,6 @@ function createContext(stockRows: Array<{ product_id: string; location_id: strin
     },
   };
 }
-
-describe("settings test defaults", () => {
-  it("builds one-click defaults and bootstrap hints", async () => {
-    ensureMainWarehouseForContextMock.mockResolvedValue({
-      ok: true,
-      status: 200,
-      data: {
-        id: "loc-0",
-        code: "MWH-01",
-        name: "Main Warehouse",
-        timezone: "Asia/Kuwait",
-        is_active: true,
-      },
-    });
-
-    const result = await getSettingsTestDefaults(createContext() as never);
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      throw new Error("Expected defaults.");
-    }
-
-    expect(result.data.transfer.bootstrap_required).toBe(true);
-    expect(result.data.consumption.bootstrap_required).toBe(true);
-  });
-});
 
 describe("runSettingsTestAction", () => {
   beforeEach(() => {

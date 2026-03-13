@@ -5,12 +5,14 @@ import {
   locationCreateSchema,
   productCreateSchema,
   productImportSchema,
+  settingsClearTransactionsSchema,
   setPasswordSchema,
-  transactionCreateSchema,
   settingsTestActionSchema,
+  transactionCreateSchema,
   transferCreateSchema,
   userCreateSchema,
 } from "@/lib/validation";
+import { CLEAR_TRANSACTIONS_CONFIRMATION } from "@/lib/settings/clear-transactions";
 
 describe("validation schemas", () => {
   it("validates product payload", () => {
@@ -195,6 +197,31 @@ describe("validation schemas", () => {
     const parsed = settingsTestActionSchema.safeParse({
       kind: "purchase",
       supplier_id: "550e8400-e29b-41d4-a716-446655440111",
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("accepts the exact transaction clear confirmation phrase", () => {
+    const parsed = settingsClearTransactionsSchema.safeParse({
+      confirmation: CLEAR_TRANSACTIONS_CONFIRMATION,
+    });
+
+    expect(parsed.success).toBe(true);
+  });
+
+  it("rejects incorrect transaction clear confirmation phrases", () => {
+    const parsed = settingsClearTransactionsSchema.safeParse({
+      confirmation: "clear transactions",
+    });
+
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects extra fields in transaction clear confirmation payloads", () => {
+    const parsed = settingsClearTransactionsSchema.safeParse({
+      confirmation: CLEAR_TRANSACTIONS_CONFIRMATION,
+      extra: true,
     });
 
     expect(parsed.success).toBe(false);

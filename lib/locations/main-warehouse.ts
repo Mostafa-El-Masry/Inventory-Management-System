@@ -1,10 +1,16 @@
+import {
+  MAIN_WAREHOUSE_CODE,
+  MAIN_WAREHOUSE_NAME,
+  MAIN_WAREHOUSE_TIMEZONE,
+} from "@/lib/locations/main-warehouse-constants";
 import type { AuthContext } from "@/lib/auth/permissions";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { serviceFail, serviceOk, type ServiceResult } from "@/lib/utils/service-result";
-
-export const MAIN_WAREHOUSE_CODE = "MWH-01";
-export const MAIN_WAREHOUSE_NAME = "Main Warehouse";
-export const MAIN_WAREHOUSE_TIMEZONE = "Asia/Kuwait";
+export {
+  MAIN_WAREHOUSE_CODE,
+  MAIN_WAREHOUSE_NAME,
+  MAIN_WAREHOUSE_TIMEZONE,
+} from "@/lib/locations/main-warehouse-constants";
 
 export type MainWarehouseLocation = {
   id: string;

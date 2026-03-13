@@ -87,6 +87,7 @@ Next.js + Supabase inventory application with:
 - `GET /api/reports/dashboard`
 - `GET /api/reports/export?entity=products|stock|transactions`
 - `GET /api/auth/me`
+- `POST /api/settings/clear-transactions`
 - `POST /api/auth/set-password`
 - `POST /api/admin/users`
 - `POST /api/admin/users/[id]/disable`

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { CLEAR_TRANSACTIONS_CONFIRMATION } from "@/lib/settings/clear-transactions";
+
 const uuid = z.string().uuid();
 const isoDate = z.string().date();
 
@@ -208,6 +210,21 @@ export const settingsTestActionSchema = z
     kind: z.enum(["purchase", "transfer", "consumption"]),
   })
   .strict();
+
+export const settingsClearTransactionsSchema = z
+  .object({
+    confirmation: z.string(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.confirmation !== CLEAR_TRANSACTIONS_CONFIRMATION) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["confirmation"],
+        message: `Type '${CLEAR_TRANSACTIONS_CONFIRMATION}' to confirm.`,
+      });
+    }
+  });
 
 export const transferCreateSchema = z.object({
   from_location_id: uuid,

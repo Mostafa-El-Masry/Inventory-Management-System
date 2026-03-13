@@ -1,16 +1,18 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  CLEAR_TRANSACTIONS_CONFIRMATION,
+  CLEAR_TRANSACTIONS_COUNT_KEYS,
+} from "@/lib/settings/clear-transactions";
 import type {
-  SettingsPreviewLookup,
-  SettingsPreviewProduct,
+  SettingsClearTransactionsResponse,
   SettingsTestActionResponse,
-  SettingsTestDefaultsResponse,
 } from "@/lib/types/api";
 import { fetchJson } from "@/lib/utils/fetch-json";
 
@@ -28,13 +30,17 @@ const INITIAL_TEST_CARD_STATE: TestCardState = {
   result: null,
 };
 
-function formatLookupLabel(item: SettingsPreviewLookup | null) {
-  return item ? `${item.code} - ${item.name}` : "--";
-}
-
-function formatProductLabel(product: SettingsPreviewProduct | null) {
-  return product ? `${product.sku} - ${product.name}` : "--";
-}
+const CLEAR_TRANSACTIONS_COUNT_LABELS = {
+  supplier_document_payments: "Supplier Payments",
+  supplier_documents: "Supplier Documents",
+  stock_ledger: "Stock Ledger",
+  inventory_transaction_lines: "Transaction Lines",
+  transfer_lines: "Transfer Lines",
+  transfers: "Transfers",
+  inventory_transactions: "Transactions",
+  inventory_batches: "Inventory Batches",
+  alerts: "Alerts",
+} as const;
 
 function TabButton({
   active,
@@ -121,9 +127,54 @@ function TestStatusNotice({
   );
 }
 
-export default function AdminSettingsPage() {
+function TestActionSection({
+  title,
+  buttonLabel,
+  loadingLabel,
+  state,
+  noticeLabel,
+  onRun,
+}: {
+  title: string;
+  buttonLabel: string;
+  loadingLabel: string;
+  state: TestCardState;
+  noticeLabel: string;
+  onRun: () => void;
+}) {
+  return (
+    <section className="w-full max-w-4xl py-2">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-1">
+          <p className="ims-kicker text-[0.66rem]">Smoke Test</p>
+          <h2 className="text-xl font-semibold tracking-[-0.02em] text-[var(--text-strong)]">
+            {title}
+          </h2>
+        </div>
+
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onRun}
+          disabled={state.loading}
+          className="ims-control-md rounded-full px-5 shadow-none"
+        >
+          {state.loading ? loadingLabel : buttonLabel}
+        </Button>
+      </div>
+
+      <TestStatusNotice state={state} label={noticeLabel} />
+    </section>
+  );
+}
+
+export default function AdminSettingsPage({
+  initialTab = "branding",
+}: {
+  initialTab?: SettingsTab;
+} = {}) {
   const { capabilities, companyName: initialCompanyName } = useDashboardSession();
-  const [activeTab, setActiveTab] = useState<SettingsTab>("branding");
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const [companyName, setCompanyName] = useState("");
   const [savedCompanyName, setSavedCompanyName] = useState("");
   const [canManageSystemSettings, setCanManageSystemSettings] = useState(
@@ -133,15 +184,15 @@ export default function AdminSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [testDefaultsLoading, setTestDefaultsLoading] = useState(false);
-  const [testDefaultsError, setTestDefaultsError] = useState<string | null>(null);
-  const [testDefaults, setTestDefaults] = useState<SettingsTestDefaultsResponse | null>(null);
   const [purchaseState, setPurchaseState] = useState<TestCardState>(INITIAL_TEST_CARD_STATE);
   const [transferState, setTransferState] = useState<TestCardState>(INITIAL_TEST_CARD_STATE);
   const [consumptionState, setConsumptionState] = useState<TestCardState>(
     INITIAL_TEST_CARD_STATE,
   );
-  const hasRequestedTestDefaults = useRef(false);
+  const [clearConfirmation, setClearConfirmation] = useState("");
+  const [clearLoading, setClearLoading] = useState(false);
+  const [clearError, setClearError] = useState<string | null>(null);
+  const [clearResult, setClearResult] = useState<SettingsClearTransactionsResponse | null>(null);
 
   useEffect(() => {
     const nextCompanyName = initialCompanyName.trim();
@@ -156,43 +207,6 @@ export default function AdminSettingsPage() {
       setActiveTab("branding");
     }
   }, [activeTab, canManageSystemSettings]);
-
-  useEffect(() => {
-    if (!canManageSystemSettings || hasRequestedTestDefaults.current) {
-      return;
-    }
-
-    hasRequestedTestDefaults.current = true;
-    let cancelled = false;
-    setTestDefaultsLoading(true);
-    setTestDefaultsError(null);
-
-    fetchJson<SettingsTestDefaultsResponse>("/api/settings/test-defaults", {
-      cache: "no-store",
-      fallbackError: "Failed to load test defaults.",
-    })
-      .then((result) => {
-        if (cancelled) {
-          return;
-        }
-
-        if (!result.ok) {
-          setTestDefaultsError(result.error);
-          return;
-        }
-
-        setTestDefaults(result.data);
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setTestDefaultsLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [canManageSystemSettings]);
 
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -282,6 +296,48 @@ export default function AdminSettingsPage() {
     );
   }
 
+  async function handleClearTransactions(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (
+      !canManageSystemSettings ||
+      clearLoading ||
+      clearConfirmation !== CLEAR_TRANSACTIONS_CONFIRMATION
+    ) {
+      return;
+    }
+
+    setClearLoading(true);
+    setClearError(null);
+    setClearResult(null);
+
+    try {
+      const result = await fetchJson<SettingsClearTransactionsResponse>(
+        "/api/settings/clear-transactions",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            confirmation: clearConfirmation,
+          }),
+          fallbackError: "Failed to clear transaction data.",
+        },
+      );
+
+      if (!result.ok) {
+        setClearError(result.error);
+        return;
+      }
+
+      setClearConfirmation("");
+      setClearResult(result.data);
+      setPurchaseState(INITIAL_TEST_CARD_STATE);
+      setTransferState(INITIAL_TEST_CARD_STATE);
+      setConsumptionState(INITIAL_TEST_CARD_STATE);
+    } finally {
+      setClearLoading(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <header>
@@ -342,140 +398,101 @@ export default function AdminSettingsPage() {
 
       {activeTab === "test" && canManageSystemSettings ? (
         <div className="space-y-6">
-          <Card className="min-h-[12rem]">
-            <h2 className="text-lg font-semibold">Test Transactions</h2>
-            <p className="ims-subtitle mt-2">
-              Run real purchase, transfer, and consumption smoke tests with server-selected data.
-              Auto-generated smoke-test records are tagged with{" "}
-              <strong>[TEST][AUTO]</strong>.
-            </p>
-            {testDefaultsLoading ? (
-              <p className="ims-empty mt-4">Loading test defaults...</p>
-            ) : null}
-            {testDefaultsError ? (
-              <div className="mt-4 space-y-2">
-                <p className="ims-alert-danger mb-0">{testDefaultsError}</p>
-                <p className="ims-empty">Defaults load once per page session. Refresh to try again.</p>
-              </div>
-            ) : null}
-          </Card>
+          <TestActionSection
+            title="Purchase Test"
+            buttonLabel="Run Purchase Test"
+            loadingLabel="Running..."
+            state={purchaseState}
+            noticeLabel="Purchase test"
+            onRun={handlePurchaseRun}
+          />
+
+          <TestActionSection
+            title="Transfer Test"
+            buttonLabel="Run Transfer Test"
+            loadingLabel="Running..."
+            state={transferState}
+            noticeLabel="Transfer test"
+            onRun={handleTransferRun}
+          />
+
+          <TestActionSection
+            title="Consumption Test (COGS)"
+            buttonLabel="Run Consumption Test"
+            loadingLabel="Running..."
+            state={consumptionState}
+            noticeLabel="Consumption test"
+            onRun={handleConsumptionRun}
+          />
 
           <Card className="min-h-[18rem]">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div className="space-y-3">
               <div className="space-y-2">
-                <h2 className="text-lg font-semibold">Purchase Test</h2>
+                <p className="ims-kicker">Danger Zone</p>
+                <h2 className="text-lg font-semibold">Clear Transaction Data</h2>
                 <p className="ims-subtitle">
-                  Creates a real posted receipt with randomized active supplier, branch, product,
-                  quantity, and unit cost on every run.
+                  This permanently removes transaction history, transfers, stock batches, stock
+                  ledger, transaction-backed supplier documents and payments, and alerts from
+                  Supabase. Products, suppliers, locations, taxonomy, users, and system settings
+                  remain unchanged.
                 </p>
               </div>
 
-              <Button
-                type="button"
-                onClick={handlePurchaseRun}
-                disabled={purchaseState.loading}
-                className="ims-control-lg rounded-2xl"
-              >
-                {purchaseState.loading ? "Running..." : "Run Purchase Test"}
-              </Button>
+              <p className="ims-alert-warn">
+                Type <strong>{CLEAR_TRANSACTIONS_CONFIRMATION}</strong> exactly to enable the
+                delete action.
+              </p>
+
+              <form onSubmit={handleClearTransactions} className="space-y-4">
+                <label className="block max-w-xl">
+                  <span className="ims-field-label">Confirmation phrase</span>
+                  <Input
+                    value={clearConfirmation}
+                    onChange={(event) => {
+                      setClearConfirmation(event.target.value);
+                      if (clearError) {
+                        setClearError(null);
+                      }
+                    }}
+                    placeholder={CLEAR_TRANSACTIONS_CONFIRMATION}
+                    className="ims-control-lg"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                </label>
+
+                <Button
+                  type="submit"
+                  variant="danger"
+                  disabled={
+                    clearLoading ||
+                    clearConfirmation !== CLEAR_TRANSACTIONS_CONFIRMATION
+                  }
+                  className="ims-control-lg rounded-2xl"
+                >
+                  {clearLoading ? "Clearing..." : "Clear Transaction Data"}
+                </Button>
+              </form>
+
+              {clearError ? <p className="ims-alert-danger">{clearError}</p> : null}
+
+              {clearResult ? (
+                <div className="space-y-4">
+                  <p className="ims-alert-success">
+                    Transaction data cleared. {clearResult.total_rows_cleared} rows removed.
+                  </p>
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {CLEAR_TRANSACTIONS_COUNT_KEYS.map((key) => (
+                      <PreviewItem
+                        key={key}
+                        label={CLEAR_TRANSACTIONS_COUNT_LABELS[key]}
+                        value={String(clearResult.counts[key])}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
-            <TestStatusNotice state={purchaseState} label="Purchase test" />
-          </Card>
-
-          <Card className="min-h-[16rem]">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-              <div className="space-y-2">
-                <h2 className="text-lg font-semibold">Transfer Test</h2>
-                <p className="ims-subtitle">
-                  Uses the first two active branches as source and destination. If the source has
-                  no stock, the system bootstraps the minimum purchase first, then completes the
-                  full approve, dispatch, and receive flow.
-                </p>
-              </div>
-
-              <Button
-                type="button"
-                onClick={handleTransferRun}
-                disabled={testDefaultsLoading || !testDefaults || transferState.loading}
-                className="ims-control-lg rounded-2xl"
-              >
-                {transferState.loading ? "Running..." : "Run Transfer Test"}
-              </Button>
-            </div>
-
-            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-              <PreviewItem
-                label="Source"
-                value={formatLookupLabel(testDefaults?.transfer.source_location ?? null)}
-              />
-              <PreviewItem
-                label="Destination"
-                value={formatLookupLabel(testDefaults?.transfer.destination_location ?? null)}
-              />
-              <PreviewItem
-                label="Product"
-                value={formatProductLabel(testDefaults?.transfer.product ?? null)}
-              />
-              <PreviewItem
-                label="Quantity"
-                value={String(testDefaults?.transfer.qty ?? 0)}
-              />
-              <PreviewItem
-                label="Bootstrap"
-                value={
-                  testDefaults?.transfer.bootstrap_required
-                    ? "Creates source stock automatically"
-                    : "Uses existing source stock"
-                }
-              />
-            </div>
-            <TestStatusNotice state={transferState} label="Transfer test" />
-          </Card>
-
-          <Card className="min-h-[16rem]">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-              <div className="space-y-2">
-                <h2 className="text-lg font-semibold">Consumption Test (COGS)</h2>
-                <p className="ims-subtitle">
-                  Uses the first stocked branch and product when available. If the environment is
-                  empty, the system bootstraps the minimum purchase first and then posts a real
-                  consumption transaction.
-                </p>
-              </div>
-
-              <Button
-                type="button"
-                onClick={handleConsumptionRun}
-                disabled={testDefaultsLoading || !testDefaults || consumptionState.loading}
-                className="ims-control-lg rounded-2xl"
-              >
-                {consumptionState.loading ? "Running..." : "Run Consumption Test"}
-              </Button>
-            </div>
-
-            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <PreviewItem
-                label="Source"
-                value={formatLookupLabel(testDefaults?.consumption.location ?? null)}
-              />
-              <PreviewItem
-                label="Product"
-                value={formatProductLabel(testDefaults?.consumption.product ?? null)}
-              />
-              <PreviewItem
-                label="Quantity"
-                value={String(testDefaults?.consumption.qty ?? 0)}
-              />
-              <PreviewItem
-                label="Bootstrap"
-                value={
-                  testDefaults?.consumption.bootstrap_required
-                    ? "Creates source stock automatically"
-                    : "Uses existing stock"
-                }
-              />
-            </div>
-            <TestStatusNotice state={consumptionState} label="Consumption test" />
           </Card>
         </div>
       ) : null}

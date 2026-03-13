@@ -1,4 +1,5 @@
 import type { MasterPermissions } from "@/lib/master-permissions";
+import type { ClearTransactionsCountKey } from "@/lib/settings/clear-transactions";
 
 export interface AuthCapabilities {
   canManageUsers: boolean;
@@ -14,6 +15,17 @@ export interface AuthCapabilities {
 }
 
 export type SettingsTestActionKind = "purchase" | "transfer" | "consumption";
+
+export type SettingsClearTransactionsCounts = Record<
+  ClearTransactionsCountKey,
+  number
+>;
+
+export interface SettingsClearTransactionsResponse {
+  success: boolean;
+  counts: SettingsClearTransactionsCounts;
+  total_rows_cleared: number;
+}
 
 export interface SettingsTestRecordSummary {
   entity: "transaction" | "transfer";
@@ -31,38 +43,6 @@ export interface SettingsTestActionResponse {
   failed_step?: string;
   error?: string;
   bootstrap_record?: SettingsTestRecordSummary | null;
-}
-
-export interface SettingsPreviewLookup {
-  id: string;
-  code: string;
-  name: string;
-}
-
-export interface SettingsPreviewProduct {
-  id: string;
-  sku: string;
-  name: string;
-}
-
-export interface SettingsTransferTestPreview {
-  source_location: SettingsPreviewLookup | null;
-  destination_location: SettingsPreviewLookup | null;
-  product: SettingsPreviewProduct | null;
-  qty: number;
-  bootstrap_required: boolean;
-}
-
-export interface SettingsConsumptionTestPreview {
-  location: SettingsPreviewLookup | null;
-  product: SettingsPreviewProduct | null;
-  qty: number;
-  bootstrap_required: boolean;
-}
-
-export interface SettingsTestDefaultsResponse {
-  transfer: SettingsTransferTestPreview;
-  consumption: SettingsConsumptionTestPreview;
 }
 
 export interface TransactionLookupSummary {
