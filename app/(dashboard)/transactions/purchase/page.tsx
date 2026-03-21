@@ -4,8 +4,8 @@ export default function PurchasePage() {
   return (
     <PurchaseTransactionPage
       headerTitle="Purchase"
-      headerSubtitle="Create and post purchase receipts into inventory."
-      createTitle="Create Purchase (single-line quick entry)"
+      headerSubtitle="Save purchase receipts to update stock immediately, then post to finalize them."
+      createTitle="Save Purchase (single-line quick entry)"
       historyTitle="Purchase History"
       transactionType="RECEIPT"
       locationLabel="Destination location"

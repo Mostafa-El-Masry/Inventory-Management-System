@@ -1,11 +1,17 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import {
+  SYSTEM_CURRENCY_CODES,
+  type SystemCurrencyCode,
+} from "@/lib/settings/system-currency";
 import {
   CLEAR_TRANSACTIONS_CONFIRMATION,
   CLEAR_TRANSACTIONS_COUNT_KEYS,
@@ -13,6 +19,7 @@ import {
 import type {
   SettingsClearTransactionsResponse,
   SettingsTestActionResponse,
+  SystemSettingsResponse,
 } from "@/lib/types/api";
 import { fetchJson } from "@/lib/utils/fetch-json";
 
@@ -168,19 +175,26 @@ function TestActionSection({
   );
 }
 
-export default function AdminSettingsPage({
-  initialTab = "branding",
-}: {
-  initialTab?: SettingsTab;
-} = {}) {
-  const { capabilities, companyName: initialCompanyName } = useDashboardSession();
+export default function AdminSettingsPage() {
+  const searchParams = useSearchParams();
+  const initialTab = searchParams.get("tab") === "test" ? "test" : "branding";
+  const {
+    capabilities,
+    companyName: initialCompanyName,
+    currencyCode: initialCurrencyCode,
+  } = useDashboardSession();
+  const normalizedInitialCompanyName = initialCompanyName.trim();
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
-  const [companyName, setCompanyName] = useState("");
-  const [savedCompanyName, setSavedCompanyName] = useState("");
+  const [companyName, setCompanyName] = useState(normalizedInitialCompanyName);
+  const [savedCompanyName, setSavedCompanyName] = useState(normalizedInitialCompanyName);
+  const [currencyCode, setCurrencyCode] = useState<SystemCurrencyCode>(initialCurrencyCode);
+  const [savedCurrencyCode, setSavedCurrencyCode] = useState<SystemCurrencyCode>(
+    initialCurrencyCode,
+  );
   const [canManageSystemSettings, setCanManageSystemSettings] = useState(
     capabilities.canManageSystemSettings,
   );
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -195,12 +209,13 @@ export default function AdminSettingsPage({
   const [clearResult, setClearResult] = useState<SettingsClearTransactionsResponse | null>(null);
 
   useEffect(() => {
-    const nextCompanyName = initialCompanyName.trim();
     setCanManageSystemSettings(capabilities.canManageSystemSettings);
-    setCompanyName(nextCompanyName);
-    setSavedCompanyName(nextCompanyName);
+    setCompanyName(normalizedInitialCompanyName);
+    setSavedCompanyName(normalizedInitialCompanyName);
+    setCurrencyCode(initialCurrencyCode);
+    setSavedCurrencyCode(initialCurrencyCode);
     setLoading(false);
-  }, [capabilities.canManageSystemSettings, initialCompanyName]);
+  }, [capabilities.canManageSystemSettings, initialCurrencyCode, normalizedInitialCompanyName]);
 
   useEffect(() => {
     if (!canManageSystemSettings && activeTab === "test") {
@@ -225,23 +240,26 @@ export default function AdminSettingsPage({
     setMessage(null);
 
     try {
-      const result = await fetchJson<{ company_name?: string; error?: string }>(
-        "/api/settings",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ company_name: normalizedCompanyName }),
-          fallbackError: "Failed to save settings.",
-        },
-      );
+      const result = await fetchJson<SystemSettingsResponse>("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          company_name: normalizedCompanyName,
+          currency_code: currencyCode,
+        }),
+        fallbackError: "Failed to save settings.",
+      });
       if (!result.ok) {
         setError(result.error);
         return;
       }
 
       const nextName = String(result.data.company_name ?? normalizedCompanyName);
+      const nextCurrency = result.data.currency_code ?? currencyCode;
       setCompanyName(nextName);
       setSavedCompanyName(nextName);
+      setCurrencyCode(nextCurrency);
+      setSavedCurrencyCode(nextCurrency);
       setMessage("Settings saved.");
     } finally {
       setSaving(false);
@@ -378,11 +396,32 @@ export default function AdminSettingsPage({
                 />
               </label>
 
+              <label className="block">
+                <span className="ims-field-label">System currency</span>
+                <Select
+                  value={currencyCode}
+                  onChange={(event) =>
+                    setCurrencyCode(event.target.value as SystemCurrencyCode)
+                  }
+                  disabled={!canManageSystemSettings}
+                  className="ims-control-lg"
+                >
+                  {SYSTEM_CURRENCY_CODES.map((code) => (
+                    <option key={code} value={code}>
+                      {code}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+
               {savedCompanyName ? (
                 <p className="ims-empty">
                   Current value: <strong>{savedCompanyName}</strong>
                 </p>
               ) : null}
+              <p className="ims-empty">
+                Current currency: <strong>{savedCurrencyCode}</strong>
+              </p>
 
               {canManageSystemSettings ? (
                 <Button type="submit" disabled={saving} className="ims-control-lg rounded-2xl">

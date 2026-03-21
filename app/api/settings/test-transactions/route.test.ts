@@ -52,7 +52,7 @@ describe("Settings Test Transactions API", () => {
           status: "POSTED",
           transaction_type: "RECEIPT",
         },
-        steps_completed: ["purchase:create", "purchase:submit", "purchase:post"],
+        steps_completed: ["purchase:create", "purchase:post"],
         bootstrap_record: null,
       },
     });
@@ -98,7 +98,6 @@ describe("Settings Test Transactions API", () => {
         },
         steps_completed: [
           "bootstrap:create",
-          "bootstrap:submit",
           "bootstrap:post",
           "transfer:create",
           "transfer:approve",

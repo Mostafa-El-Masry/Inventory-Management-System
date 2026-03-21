@@ -6,7 +6,19 @@ import { DashboardNav } from "@/components/layout/dashboard-nav";
 import { DashboardSessionProvider } from "@/components/layout/dashboard-session-provider";
 import { DashboardTopbar } from "@/components/layout/dashboard-topbar";
 import { getAuthContext } from "@/lib/auth/permissions";
+import {
+  DEFAULT_SYSTEM_CURRENCY_CODE,
+  SYSTEM_CURRENCY_SETTING_KEY,
+  normalizeSystemCurrencyCode,
+} from "@/lib/settings/system-currency";
 import { DEFAULT_THEME_MODE, THEME_COOKIE_NAME, normalizeThemeMode } from "@/lib/theme";
+
+const COMPANY_NAME_KEY = "company_name";
+const DEFAULT_COMPANY_NAME = "ICE";
+
+function normalizeCompanyName(value: string | null | undefined) {
+  return (value ?? "").trim().replace(/\s+/g, " ");
+}
 
 export default async function DashboardLayout({
   children,
@@ -23,19 +35,25 @@ export default async function DashboardLayout({
     cookieStore.get(THEME_COOKIE_NAME)?.value ?? DEFAULT_THEME_MODE,
   );
 
-  const { data: companySetting, error: companySettingError } = await context.supabase
+  const { data: settingsRows, error: settingsError } = await context.supabase
     .from("system_settings")
-    .select("value_text")
-    .eq("key", "company_name")
-    .maybeSingle();
-  if (companySettingError) {
-    console.warn(`[SETTINGS] Failed to load company name: ${companySettingError.message}`);
+    .select("key, value_text")
+    .in("key", [COMPANY_NAME_KEY, SYSTEM_CURRENCY_SETTING_KEY]);
+  if (settingsError) {
+    console.warn(`[SETTINGS] Failed to load system settings: ${settingsError.message}`);
   }
 
-  const normalizedCompanyName = (companySetting?.value_text ?? "")
-    .trim()
-    .replace(/\s+/g, " ");
-  const companyName = normalizedCompanyName || "ICE";
+  const settingsByKey = new Map(
+    ((settingsRows ?? []) as Array<{ key: string; value_text: string | null }>).map((row) => [
+      row.key,
+      row.value_text,
+    ]),
+  );
+  const companyName =
+    normalizeCompanyName(settingsByKey.get(COMPANY_NAME_KEY)) || DEFAULT_COMPANY_NAME;
+  const currencyCode = settingsError
+    ? DEFAULT_SYSTEM_CURRENCY_CODE
+    : normalizeSystemCurrencyCode(settingsByKey.get(SYSTEM_CURRENCY_SETTING_KEY));
   const displayName =
     context.profile.full_name.trim() ||
     context.user.email?.trim() ||
@@ -49,6 +67,7 @@ export default async function DashboardLayout({
         capabilities: context.capabilities,
         locationIds: context.locationIds,
         companyName,
+        currencyCode,
       }}
     >
       <div className="ims-page">

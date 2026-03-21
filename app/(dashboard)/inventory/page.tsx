@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { FilterPopover } from "@/components/ui/filter-popover";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { formatSystemCurrency } from "@/lib/settings/system-currency";
 import {
   buildFilterStorageKey,
   readLocalFilterState,
@@ -41,7 +42,7 @@ type InventoryFilterState = {
 };
 
 export default function InventoryPage() {
-  const { userId: authUserId } = useDashboardSession();
+  const { userId: authUserId, currencyCode } = useDashboardSession();
   const [rows, setRows] = useState<StockRow[]>([]);
   const [products, setProducts] = useState<Lookup[]>([]);
   const [locations, setLocations] = useState<Lookup[]>([]);
@@ -187,6 +188,7 @@ export default function InventoryPage() {
     (sum, row) => sum + row.qty_on_hand * Number(row.unit_cost ?? 0),
     0,
   );
+  const formattedInventoryValue = formatSystemCurrency(totalInventoryValue, currencyCode);
 
   return (
     <div className="space-y-6">
@@ -207,7 +209,7 @@ export default function InventoryPage() {
               {filtersApplied ? "Filtered Inventory Value" : "Total Inventory Value"}
             </p>
             <p className="mt-2 text-[clamp(1.8rem,1.6rem+1vw,2.6rem)] font-semibold text-[var(--text-strong)]">
-              KWD {totalInventoryValue.toFixed(2)}
+              {formattedInventoryValue}
             </p>
           </div>
           <p className="text-sm text-[var(--text-muted)]">
@@ -303,7 +305,7 @@ export default function InventoryPage() {
                   <td>{row.lot_number ?? "-"}</td>
                   <td>{row.expiry_date ?? "-"}</td>
                   <td className="font-semibold">{row.qty_on_hand}</td>
-                  <td>{row.unit_cost ?? "-"}</td>
+                  <td>{formatSystemCurrency(row.unit_cost, currencyCode)}</td>
                 </tr>
               ))}
             </tbody>

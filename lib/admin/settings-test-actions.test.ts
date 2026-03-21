@@ -4,7 +4,6 @@ import { runSettingsTestAction } from "@/lib/admin/settings-test-actions";
 
 const {
   createInventoryTransactionMock,
-  submitInventoryTransactionMock,
   postInventoryTransactionMock,
   createTransferMock,
   approveTransferMock,
@@ -13,7 +12,6 @@ const {
   ensureMainWarehouseForContextMock,
 } = vi.hoisted(() => ({
   createInventoryTransactionMock: vi.fn(),
-  submitInventoryTransactionMock: vi.fn(),
   postInventoryTransactionMock: vi.fn(),
   createTransferMock: vi.fn(),
   approveTransferMock: vi.fn(),
@@ -24,7 +22,6 @@ const {
 
 vi.mock("@/lib/transactions/mutations", () => ({
   createInventoryTransaction: createInventoryTransactionMock,
-  submitInventoryTransaction: submitInventoryTransactionMock,
   postInventoryTransaction: postInventoryTransactionMock,
 }));
 
@@ -124,7 +121,6 @@ function createContext(stockRows: Array<{ product_id: string; location_id: strin
 describe("runSettingsTestAction", () => {
   beforeEach(() => {
     createInventoryTransactionMock.mockReset();
-    submitInventoryTransactionMock.mockReset();
     postInventoryTransactionMock.mockReset();
     createTransferMock.mockReset();
     approveTransferMock.mockReset();
@@ -144,11 +140,6 @@ describe("runSettingsTestAction", () => {
           type: payload.type,
         },
       };
-    });
-    submitInventoryTransactionMock.mockResolvedValue({
-      ok: true,
-      status: 200,
-      data: { status: "SUBMITTED" },
     });
     postInventoryTransactionMock.mockResolvedValue({
       ok: true,
@@ -257,7 +248,6 @@ describe("runSettingsTestAction", () => {
     expect(result.data.bootstrap_record?.number).toBe("TX-1");
     expect(result.data.steps_completed).toEqual([
       "bootstrap:create",
-      "bootstrap:submit",
       "bootstrap:post",
       "transfer:create",
       "transfer:approve",

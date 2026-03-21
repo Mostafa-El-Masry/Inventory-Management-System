@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { CLEAR_TRANSACTIONS_CONFIRMATION } from "@/lib/settings/clear-transactions";
+import { SYSTEM_CURRENCY_CODES } from "@/lib/settings/system-currency";
 
 const uuid = z.string().uuid();
 const isoDate = z.string().date();
@@ -266,6 +267,7 @@ export const supplierPaymentCreateSchema = z.object({
 
 export const systemSettingsUpdateSchema = z.object({
   company_name: z.string().trim().min(2).max(160),
+  currency_code: z.enum(SYSTEM_CURRENCY_CODES),
 });
 
 export const alertAckSchema = z.object({

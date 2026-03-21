@@ -3,9 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --webpack",
+    "dev:turbo": "next dev --turbopack",
     "prebuild": "node ./scripts/validate-env.mjs",
-    "build": "next build",
+    "build": "node ./scripts/clean-next-build.mjs && next build",
     "start": "next start",
     "lint": "eslint && npm run lint:units",
     "lint:units": "node ./scripts/check-no-px-literals.mjs",

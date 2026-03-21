@@ -2,11 +2,6 @@ import { z } from "zod";
 
 import { AuthContext, assertLocationAccess } from "@/lib/auth/permissions";
 import { ensureMainWarehouseForContext } from "@/lib/locations/main-warehouse";
-import {
-  isMissingSnapshotColumnError,
-  stripSnapshotFields,
-  stripSnapshotFieldsFromRows,
-} from "@/lib/supabase/snapshot-schema-compat";
 import { serviceFail, serviceOk, type ServiceResult } from "@/lib/utils/service-result";
 import { transactionCreateSchema } from "@/lib/validation";
 
@@ -34,19 +29,19 @@ type TransactionLookupRow = {
   destination_location_id: string | null;
 };
 
-type TransactionPostRecord = {
+type TransactionDraftRpcRecord = {
   id: string;
   tx_number: string | null;
   type: string;
   status: string;
-  source_location_id: string | null;
-  destination_location_id: string | null;
-  supplier_id: string | null;
-  supplier_code_snapshot?: string | null;
-  supplier_name_snapshot?: string | null;
-  supplier_invoice_number: string | null;
-  supplier_invoice_date: string | null;
-  created_at: string | null;
+};
+
+type ResolvedTransactionWriteContext = {
+  normalizedSupplierInvoiceNumber: string | null;
+  sourceLocationId: string | null;
+  destinationLocationId: string | null;
+  supplierSnapshot: { code: string | null; name: string | null } | null;
+  productById: Map<string, ProductRow>;
 };
 
 export type TransactionSummary = {
@@ -55,11 +50,6 @@ export type TransactionSummary = {
   type: string;
   status: string;
 };
-
-const TRANSACTION_POST_SELECT_WITH_SNAPSHOTS =
-  "id, tx_number, type, status, source_location_id, destination_location_id, supplier_id, supplier_code_snapshot, supplier_name_snapshot, supplier_invoice_number, supplier_invoice_date, created_at";
-const TRANSACTION_POST_SELECT_LEGACY =
-  "id, tx_number, type, status, source_location_id, destination_location_id, supplier_id, supplier_invoice_number, supplier_invoice_date, created_at";
 
 async function readResponseError(response: Response, fallback: string) {
   try {
@@ -73,7 +63,7 @@ async function readResponseError(response: Response, fallback: string) {
 async function resolveTransactionWriteContext(
   context: AuthContext,
   payload: TransactionCreateInput,
-) {
+): Promise<ServiceResult<ResolvedTransactionWriteContext>> {
   const normalizedSupplierInvoiceNumber =
     payload.supplier_invoice_number?.trim() || null;
   let sourceLocationId = payload.source_location_id ?? null;
@@ -165,6 +155,43 @@ async function resolveTransactionWriteContext(
   });
 }
 
+function buildDraftTransactionRpcPayload(
+  payload: TransactionCreateInput,
+  writeContext: ResolvedTransactionWriteContext,
+) {
+  return {
+    transaction: {
+      tx_number: `TX-${Date.now()}`,
+      type: payload.type,
+      source_location_id: writeContext.sourceLocationId,
+      destination_location_id: writeContext.destinationLocationId,
+      reference_type: payload.reference_type ?? null,
+      reference_id: payload.reference_id ?? null,
+      supplier_id: payload.supplier_id ?? null,
+      supplier_code_snapshot: writeContext.supplierSnapshot?.code ?? null,
+      supplier_name_snapshot: writeContext.supplierSnapshot?.name ?? null,
+      supplier_invoice_number: writeContext.normalizedSupplierInvoiceNumber,
+      supplier_invoice_date: payload.supplier_invoice_date ?? null,
+      notes: payload.notes ?? null,
+    },
+    lines: payload.lines.map((line) => {
+      const product = writeContext.productById.get(line.product_id);
+
+      return {
+        product_id: line.product_id,
+        qty: line.qty,
+        unit_cost: line.unit_cost ?? null,
+        lot_number: line.lot_number ?? null,
+        expiry_date: line.expiry_date ?? null,
+        reason_code: line.reason_code ?? null,
+        product_sku_snapshot: product?.sku ?? null,
+        product_name_snapshot: product?.name ?? null,
+        product_barcode_snapshot: product?.barcode ?? null,
+      };
+    }),
+  };
+}
+
 export async function createInventoryTransaction(
   context: AuthContext,
   payload: TransactionCreateInput,
@@ -181,80 +208,25 @@ export async function createInventoryTransaction(
     supplierSnapshot,
     productById,
   } = writeContext.data;
-
-  const txRecord = {
-    tx_number: `TX-${Date.now()}`,
-    type: payload.type,
-    status: "DRAFT",
-    source_location_id: sourceLocationId,
-    destination_location_id: destinationLocationId,
-    reference_type: payload.reference_type ?? null,
-    reference_id: payload.reference_id ?? null,
-    supplier_id: payload.supplier_id ?? null,
-    supplier_code_snapshot: supplierSnapshot?.code ?? null,
-    supplier_name_snapshot: supplierSnapshot?.name ?? null,
-    supplier_invoice_number: normalizedSupplierInvoiceNumber,
-    supplier_invoice_date: payload.supplier_invoice_date ?? null,
-    notes: payload.notes ?? null,
-    created_by: context.user.id,
-  };
-
-  let { data: transaction, error: transactionError } = await context.supabase
-    .from("inventory_transactions")
-    .insert(txRecord)
-    .select("*")
-    .single();
-
-  if (isMissingSnapshotColumnError(transactionError)) {
-    ({ data: transaction, error: transactionError } = await context.supabase
-      .from("inventory_transactions")
-      .insert(stripSnapshotFields(txRecord))
-      .select("*")
-      .single());
-  }
-
-  if (transactionError || !transaction) {
-    return serviceFail(
-      400,
-      transactionError?.message ?? "Failed to create transaction.",
-    );
-  }
-
-  const lines = payload.lines.map((line) => {
-    const product = productById.get(line.product_id);
-
-    return {
-      transaction_id: transaction.id,
-      ...line,
-      product_sku_snapshot: product?.sku ?? null,
-      product_name_snapshot: product?.name ?? null,
-      product_barcode_snapshot: product?.barcode ?? null,
-    };
+  const rpcPayload = buildDraftTransactionRpcPayload(payload, {
+    normalizedSupplierInvoiceNumber,
+    sourceLocationId,
+    destinationLocationId,
+    supplierSnapshot,
+    productById,
   });
 
-  let { data: lineData, error: linesError } = await context.supabase
-    .from("inventory_transaction_lines")
-    .insert(lines)
-    .select("*");
+  const { data, error } = await context.supabase.rpc("rpc_save_inventory_draft", {
+    p_transaction_id: null,
+    p_transaction: rpcPayload.transaction,
+    p_lines: rpcPayload.lines,
+  });
 
-  if (isMissingSnapshotColumnError(linesError)) {
-    ({ data: lineData, error: linesError } = await context.supabase
-      .from("inventory_transaction_lines")
-      .insert(stripSnapshotFieldsFromRows(lines))
-      .select("*"));
+  if (error || !data) {
+    return serviceFail(400, error?.message ?? "Failed to create transaction.");
   }
 
-  if (linesError) {
-    return serviceFail(400, linesError.message);
-  }
-
-  return serviceOk(
-    {
-      ...transaction,
-      lines: lineData ?? [],
-    },
-    201,
-  );
+  return serviceOk(data as TransactionDraftRpcRecord, 201);
 }
 
 export async function updateInventoryTransaction(
@@ -314,85 +286,25 @@ export async function updateInventoryTransaction(
     supplierSnapshot,
     productById,
   } = writeContext.data;
-
-  const txRecord = {
-    source_location_id: sourceLocationId,
-    destination_location_id: destinationLocationId,
-    reference_type: payload.reference_type ?? null,
-    reference_id: payload.reference_id ?? null,
-    supplier_id: payload.supplier_id ?? null,
-    supplier_code_snapshot: supplierSnapshot?.code ?? null,
-    supplier_name_snapshot: supplierSnapshot?.name ?? null,
-    supplier_invoice_number: normalizedSupplierInvoiceNumber,
-    supplier_invoice_date: payload.supplier_invoice_date ?? null,
-    notes: payload.notes ?? null,
-  };
-
-  let updateError: { message: string } | null = null;
-  const { error: withSnapshotsError } = await context.supabase
-    .from("inventory_transactions")
-    .update(txRecord)
-    .eq("id", id);
-
-  updateError = withSnapshotsError;
-
-  if (isMissingSnapshotColumnError(updateError)) {
-    const { error: legacyError } = await context.supabase
-      .from("inventory_transactions")
-      .update(stripSnapshotFields(txRecord))
-      .eq("id", id);
-
-    updateError = legacyError;
-  }
-
-  if (updateError) {
-    return serviceFail(400, updateError.message);
-  }
-
-  const { error: deleteLinesError } = await context.supabase
-    .from("inventory_transaction_lines")
-    .delete()
-    .eq("transaction_id", id);
-
-  if (deleteLinesError) {
-    return serviceFail(400, deleteLinesError.message);
-  }
-
-  const lines = payload.lines.map((line) => {
-    const product = productById.get(line.product_id);
-
-    return {
-      transaction_id: id,
-      ...line,
-      product_sku_snapshot: product?.sku ?? null,
-      product_name_snapshot: product?.name ?? null,
-      product_barcode_snapshot: product?.barcode ?? null,
-    };
+  const rpcPayload = buildDraftTransactionRpcPayload(payload, {
+    normalizedSupplierInvoiceNumber,
+    sourceLocationId,
+    destinationLocationId,
+    supplierSnapshot,
+    productById,
   });
 
-  let { data: lineData, error: linesError } = await context.supabase
-    .from("inventory_transaction_lines")
-    .insert(lines)
-    .select("*");
+  const { data, error } = await context.supabase.rpc("rpc_save_inventory_draft", {
+    p_transaction_id: id,
+    p_transaction: rpcPayload.transaction,
+    p_lines: rpcPayload.lines,
+  });
 
-  if (isMissingSnapshotColumnError(linesError)) {
-    ({ data: lineData, error: linesError } = await context.supabase
-      .from("inventory_transaction_lines")
-      .insert(stripSnapshotFieldsFromRows(lines))
-      .select("*"));
+  if (error || !data) {
+    return serviceFail(400, error?.message ?? "Failed to update transaction.");
   }
 
-  if (linesError) {
-    return serviceFail(400, linesError.message);
-  }
-
-  return serviceOk(
-    {
-      id,
-      lines: lineData ?? [],
-    },
-    200,
-  );
+  return serviceOk(data as TransactionDraftRpcRecord, 200);
 }
 
 export async function deleteInventoryTransaction(context: AuthContext, id: string) {
@@ -432,28 +344,18 @@ export async function deleteInventoryTransaction(context: AuthContext, id: strin
     return serviceFail(409, "Only DRAFT transactions can be deleted.");
   }
 
-  const { error: deleteLinesError } = await context.supabase
-    .from("inventory_transaction_lines")
-    .delete()
-    .eq("transaction_id", id);
+  const { error } = await context.supabase.rpc("rpc_delete_inventory_draft", {
+    p_transaction_id: id,
+  });
 
-  if (deleteLinesError) {
-    return serviceFail(400, deleteLinesError.message);
-  }
-
-  const { error: deleteTransactionError } = await context.supabase
-    .from("inventory_transactions")
-    .delete()
-    .eq("id", id);
-
-  if (deleteTransactionError) {
-    return serviceFail(400, deleteTransactionError.message);
+  if (error) {
+    return serviceFail(400, error.message);
   }
 
   return serviceOk({ success: true });
 }
 
-export async function submitInventoryTransaction(context: AuthContext, id: string) {
+export async function postInventoryTransaction(context: AuthContext, id: string) {
   const { data: transaction, error: findError } = await context.supabase
     .from("inventory_transactions")
     .select("id, status, source_location_id, destination_location_id")
@@ -464,10 +366,7 @@ export async function submitInventoryTransaction(context: AuthContext, id: strin
     return serviceFail(findError ? 404 : 404, findError?.message ?? "Transaction not found.");
   }
 
-  const sourceError = assertLocationAccess(
-    context,
-    transaction.source_location_id as string | null,
-  );
+  const sourceError = assertLocationAccess(context, transaction.source_location_id);
   if (sourceError) {
     return serviceFail(
       sourceError.status,
@@ -477,7 +376,7 @@ export async function submitInventoryTransaction(context: AuthContext, id: strin
 
   const destinationError = assertLocationAccess(
     context,
-    transaction.destination_location_id as string | null,
+    transaction.destination_location_id,
   );
   if (destinationError) {
     return serviceFail(
@@ -490,52 +389,32 @@ export async function submitInventoryTransaction(context: AuthContext, id: strin
   }
 
   if (transaction.status !== "DRAFT") {
-    return serviceFail(409, "Only DRAFT transactions can be submitted.");
+    return serviceFail(409, "Only DRAFT transactions can be posted.");
   }
 
-  const { data, error } = await context.supabase
-    .from("inventory_transactions")
-    .update({
-      status: "SUBMITTED",
-      submitted_by: context.user.id,
-      submitted_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-    .select("*")
-    .single();
+  const { data, error } = await context.supabase.rpc("rpc_finalize_inventory_transaction", {
+    p_transaction_id: id,
+  });
 
   if (error) {
     return serviceFail(400, error.message);
   }
 
-  return serviceOk(data);
+  return serviceOk({ success: true, result: data });
 }
 
-export async function postInventoryTransaction(context: AuthContext, id: string) {
-  const selectTransaction = (includeSnapshots: boolean) =>
-    context.supabase
-      .from("inventory_transactions")
-      .select(
-        includeSnapshots
-          ? TRANSACTION_POST_SELECT_WITH_SNAPSHOTS
-          : TRANSACTION_POST_SELECT_LEGACY,
-      )
-      .eq("id", id)
-      .single();
+export async function unpostInventoryTransaction(context: AuthContext, id: string) {
+  const { data: transaction, error: findError } = await context.supabase
+    .from("inventory_transactions")
+    .select("id, status, source_location_id, destination_location_id")
+    .eq("id", id)
+    .single<TransactionLookupRow>();
 
-  let { data: transaction, error: findError } = await selectTransaction(true);
-  let typedTransaction = transaction as TransactionPostRecord | null;
-
-  if (isMissingSnapshotColumnError(findError)) {
-    ({ data: transaction, error: findError } = await selectTransaction(false));
-    typedTransaction = transaction as TransactionPostRecord | null;
-  }
-
-  if (findError || !typedTransaction) {
+  if (findError || !transaction) {
     return serviceFail(findError ? 404 : 404, findError?.message ?? "Transaction not found.");
   }
 
-  const sourceError = assertLocationAccess(context, typedTransaction.source_location_id);
+  const sourceError = assertLocationAccess(context, transaction.source_location_id);
   if (sourceError) {
     return serviceFail(
       sourceError.status,
@@ -545,7 +424,7 @@ export async function postInventoryTransaction(context: AuthContext, id: string)
 
   const destinationError = assertLocationAccess(
     context,
-    typedTransaction.destination_location_id,
+    transaction.destination_location_id,
   );
   if (destinationError) {
     return serviceFail(
@@ -557,84 +436,16 @@ export async function postInventoryTransaction(context: AuthContext, id: string)
     );
   }
 
-  if (typedTransaction.status !== "SUBMITTED") {
-    return serviceFail(409, "Only SUBMITTED transactions can be posted.");
+  if (transaction.status !== "POSTED") {
+    return serviceFail(409, "Only POSTED transactions can be unposted.");
   }
 
-  const { data, error } = await context.supabase.rpc("rpc_post_transaction", {
+  const { data, error } = await context.supabase.rpc("rpc_unpost_transaction", {
     p_transaction_id: id,
   });
 
   if (error) {
     return serviceFail(400, error.message);
-  }
-
-  const isSupplierDocumentType =
-    typedTransaction.type === "RECEIPT" || typedTransaction.type === "RETURN_OUT";
-  if (
-    isSupplierDocumentType &&
-    typedTransaction.supplier_id &&
-    typedTransaction.supplier_invoice_number
-  ) {
-    const { data: lines, error: linesError } = await context.supabase
-      .from("inventory_transaction_lines")
-      .select("qty, unit_cost")
-      .eq("transaction_id", id);
-
-    if (linesError) {
-      return serviceFail(400, linesError.message);
-    }
-
-    const grossAmount = (lines ?? []).reduce(
-      (sum, line: { qty: number; unit_cost: number | null }) =>
-        sum + Number(line.qty ?? 0) * Number(line.unit_cost ?? 0),
-      0,
-    );
-
-    const locationId =
-      typedTransaction.type === "RECEIPT"
-        ? typedTransaction.destination_location_id
-        : typedTransaction.source_location_id;
-    if (!locationId) {
-      return serviceFail(409, "Supplier document location is missing.");
-    }
-
-    const documentType =
-      typedTransaction.type === "RECEIPT" ? "INVOICE" : "CREDIT_NOTE";
-    const documentDate =
-      typedTransaction.supplier_invoice_date ??
-      String(typedTransaction.created_at ?? "").slice(0, 10);
-
-    const supplierDocument = {
-      supplier_id: typedTransaction.supplier_id,
-      supplier_code_snapshot: typedTransaction.supplier_code_snapshot ?? null,
-      supplier_name_snapshot: typedTransaction.supplier_name_snapshot ?? null,
-      location_id: locationId,
-      source_transaction_id: typedTransaction.id,
-      document_type: documentType,
-      document_number: typedTransaction.supplier_invoice_number,
-      document_date: documentDate,
-      currency: "KWD",
-      gross_amount: grossAmount,
-      status: "OPEN",
-      created_by: context.user.id,
-    };
-
-    let { error: documentError } = await context.supabase
-      .from("supplier_documents")
-      .upsert(supplierDocument, { onConflict: "source_transaction_id" });
-
-    if (isMissingSnapshotColumnError(documentError)) {
-      ({ error: documentError } = await context.supabase
-        .from("supplier_documents")
-        .upsert(stripSnapshotFields(supplierDocument), {
-          onConflict: "source_transaction_id",
-        }));
-    }
-
-    if (documentError) {
-      return serviceFail(400, documentError.message);
-    }
   }
 
   return serviceOk({ success: true, result: data });

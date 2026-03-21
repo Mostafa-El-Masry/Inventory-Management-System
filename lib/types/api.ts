@@ -1,4 +1,5 @@
 import type { MasterPermissions } from "@/lib/master-permissions";
+import type { SystemCurrencyCode } from "@/lib/settings/system-currency";
 import type { ClearTransactionsCountKey } from "@/lib/settings/clear-transactions";
 
 export interface AuthCapabilities {
@@ -43,6 +44,11 @@ export interface SettingsTestActionResponse {
   failed_step?: string;
   error?: string;
   bootstrap_record?: SettingsTestRecordSummary | null;
+}
+
+export interface SystemSettingsResponse {
+  company_name: string;
+  currency_code: SystemCurrencyCode;
 }
 
 export interface TransactionLookupSummary {

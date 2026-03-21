@@ -28,6 +28,7 @@ import { TransactionRowActionsMenu } from "./transaction-row-actions-menu";
 import { useHistoryAutoRefresh } from "./use-history-auto-refresh";
 
 type TxStatus = "DRAFT" | "SUBMITTED" | "POSTED" | "REVERSED" | "CANCELLED";
+type InventoryStatusAction = "post" | "unpost";
 
 type TxLine = {
   id: string;
@@ -150,12 +151,14 @@ export function AdjustmentTransactionPage({
   detailBasePath,
   summaryHistory = false,
 }: Props) {
-  const { userId: authUserId } = useDashboardSession();
+  const { userId: authUserId, role } = useDashboardSession();
   const router = useRouter();
+  const canUnpost = role === "admin";
   const [transactions, setTransactions] = useState<Tx[]>([]);
   const [products, setProducts] = useState<Lookup[]>([]);
   const [locations, setLocations] = useState<Lookup[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [createLoading, setCreateLoading] = useState(false);
   const [stateLoading, setStateLoading] = useState(false);
   const [historyPage, setHistoryPage] = useState(1);
@@ -296,6 +299,7 @@ export function AdjustmentTransactionPage({
     event.preventDefault();
     setCreateLoading(true);
     setError(null);
+    setMessage(null);
 
     const formData = new FormData(event.currentTarget);
     const locationId = String(formData.get("location_id") ?? "");
@@ -339,12 +343,18 @@ export function AdjustmentTransactionPage({
 
     (event.currentTarget as HTMLFormElement).reset();
     await loadTransactions();
+    setMessage(
+      mode === "opening"
+        ? "Opening stock saved. Stock updated immediately."
+        : "Stock adjustment saved. Stock and cost updated immediately.",
+    );
     setCreateLoading(false);
   }
 
-  async function runAction(id: string, action: "submit" | "post") {
+  async function runAction(id: string, action: InventoryStatusAction) {
     setStateLoading(true);
     setError(null);
+    setMessage(null);
     const response = await fetch(`/api/transactions/${id}/${action}`, {
       method: "POST",
     });
@@ -355,6 +365,11 @@ export function AdjustmentTransactionPage({
       return;
     }
     await loadTransactions();
+    setMessage(
+      action === "post"
+        ? "Transaction finalized."
+        : "Transaction reopened. Stock remains applied.",
+    );
     setStateLoading(false);
   }
 
@@ -366,6 +381,7 @@ export function AdjustmentTransactionPage({
 
     setStateLoading(true);
     setError(null);
+    setMessage(null);
     const response = await fetch(`/api/transactions/${id}/reverse`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -390,6 +406,7 @@ export function AdjustmentTransactionPage({
       </header>
 
       {error ? <p className="ims-alert-danger">{error}</p> : null}
+      {message ? <p className="ims-alert-success">{message}</p> : null}
 
       <Card className="min-h-[18rem]">
         <h2 className="text-lg font-semibold">{createTitle}</h2>
@@ -436,7 +453,7 @@ export function AdjustmentTransactionPage({
           />
           <Input name="notes" placeholder="Notes" className="ims-control-lg md:col-span-3" />
           <Button type="submit" disabled={createLoading} className="ims-control-lg rounded-2xl">
-            {createLoading ? "Saving..." : "Create Draft"}
+            {createLoading ? "Saving..." : "Save Entry"}
           </Button>
         </form>
       </Card>
@@ -555,19 +572,23 @@ export function AdjustmentTransactionPage({
                     <td data-column-key="action">
                       <TransactionRowActionsMenu
                         actions={[
-                          {
-                            label: "Submit",
-                            disabled: stateLoading || tx.status !== "DRAFT",
-                            onSelect: () => runAction(tx.id, "submit"),
-                          },
-                          {
-                            label: "Post",
-                            disabled: stateLoading || tx.status !== "SUBMITTED",
-                            onSelect: () => runAction(tx.id, "post"),
-                          },
-                          {
-                            label: "Reverse",
-                            disabled: stateLoading || tx.status !== "POSTED",
+                        {
+                          label: "Post",
+                          disabled: stateLoading || tx.status !== "DRAFT",
+                          onSelect: () => runAction(tx.id, "post"),
+                        },
+                        ...(canUnpost
+                          ? [
+                              {
+                                label: "Unpost",
+                                disabled: stateLoading || tx.status !== "POSTED",
+                                onSelect: () => runAction(tx.id, "unpost"),
+                              },
+                            ]
+                          : []),
+                        {
+                          label: "Reverse",
+                          disabled: stateLoading || tx.status !== "POSTED",
                             tone: "danger",
                             onSelect: () => reverse(tx.id),
                           },

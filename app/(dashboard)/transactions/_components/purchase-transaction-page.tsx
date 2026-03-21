@@ -31,6 +31,10 @@ import {
 } from "@/components/master/use-master-columns";
 import type { ExportColumn } from "@/lib/export/contracts";
 import { MAIN_WAREHOUSE_NAME } from "@/lib/locations/main-warehouse-constants";
+import {
+  formatSystemCurrency,
+  type SystemCurrencyCode,
+} from "@/lib/settings/system-currency";
 
 import { fetchAllHistoryItems } from "./fetch-all-history-items";
 import { TransactionListSettingsMenu } from "./transaction-list-settings-menu";
@@ -40,6 +44,7 @@ import { useHistoryAutoRefresh } from "./use-history-auto-refresh";
 type TxStatus = "DRAFT" | "SUBMITTED" | "POSTED" | "REVERSED" | "CANCELLED";
 type PurchaseTransactionViewMode = "combined" | "history" | "create";
 type PurchaseHeaderActionKind = "create" | "back";
+type InventoryStatusAction = "post" | "unpost";
 
 type TxLine = {
   id: string;
@@ -96,8 +101,8 @@ type PurchaseHistoryColumnKey =
 
 const PURCHASE_HISTORY_SUMMARY_DEFAULT_COLUMN_ORDER: readonly PurchaseHistoryColumnKey[] = [
   "number",
-  "voucherDate",
   "supplier",
+  "voucherDate",
   "amount",
   "status",
   "location",
@@ -109,7 +114,7 @@ const PURCHASE_HISTORY_SUMMARY_DEFAULT_COLUMN_ORDER: readonly PurchaseHistoryCol
 const PURCHASE_HISTORY_SUMMARY_DEFAULT_COLUMN_VISIBILITY =
   buildDefaultColumnVisibility<PurchaseHistoryColumnKey>(
     PURCHASE_HISTORY_SUMMARY_DEFAULT_COLUMN_ORDER,
-    ["number", "voucherDate", "supplier", "amount", "status", "location"],
+    ["number", "supplier", "voucherDate", "amount", "status"],
   );
 
 const PURCHASE_HISTORY_DETAIL_DEFAULT_COLUMN_ORDER: readonly PurchaseHistoryColumnKey[] = [
@@ -319,6 +324,7 @@ function PurchaseTransactionCreateSection({
   locations,
   products,
   createLoading,
+  submitLabel,
   locationLabel,
   fixedLocationName,
   onSubmit,
@@ -328,6 +334,7 @@ function PurchaseTransactionCreateSection({
   locations: Lookup[];
   products: Lookup[];
   createLoading: boolean;
+  submitLabel: string;
   locationLabel: string;
   fixedLocationName?: string | null;
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
@@ -397,7 +404,7 @@ function PurchaseTransactionCreateSection({
         />
         <Input name="notes" placeholder="Notes" className="ims-control-lg md:col-span-4" />
         <Button type="submit" disabled={createLoading} className="ims-control-lg rounded-2xl">
-          {createLoading ? "Saving..." : "Create Draft"}
+          {createLoading ? "Saving..." : submitLabel}
         </Button>
       </form>
     </Card>
@@ -428,6 +435,8 @@ function PurchaseTransactionHistorySection({
   onResetColumns,
   onRunAction,
   onReverse,
+  canUnpost,
+  currencyCode,
 }: {
   historyTitle: string;
   transactions: Tx[];
@@ -450,10 +459,16 @@ function PurchaseTransactionHistorySection({
   onToggleColumn: (columnKey: PurchaseHistoryColumnKey) => void;
   onMoveColumn: (columnKey: PurchaseHistoryColumnKey, direction: -1 | 1) => void;
   onResetColumns: () => void;
-  onRunAction: (id: string, action: "submit" | "post") => Promise<void>;
+  onRunAction: (id: string, action: InventoryStatusAction) => Promise<void>;
   onReverse: (id: string) => Promise<void>;
+  canUnpost: boolean;
+  currencyCode: SystemCurrencyCode;
 }) {
   const router = useRouter();
+  const tableWrapperClassName = summaryHistory
+    ? "mt-4 max-h-[32rem] overflow-y-auto overflow-x-hidden"
+    : "mt-4 max-h-[32rem] overflow-auto";
+  const tableClassName = summaryHistory ? "ims-table w-full" : "ims-table ims-master-table";
   const pagination = useMemo(
     () => paginateRows(transactions, rowLimit, currentPage),
     [currentPage, rowLimit, transactions],
@@ -493,8 +508,8 @@ function PurchaseTransactionHistorySection({
           />
         </div>
       </div>
-      <div className="mt-4 max-h-[32rem] overflow-auto">
-        <table className="ims-table ims-master-table">
+      <div className={tableWrapperClassName}>
+        <table className={tableClassName}>
           <thead className="ims-table-head">
             <tr>
               {visibleColumns.map((column) => (
@@ -559,7 +574,10 @@ function PurchaseTransactionHistorySection({
                         ? formatSupplierName(tx, supplierById)
                         : null}
                       {column.key === "amount"
-                        ? formatTransactionMoney(getTransactionTotalAmount(tx))
+                        ? formatSystemCurrency(
+                            getTransactionTotalAmount(tx),
+                            currencyCode,
+                          )
                         : null}
                       {column.key === "status" ? tx.status : null}
                       {column.key === "location"
@@ -586,15 +604,19 @@ function PurchaseTransactionHistorySection({
                     <TransactionRowActionsMenu
                       actions={[
                         {
-                          label: "Submit",
-                          disabled: stateLoading || tx.status !== "DRAFT",
-                          onSelect: () => onRunAction(tx.id, "submit"),
-                        },
-                        {
                           label: "Post",
-                          disabled: stateLoading || tx.status !== "SUBMITTED",
+                          disabled: stateLoading || tx.status !== "DRAFT",
                           onSelect: () => onRunAction(tx.id, "post"),
                         },
+                        ...(canUnpost
+                          ? [
+                              {
+                                label: "Unpost",
+                                disabled: stateLoading || tx.status !== "POSTED",
+                                onSelect: () => onRunAction(tx.id, "unpost"),
+                              },
+                            ]
+                          : []),
                         {
                           label: "Reverse",
                           disabled: stateLoading || tx.status !== "POSTED",
@@ -637,7 +659,8 @@ export function PurchaseTransactionPage({
   detailBasePath,
   summaryHistory = false,
 }: Props) {
-  const { userId: authUserId } = useDashboardSession();
+  const { userId: authUserId, role, currencyCode } = useDashboardSession();
+  const canUnpost = role === "admin";
   const [transactions, setTransactions] = useState<Tx[]>([]);
   const [products, setProducts] = useState<Lookup[]>([]);
   const [locations, setLocations] = useState<Lookup[]>([]);
@@ -689,7 +712,7 @@ export function PurchaseTransactionPage({
     resetColumnPreferences: resetHistoryColumnPreferences,
   } = useMasterColumns({
     userId: authUserId,
-    storageKey: `ims:${transactionType.toLowerCase()}:history:columns:v2:${authUserId}`,
+    storageKey: `ims:${transactionType.toLowerCase()}:history:columns:v4:${authUserId}`,
     columns: historyColumns,
     defaultOrder: historyDefaultOrder,
     defaultVisibility: historyDefaultVisibility,
@@ -698,8 +721,18 @@ export function PurchaseTransactionPage({
   const createSuccessMessage =
     successMessage ??
     (transactionType === "RETURN_OUT"
-      ? "Purchase return draft created."
-      : "Purchase draft created.");
+      ? "Purchase return saved. Stock updated immediately."
+      : "Purchase saved. Stock and cost updated immediately.");
+  const createSubmitLabel =
+    transactionType === "RETURN_OUT" ? "Save Return" : "Save Purchase";
+  const finalizedMessage =
+    transactionType === "RETURN_OUT"
+      ? "Purchase return finalized."
+      : "Purchase finalized.";
+  const reopenedMessage =
+    transactionType === "RETURN_OUT"
+      ? "Purchase return reopened. Stock remains applied."
+      : "Purchase reopened. Stock and cost remain applied.";
   const showCreateSection = viewMode !== "history";
   const showHistorySection = viewMode !== "create";
   const fixedLocationName =
@@ -895,7 +928,7 @@ export function PurchaseTransactionPage({
     setCreateLoading(false);
   }
 
-  async function runAction(id: string, action: "submit" | "post") {
+  async function runAction(id: string, action: InventoryStatusAction) {
     setStateLoading(true);
     setError(null);
     setMessage(null);
@@ -909,6 +942,7 @@ export function PurchaseTransactionPage({
       return;
     }
     await loadTransactions();
+    setMessage(action === "post" ? finalizedMessage : reopenedMessage);
     setStateLoading(false);
   }
 
@@ -954,6 +988,7 @@ export function PurchaseTransactionPage({
           locations={locations}
           products={products}
           createLoading={createLoading}
+          submitLabel={createSubmitLabel}
           locationLabel={locationLabel}
           fixedLocationName={fixedLocationName}
           onSubmit={createTransaction}
@@ -985,6 +1020,8 @@ export function PurchaseTransactionPage({
           onResetColumns={resetHistoryColumnPreferences}
           onRunAction={runAction}
           onReverse={reverse}
+          canUnpost={canUnpost}
+          currencyCode={currencyCode}
         />
       ) : null}
     </div>

@@ -5,8 +5,8 @@ export default function OpeningStockPage() {
     <AdjustmentTransactionPage
       mode="opening"
       headerTitle="Opening Stock"
-      headerSubtitle="Add opening balances into inventory."
-      createTitle="Create Opening Stock (single-line quick entry)"
+      headerSubtitle="Save opening balances to update stock immediately, then post to finalize them."
+      createTitle="Save Opening Stock (single-line quick entry)"
       historyTitle="Opening Stock History"
       detailBasePath="/transactions/opening-stock"
       summaryHistory

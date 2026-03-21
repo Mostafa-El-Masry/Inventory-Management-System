@@ -5,16 +5,14 @@ const {
   assertRoleMock,
   fromMock,
   selectMock,
-  eqMock,
-  maybeSingleMock,
+  inMock,
   upsertMock,
 } = vi.hoisted(() => ({
   getAuthContextMock: vi.fn(),
   assertRoleMock: vi.fn(),
   fromMock: vi.fn(),
   selectMock: vi.fn(),
-  eqMock: vi.fn(),
-  maybeSingleMock: vi.fn(),
+  inMock: vi.fn(),
   upsertMock: vi.fn(),
 }));
 
@@ -31,8 +29,7 @@ describe("Settings API", () => {
     assertRoleMock.mockReset();
     fromMock.mockReset();
     selectMock.mockReset();
-    eqMock.mockReset();
-    maybeSingleMock.mockReset();
+    inMock.mockReset();
     upsertMock.mockReset();
 
     getAuthContextMock.mockResolvedValue({
@@ -48,16 +45,16 @@ describe("Settings API", () => {
     assertRoleMock.mockReturnValue(null);
   });
 
-  it("GET returns company name", async () => {
-    maybeSingleMock.mockResolvedValue({
-      data: { value_text: "ICE Trading" },
+  it("GET returns company name and currency code", async () => {
+    inMock.mockResolvedValue({
+      data: [
+        { key: "company_name", value_text: "ICE Trading" },
+        { key: "currency_code", value_text: "USD" },
+      ],
       error: null,
     });
-    eqMock.mockReturnValue({
-      maybeSingle: maybeSingleMock,
-    });
     selectMock.mockReturnValue({
-      eq: eqMock,
+      in: inMock,
     });
     fromMock.mockReturnValue({
       select: selectMock,
@@ -68,10 +65,32 @@ describe("Settings API", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       company_name: "ICE Trading",
+      currency_code: "USD",
     });
   });
 
-  it("POST updates company name for admin", async () => {
+  it("GET falls back to KWD when currency is missing", async () => {
+    inMock.mockResolvedValue({
+      data: [{ key: "company_name", value_text: "ICE Trading" }],
+      error: null,
+    });
+    selectMock.mockReturnValue({
+      in: inMock,
+    });
+    fromMock.mockReturnValue({
+      select: selectMock,
+    });
+
+    const response = await GET();
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      company_name: "ICE Trading",
+      currency_code: "KWD",
+    });
+  });
+
+  it("POST updates company name and currency for admin", async () => {
     upsertMock.mockResolvedValue({ error: null });
     fromMock.mockReturnValue({
       upsert: upsertMock,
@@ -80,17 +99,26 @@ describe("Settings API", () => {
     const response = await POST(
       new Request("https://app.example.com/api/settings", {
         method: "POST",
-        body: JSON.stringify({ company_name: "Casa Spa Group" }),
+        body: JSON.stringify({
+          company_name: "Casa Spa Group",
+          currency_code: "EGP",
+        }),
         headers: { "Content-Type": "application/json" },
       }),
     );
 
     expect(response.status).toBe(200);
     expect(upsertMock).toHaveBeenCalledWith(
-      {
-        key: "company_name",
-        value_text: "Casa Spa Group",
-      },
+      [
+        {
+          key: "company_name",
+          value_text: "Casa Spa Group",
+        },
+        {
+          key: "currency_code",
+          value_text: "EGP",
+        },
+      ],
       { onConflict: "key" },
     );
   });
@@ -106,11 +134,30 @@ describe("Settings API", () => {
     const response = await POST(
       new Request("https://app.example.com/api/settings", {
         method: "POST",
-        body: JSON.stringify({ company_name: "Casa Spa Group" }),
+        body: JSON.stringify({
+          company_name: "Casa Spa Group",
+          currency_code: "KWD",
+        }),
         headers: { "Content-Type": "application/json" },
       }),
     );
 
     expect(response.status).toBe(403);
+  });
+
+  it("POST rejects unsupported currency codes", async () => {
+    const response = await POST(
+      new Request("https://app.example.com/api/settings", {
+        method: "POST",
+        body: JSON.stringify({
+          company_name: "Casa Spa Group",
+          currency_code: "AED",
+        }),
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    expect(response.status).toBe(422);
+    expect(upsertMock).not.toHaveBeenCalled();
   });
 });

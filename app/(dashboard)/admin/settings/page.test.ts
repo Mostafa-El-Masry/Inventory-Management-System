@@ -4,27 +4,35 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createFullMasterPermissions } from "@/lib/master-permissions";
 
-const { useDashboardSessionMock } = vi.hoisted(() => ({
+const { useDashboardSessionMock, useSearchParamsMock } = vi.hoisted(() => ({
   useDashboardSessionMock: vi.fn(),
+  useSearchParamsMock: vi.fn(),
 }));
 
 vi.mock("@/components/layout/dashboard-session-provider", () => ({
   useDashboardSession: useDashboardSessionMock,
 }));
 
+vi.mock("next/navigation", () => ({
+  useSearchParams: useSearchParamsMock,
+}));
+
 import AdminSettingsPage from "@/app/(dashboard)/admin/settings/page";
 
 function renderPage(initialTab?: "branding" | "test") {
+  useSearchParamsMock.mockReturnValue({
+    get: (key: string) => (key === "tab" ? initialTab ?? null : null),
+  });
+
   return renderToStaticMarkup(
-    React.createElement(AdminSettingsPage, {
-      initialTab,
-    }),
+    React.createElement(AdminSettingsPage),
   );
 }
 
 describe("AdminSettingsPage", () => {
   beforeEach(() => {
     useDashboardSessionMock.mockReset();
+    useSearchParamsMock.mockReset();
   });
 
   it("shows the Test tab for admins", () => {
@@ -45,12 +53,17 @@ describe("AdminSettingsPage", () => {
       },
       locationIds: [],
       companyName: "ICE",
+      currencyCode: "KWD",
     });
 
     const markup = renderPage();
 
     expect(markup).toContain("Branding");
     expect(markup).toContain("Test");
+    expect(markup).toContain("System currency");
+    expect(markup).toContain(">KWD<");
+    expect(markup).toContain(">USD<");
+    expect(markup).toContain(">EGP<");
   });
 
   it("renders one-click test cards instead of manual inputs", () => {
@@ -71,6 +84,7 @@ describe("AdminSettingsPage", () => {
       },
       locationIds: [],
       companyName: "ICE",
+      currencyCode: "KWD",
     });
 
     const markup = renderPage();
@@ -99,6 +113,7 @@ describe("AdminSettingsPage", () => {
       },
       locationIds: [],
       companyName: "ICE",
+      currencyCode: "KWD",
     });
 
     const markup = renderPage("test");
@@ -127,6 +142,7 @@ describe("AdminSettingsPage", () => {
       },
       locationIds: [],
       companyName: "ICE",
+      currencyCode: "KWD",
     });
 
     const markup = renderPage();

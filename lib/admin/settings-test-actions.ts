@@ -13,7 +13,6 @@ import type {
 import {
   createInventoryTransaction,
   postInventoryTransaction,
-  submitInventoryTransaction,
 } from "@/lib/transactions/mutations";
 import {
   approveTransfer,
@@ -490,7 +489,6 @@ async function runInventoryTransactionLifecycle(
   },
 ): Promise<InventoryLifecycleResult> {
   const createStep = buildStepName(stepPrefix, "create");
-  const submitStep = buildStepName(stepPrefix, "submit");
   const postStep = buildStepName(stepPrefix, "post");
   const stepsCompleted: string[] = [];
 
@@ -527,30 +525,12 @@ async function runInventoryTransactionLifecycle(
   });
   stepsCompleted.push(createStep);
 
-  const submitted = await submitInventoryTransaction(context, createdRecord.id);
-  if (!submitted.ok) {
-    return {
-      ok: false,
-      status: 207,
-      record: createdRecord,
-      steps_completed: stepsCompleted,
-      failed_step: submitStep,
-      error: submitted.error,
-    };
-  }
-
-  const submittedRecord: SettingsTestRecordSummary = {
-    ...createdRecord,
-    status: String((submitted.data as { status?: string }).status ?? "SUBMITTED"),
-  };
-  stepsCompleted.push(submitStep);
-
   const posted = await postInventoryTransaction(context, createdRecord.id);
   if (!posted.ok) {
     return {
       ok: false,
       status: 207,
-      record: submittedRecord,
+      record: createdRecord,
       steps_completed: stepsCompleted,
       failed_step: postStep,
       error: posted.error,
@@ -562,7 +542,7 @@ async function runInventoryTransactionLifecycle(
   return {
     ok: true,
     record: {
-      ...submittedRecord,
+      ...createdRecord,
       status: "POSTED",
     },
     steps_completed: stepsCompleted,

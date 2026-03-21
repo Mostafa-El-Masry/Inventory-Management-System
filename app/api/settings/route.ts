@@ -1,4 +1,9 @@
 import { assertRole, getAuthContext } from "@/lib/auth/permissions";
+import {
+  DEFAULT_SYSTEM_CURRENCY_CODE,
+  SYSTEM_CURRENCY_SETTING_KEY,
+  normalizeSystemCurrencyCode,
+} from "@/lib/settings/system-currency";
 import { systemSettingsUpdateSchema } from "@/lib/validation";
 import { fail, ok, parseBody } from "@/lib/utils/http";
 
@@ -17,18 +22,28 @@ export async function GET() {
 
   const { data, error } = await context.supabase
     .from("system_settings")
-    .select("value_text")
-    .eq("key", COMPANY_NAME_KEY)
-    .maybeSingle();
+    .select("key, value_text")
+    .in("key", [COMPANY_NAME_KEY, SYSTEM_CURRENCY_SETTING_KEY]);
 
   if (error) {
     return fail(error.message, 400);
   }
 
-  const companyName = normalizeCompanyName(data?.value_text) || DEFAULT_COMPANY_NAME;
+  const settingsByKey = new Map(
+    ((data ?? []) as Array<{ key: string; value_text: string | null }>).map((row) => [
+      row.key,
+      row.value_text,
+    ]),
+  );
+  const companyName =
+    normalizeCompanyName(settingsByKey.get(COMPANY_NAME_KEY)) || DEFAULT_COMPANY_NAME;
+  const currencyCode =
+    normalizeSystemCurrencyCode(settingsByKey.get(SYSTEM_CURRENCY_SETTING_KEY)) ??
+    DEFAULT_SYSTEM_CURRENCY_CODE;
 
   return ok({
     company_name: companyName,
+    currency_code: currencyCode,
   });
 }
 
@@ -49,15 +64,22 @@ export async function POST(request: Request) {
   }
 
   const companyName = normalizeCompanyName(payload.data.company_name);
+  const currencyCode = normalizeSystemCurrencyCode(payload.data.currency_code);
   if (companyName.length < 2) {
     return fail("Company name must be at least 2 characters.", 422);
   }
 
   const { error } = await context.supabase.from("system_settings").upsert(
-    {
-      key: COMPANY_NAME_KEY,
-      value_text: companyName,
-    },
+    [
+      {
+        key: COMPANY_NAME_KEY,
+        value_text: companyName,
+      },
+      {
+        key: SYSTEM_CURRENCY_SETTING_KEY,
+        value_text: currencyCode,
+      },
+    ],
     { onConflict: "key" },
   );
 
@@ -67,5 +89,6 @@ export async function POST(request: Request) {
 
   return ok({
     company_name: companyName,
+    currency_code: currencyCode,
   });
 }

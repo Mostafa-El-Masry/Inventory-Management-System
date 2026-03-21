@@ -4,8 +4,8 @@ export default function PurchaseReturnPage() {
   return (
     <PurchaseTransactionPage
       headerTitle="Purchase Return"
-      headerSubtitle="Create and post purchase return transactions."
-      createTitle="Create Purchase Return (single-line quick entry)"
+      headerSubtitle="Save purchase returns to update stock immediately, then post to finalize them."
+      createTitle="Save Purchase Return (single-line quick entry)"
       historyTitle="Purchase Return History"
       transactionType="RETURN_OUT"
       locationLabel="Source location"

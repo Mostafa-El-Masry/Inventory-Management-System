@@ -33,7 +33,11 @@ This folder contains the full database implementation for the Inventory Manageme
 
 The following SQL functions are used by API routes:
 
+- `rpc_save_inventory_draft(p_transaction_id uuid, p_transaction jsonb, p_lines jsonb)`
+- `rpc_delete_inventory_draft(p_transaction_id uuid)`
+- `rpc_finalize_inventory_transaction(p_transaction_id uuid)`
 - `rpc_post_transaction(p_transaction_id uuid)`
+- `rpc_unpost_transaction(p_transaction_id uuid)`
 - `rpc_reverse_transaction(p_transaction_id uuid, p_reason text)`
 - `rpc_dispatch_transfer(p_transfer_id uuid)`
 - `rpc_receive_transfer(p_transfer_id uuid)`
@@ -43,7 +47,9 @@ The following SQL functions are used by API routes:
 ## Notes
 
 - Quantities are integer-only.
-- Transaction history is immutable once posted.
+- Saving a `DRAFT` inventory transaction applies stock and cost effects immediately.
+- `Post` finalizes a live draft without moving stock again.
+- Posted transactions can be reopened to `DRAFT` by admins only.
 - Corrections are done through reversal entries.
-- FEFO batch consumption is enforced during outbound posting.
+- FEFO batch consumption is enforced whenever outbound stock effects are applied.
 - Transfer receive requires full match with dispatched quantity in v1.

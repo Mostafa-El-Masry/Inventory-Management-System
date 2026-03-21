@@ -1,4 +1,9 @@
 import { assertRole, getAuthContext } from "@/lib/auth/permissions";
+import {
+  loadSystemCurrencyCode,
+  roundSystemCurrencyValue,
+  type SystemSettingsReader,
+} from "@/lib/settings/system-currency";
 import { isMissingSnapshotColumnError } from "@/lib/supabase/snapshot-schema-compat";
 import {
   deleteInventoryTransaction,
@@ -96,6 +101,9 @@ export async function GET(
   }
 
   const { id } = await params;
+  const currencyCode = await loadSystemCurrencyCode(
+    context.supabase as unknown as SystemSettingsReader,
+  );
 
   const buildQuery = (includeSnapshots: boolean) =>
     context.supabase
@@ -212,7 +220,10 @@ export async function GET(
         expiry_date: normalizeDisplayValue(line.expiry_date),
         unit_cost: unitCost,
         reason_code: normalizeDisplayValue(line.reason_code),
-        line_total: unitCost == null ? null : Number((qty * unitCost).toFixed(2)),
+        line_total:
+          unitCost == null
+            ? null
+            : roundSystemCurrencyValue(qty * unitCost, currencyCode),
       };
     },
   );
@@ -251,10 +262,9 @@ export async function GET(
       : null,
     lines,
     total_qty: lines.reduce((total, line) => total + line.qty, 0),
-    total_cost: Number(
-      lines
-        .reduce((total, line) => total + Number(line.line_total ?? 0), 0)
-        .toFixed(2),
+    total_cost: roundSystemCurrencyValue(
+      lines.reduce((total, line) => total + Number(line.line_total ?? 0), 0),
+      currencyCode,
     ),
   };
 

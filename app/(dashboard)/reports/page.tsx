@@ -11,6 +11,7 @@ import { FilterPopover } from "@/components/ui/filter-popover";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import type { ExportColumn } from "@/lib/export/contracts";
+import { formatSystemCurrency } from "@/lib/settings/system-currency";
 import {
   buildFilterStorageKey,
   readLocalFilterState,
@@ -212,14 +213,14 @@ function getCurrentMonthRange() {
   };
 }
 
-function formatMoney(value: number) {
-  return value.toFixed(2);
-}
-
 const monthDefaults = getCurrentMonthRange();
 
 export default function ReportsPage() {
-  const { companyName, userId: authUserId } = useDashboardSession();
+  const { companyName, userId: authUserId, currencyCode } = useDashboardSession();
+  const formatMoney = useCallback(
+    (value: number | null | undefined) => formatSystemCurrency(value, currencyCode),
+    [currencyCode],
+  );
   const [activeTab, setActiveTab] = useState<ReportTab>("stock-summary");
   const [filtersHydrated, setFiltersHydrated] = useState(false);
   const [statementRestorePending, setStatementRestorePending] = useState(false);

@@ -2,6 +2,7 @@
 
 import { ReactNode, createContext, useContext } from "react";
 
+import type { SystemCurrencyCode } from "@/lib/settings/system-currency";
 import { AuthCapabilities } from "@/lib/types/api";
 import { Role } from "@/lib/types/domain";
 
@@ -11,6 +12,7 @@ export type DashboardSession = {
   capabilities: AuthCapabilities;
   locationIds: string[];
   companyName: string;
+  currencyCode: SystemCurrencyCode;
 };
 
 const DashboardSessionContext = createContext<DashboardSession | null>(null);

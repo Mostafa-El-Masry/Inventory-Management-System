@@ -1,25 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Card } from "@/components/ui/card";
 import { useDashboardSession } from "@/components/layout/dashboard-session-provider";
+import { formatSystemCurrency } from "@/lib/settings/system-currency";
 import type { TransactionDetailResponse, TransactionLineDetail } from "@/lib/types/api";
 import { fetchJson } from "@/lib/utils/fetch-json";
-
-function formatMoney(value: number | null | undefined) {
-  if (value == null || !Number.isFinite(value)) {
-    return "--";
-  }
-
-  return new Intl.NumberFormat("en-KW", {
-    style: "currency",
-    currency: "KWD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
 
 function formatDate(value: string | null | undefined) {
   if (!value) {
@@ -83,10 +71,14 @@ export function PurchaseTransactionDetailPage({
   allowedTypes: string[];
   adjustmentMode?: "opening" | "adjustment";
 }) {
-  const { companyName } = useDashboardSession();
+  const { companyName, currencyCode } = useDashboardSession();
   const [data, setData] = useState<TransactionDetailResponse["item"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const formatMoney = useCallback(
+    (value: number | null | undefined) => formatSystemCurrency(value, currencyCode),
+    [currencyCode],
+  );
 
   useEffect(() => {
     const controller = new AbortController();

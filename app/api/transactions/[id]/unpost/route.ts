@@ -1,5 +1,5 @@
 import { assertRole, getAuthContext } from "@/lib/auth/permissions";
-import { submitInventoryTransaction } from "@/lib/transactions/mutations";
+import { unpostInventoryTransaction } from "@/lib/transactions/mutations";
 import { fail, ok } from "@/lib/utils/http";
 
 export async function POST(
@@ -11,13 +11,13 @@ export async function POST(
     return context;
   }
 
-  const roleError = assertRole(context, ["admin", "manager", "staff"]);
+  const roleError = assertRole(context, ["admin"]);
   if (roleError) {
     return roleError;
   }
 
   const { id } = await params;
-  const result = await submitInventoryTransaction(context, id);
+  const result = await unpostInventoryTransaction(context, id);
   if (!result.ok) {
     return fail(result.error, result.status);
   }
