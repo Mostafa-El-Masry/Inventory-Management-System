@@ -141,17 +141,22 @@ describe("purchase invoice draft helpers", () => {
     expect(result.lines?.[0]?.unit_cost).toBe(4.125);
   });
 
-  it("rejects more than two decimal places for USD and EGP costs", () => {
+  it("rounds extra precision to the allowed currency scale", () => {
     const usdResult = buildPurchaseDraftPayloadLines([
       buildRow({ unitCost: "4.125" }),
     ], "USD");
     const egpResult = buildPurchaseDraftPayloadLines([
       buildRow({ unitCost: "4.125" }),
     ], "EGP");
+    const kwdResult = buildPurchaseDraftPayloadLines([
+      buildRow({ unitCost: "4.1256" }),
+    ], "KWD");
 
-    expect(usdResult.error).toBe("Cost can have at most 2 decimal places for USD.");
-    expect(usdResult.lines).toBeNull();
-    expect(egpResult.error).toBe("Cost can have at most 2 decimal places for EGP.");
-    expect(egpResult.lines).toBeNull();
+    expect(usdResult.error).toBeNull();
+    expect(usdResult.lines?.[0]?.unit_cost).toBe(4.13);
+    expect(egpResult.error).toBeNull();
+    expect(egpResult.lines?.[0]?.unit_cost).toBe(4.13);
+    expect(kwdResult.error).toBeNull();
+    expect(kwdResult.lines?.[0]?.unit_cost).toBe(4.126);
   });
 });

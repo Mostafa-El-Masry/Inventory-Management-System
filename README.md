@@ -100,9 +100,12 @@ Next.js + Supabase inventory application with:
 npm run lint
 npm test
 npm run build
+npm run verify
 ```
 
 `npm run build` now runs strict environment validation before Next.js build output. If env values are malformed or missing, the build exits early with explicit variable-level errors.
+
+Use `npm run verify` as the full local pre-push validation command. It runs lint, tests, and the production build in sequence while keeping `npm run build` focused on environment validation and compilation.
 
 ## Master CSV Export/Reimport
 

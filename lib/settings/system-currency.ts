@@ -34,6 +34,32 @@ export function roundSystemCurrencyValue(
   return Number(value.toFixed(getSystemCurrencyFractionDigits(currencyCode)));
 }
 
+export function normalizeSystemCurrencyValue(
+  value: string | number | null | undefined,
+  currencyCode: SystemCurrencyCode,
+) {
+  if (value == null) {
+    return null;
+  }
+
+  const parsedValue =
+    typeof value === "number"
+      ? value
+      : value.trim() === ""
+        ? null
+        : Number(value.trim());
+
+  if (parsedValue == null) {
+    return null;
+  }
+
+  if (!Number.isFinite(parsedValue)) {
+    return Number.NaN;
+  }
+
+  return roundSystemCurrencyValue(parsedValue, currencyCode);
+}
+
 export function hasSystemCurrencyValuePrecision(
   value: string | number | null | undefined,
   currencyCode: SystemCurrencyCode,

@@ -1,5 +1,5 @@
 import {
-  hasSystemCurrencyValuePrecision,
+  normalizeSystemCurrencyValue,
   type SystemCurrencyCode,
 } from "@/lib/settings/system-currency";
 
@@ -200,13 +200,14 @@ export function buildPurchaseDraftPayloadLines(
       } as const;
     }
 
-    if (
-      unitCostValue !== "" &&
-      !hasSystemCurrencyValuePrecision(unitCostValue, currencyCode)
-    ) {
-      const fractionDigits = currencyCode === "KWD" ? 3 : 2;
+    const normalizedUnitCost =
+      unitCostValue === ""
+        ? null
+        : normalizeSystemCurrencyValue(unitCostValue, currencyCode);
+
+    if (normalizedUnitCost != null && !Number.isFinite(normalizedUnitCost)) {
       return {
-        error: `Cost can have at most ${fractionDigits} decimal places for ${currencyCode}.`,
+        error: "Cost must be a positive number or left empty.",
         lines: null,
       } as const;
     }
@@ -216,7 +217,7 @@ export function buildPurchaseDraftPayloadLines(
       qty,
       lot_number: row.lotNumber.trim() || null,
       expiry_date: row.expiryDate.trim() || null,
-      unit_cost: unitCost == null ? null : unitCost,
+      unit_cost: normalizedUnitCost,
     });
   }
 

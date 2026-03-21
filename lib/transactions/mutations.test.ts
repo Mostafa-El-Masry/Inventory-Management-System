@@ -37,6 +37,7 @@ type RpcResponse = {
 };
 
 function buildContext({
+  currencyCode = "KWD",
   supplier = {
     id: "11111111-1111-1111-1111-111111111111",
     code: "0001",
@@ -84,6 +85,19 @@ function buildContext({
             return {
               select: () => ({
                 in: async () => ({ data: products, error: null }),
+              }),
+            };
+          }
+
+          if (table === "system_settings") {
+            return {
+              select: () => ({
+                eq: () => ({
+                  maybeSingle: async () => ({
+                    data: { value_text: currencyCode },
+                    error: null,
+                  }),
+                }),
               }),
             };
           }
@@ -183,6 +197,7 @@ describe("inventory transaction mutations", () => {
         p_lines: [
           expect.objectContaining({
             product_id: "22222222-2222-2222-2222-222222222222",
+            unit_cost: 10,
             product_sku_snapshot: "SKU-100",
             product_name_snapshot: "Shampoo",
             product_barcode_snapshot: "123456789",
@@ -243,6 +258,227 @@ describe("inventory transaction mutations", () => {
       "rpc_save_inventory_draft",
       expect.objectContaining({
         p_transaction_id: "44444444-4444-4444-4444-444444444444",
+        p_lines: [expect.objectContaining({ unit_cost: 12 })],
+      }),
+    );
+  });
+
+  it("normalizes unit cost to the active currency precision before saving", async () => {
+    const { context, rpcMock } = buildContext({
+      currencyCode: "KWD",
+      rpcResponses: {
+        rpc_save_inventory_draft: {
+          data: {
+            id: "44444444-4444-4444-4444-444444444444",
+            tx_number: "TX-1",
+            type: "RECEIPT",
+            status: "DRAFT",
+          },
+          error: null,
+        },
+      },
+    });
+
+    const result = await createInventoryTransaction(context as never, {
+      type: "RECEIPT",
+      source_location_id: null,
+      destination_location_id: null,
+      supplier_id: "11111111-1111-1111-1111-111111111111",
+      supplier_invoice_number: "INV-1005",
+      supplier_invoice_date: "2026-03-21",
+      notes: "test",
+      lines: [
+        {
+          product_id: "22222222-2222-2222-2222-222222222222",
+          qty: 2,
+          unit_cost: 0.0014,
+          lot_number: "LOT-1",
+          expiry_date: "2027-03-21",
+          reason_code: "AUTO",
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(rpcMock).toHaveBeenCalledWith(
+      "rpc_save_inventory_draft",
+      expect.objectContaining({
+        p_lines: [expect.objectContaining({ unit_cost: 0.001 })],
+      }),
+    );
+  });
+
+  it("retries create without snapshot fields when the rpc schema is behind", async () => {
+    const { context, rpcMock } = buildContext({
+      rpcResponses: {
+        rpc_save_inventory_draft: {
+          data: {
+            id: "44444444-4444-4444-4444-444444444444",
+            tx_number: "TX-1",
+            type: "RECEIPT",
+            status: "DRAFT",
+          },
+          error: null,
+        },
+      },
+    });
+
+    rpcMock
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          message:
+            'column "supplier_code_snapshot" of relation "inventory_transactions" does not exist',
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          id: "44444444-4444-4444-4444-444444444444",
+          tx_number: "TX-1",
+          type: "RECEIPT",
+          status: "DRAFT",
+        },
+        error: null,
+      });
+
+    const result = await createInventoryTransaction(context as never, {
+      type: "RECEIPT",
+      source_location_id: null,
+      destination_location_id: null,
+      supplier_id: "11111111-1111-1111-1111-111111111111",
+      supplier_invoice_number: "INV-1003",
+      supplier_invoice_date: "2026-03-21",
+      notes: "test",
+      lines: [
+        {
+          product_id: "22222222-2222-2222-2222-222222222222",
+          qty: 2,
+          unit_cost: 10,
+          lot_number: "LOT-1",
+          expiry_date: "2027-03-21",
+          reason_code: "AUTO",
+        },
+      ],
+    });
+
+    expect(result.ok).toBe(true);
+    expect(rpcMock).toHaveBeenNthCalledWith(
+      1,
+      "rpc_save_inventory_draft",
+      expect.objectContaining({
+        p_transaction: expect.objectContaining({
+          supplier_code_snapshot: "0001",
+          supplier_name_snapshot: "Beauty Supplier",
+        }),
+        p_lines: [
+          expect.objectContaining({
+            product_sku_snapshot: "SKU-100",
+            product_name_snapshot: "Shampoo",
+            product_barcode_snapshot: "123456789",
+          }),
+        ],
+      }),
+    );
+    expect(rpcMock).toHaveBeenNthCalledWith(
+      2,
+      "rpc_save_inventory_draft",
+      expect.objectContaining({
+        p_transaction: expect.not.objectContaining({
+          supplier_code_snapshot: expect.anything(),
+          supplier_name_snapshot: expect.anything(),
+        }),
+        p_lines: [
+          expect.not.objectContaining({
+            product_sku_snapshot: expect.anything(),
+            product_name_snapshot: expect.anything(),
+            product_barcode_snapshot: expect.anything(),
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("retries update without snapshot fields when the rpc schema is behind", async () => {
+    const { context, rpcMock } = buildContext({
+      transaction: {
+        id: "44444444-4444-4444-4444-444444444444",
+        type: "RECEIPT",
+        status: "DRAFT",
+        source_location_id: null,
+        destination_location_id: "33333333-3333-3333-3333-333333333333",
+      },
+      rpcResponses: {
+        rpc_save_inventory_draft: {
+          data: {
+            id: "44444444-4444-4444-4444-444444444444",
+            tx_number: "TX-1",
+            type: "RECEIPT",
+            status: "DRAFT",
+          },
+          error: null,
+        },
+      },
+    });
+
+    rpcMock
+      .mockResolvedValueOnce({
+        data: null,
+        error: {
+          message:
+            'column "supplier_name_snapshot" of relation "inventory_transactions" does not exist',
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          id: "44444444-4444-4444-4444-444444444444",
+          tx_number: "TX-1",
+          type: "RECEIPT",
+          status: "DRAFT",
+        },
+        error: null,
+      });
+
+    const result = await updateInventoryTransaction(
+      context as never,
+      "44444444-4444-4444-4444-444444444444",
+      {
+        type: "RECEIPT",
+        source_location_id: null,
+        destination_location_id: null,
+        supplier_id: "11111111-1111-1111-1111-111111111111",
+        supplier_invoice_number: "INV-1004",
+        supplier_invoice_date: "2026-03-21",
+        notes: "updated",
+        lines: [
+          {
+            product_id: "22222222-2222-2222-2222-222222222222",
+            qty: 3,
+            unit_cost: 12,
+            lot_number: "LOT-2",
+            expiry_date: "2027-03-21",
+            reason_code: "AUTO",
+          },
+        ],
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(rpcMock).toHaveBeenNthCalledWith(
+      2,
+      "rpc_save_inventory_draft",
+      expect.objectContaining({
+        p_transaction_id: "44444444-4444-4444-4444-444444444444",
+        p_transaction: expect.not.objectContaining({
+          supplier_code_snapshot: expect.anything(),
+          supplier_name_snapshot: expect.anything(),
+        }),
+        p_lines: [
+          expect.not.objectContaining({
+            product_sku_snapshot: expect.anything(),
+            product_name_snapshot: expect.anything(),
+            product_barcode_snapshot: expect.anything(),
+          }),
+        ],
       }),
     );
   });

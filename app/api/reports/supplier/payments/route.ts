@@ -3,6 +3,11 @@ import {
   assertRole,
   getAuthContext,
 } from "@/lib/auth/permissions";
+import {
+  loadSystemCurrencyCode,
+  normalizeSystemCurrencyValue,
+  type SystemSettingsReader,
+} from "@/lib/settings/system-currency";
 import { supplierPaymentCreateSchema } from "@/lib/validation";
 import { fail, ok, parseBody } from "@/lib/utils/http";
 
@@ -29,6 +34,10 @@ export async function POST(request: Request) {
   if ("error" in payload) {
     return payload.error;
   }
+
+  const currencyCode = await loadSystemCurrencyCode(
+    context.supabase as unknown as SystemSettingsReader,
+  );
 
   const { data: document, error: documentError } = await context.supabase
     .from("supplier_documents")
@@ -66,9 +75,29 @@ export async function POST(request: Request) {
     (sum, row: { amount: number | string }) => sum + Number(row.amount ?? 0),
     0,
   );
-  const grossAmount = Number(document.gross_amount ?? 0);
-  const pendingAmount = Math.max(grossAmount - paidAmount, 0);
-  if (payload.data.amount > pendingAmount) {
+  const grossAmount =
+    normalizeSystemCurrencyValue(document.gross_amount, currencyCode) ?? 0;
+  const normalizedPaidAmount =
+    normalizeSystemCurrencyValue(paidAmount, currencyCode) ?? 0;
+  const pendingAmount =
+    normalizeSystemCurrencyValue(
+      Math.max(grossAmount - normalizedPaidAmount, 0),
+      currencyCode,
+    ) ?? 0;
+  const normalizedAmount = normalizeSystemCurrencyValue(
+    payload.data.amount,
+    currencyCode,
+  );
+
+  if (
+    normalizedAmount == null ||
+    !Number.isFinite(normalizedAmount) ||
+    normalizedAmount <= 0
+  ) {
+    return fail("Payment amount must be greater than 0.", 422);
+  }
+
+  if (normalizedAmount > pendingAmount) {
     return fail("Payment amount exceeds invoice pending amount.", 409, {
       pending_amount: pendingAmount,
     });
@@ -80,7 +109,7 @@ export async function POST(request: Request) {
       supplier_document_id: payload.data.supplier_document_id,
       payment_number: nextPaymentNumber(),
       payment_date: payload.data.payment_date,
-      amount: payload.data.amount,
+      amount: normalizedAmount,
       note: payload.data.note ?? null,
       created_by: context.user.id,
     })
@@ -92,6 +121,10 @@ export async function POST(request: Request) {
 
   return ok({
     payment: data,
-    pending_after: Math.max(pendingAmount - payload.data.amount, 0),
+    pending_after:
+      normalizeSystemCurrencyValue(
+        Math.max(pendingAmount - normalizedAmount, 0),
+        currencyCode,
+      ) ?? 0,
   });
 }

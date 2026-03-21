@@ -11,7 +11,11 @@ import { FilterPopover } from "@/components/ui/filter-popover";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import type { ExportColumn } from "@/lib/export/contracts";
-import { formatSystemCurrency } from "@/lib/settings/system-currency";
+import {
+  formatSystemCurrency,
+  getSystemCurrencyInputStep,
+  normalizeSystemCurrencyValue,
+} from "@/lib/settings/system-currency";
 import {
   buildFilterStorageKey,
   readLocalFilterState,
@@ -926,12 +930,18 @@ export default function ReportsPage() {
     if (!paymentTarget) {
       return;
     }
-    const parsedAmount = Number(paymentAmount);
-    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+    const normalizedAmount = normalizeSystemCurrencyValue(paymentAmount, currencyCode);
+    if (
+      normalizedAmount == null ||
+      !Number.isFinite(normalizedAmount) ||
+      normalizedAmount <= 0
+    ) {
       setPaymentError("Payment amount must be greater than 0.");
       return;
     }
-    if (parsedAmount > paymentTarget.pending_amount) {
+    const pendingAmount =
+      normalizeSystemCurrencyValue(paymentTarget.pending_amount, currencyCode) ?? 0;
+    if (normalizedAmount > pendingAmount) {
       setPaymentError("Payment amount cannot exceed pending amount.");
       return;
     }
@@ -945,7 +955,7 @@ export default function ReportsPage() {
         body: JSON.stringify({
           supplier_document_id: paymentTarget.id,
           payment_date: paymentDate,
-          amount: parsedAmount,
+          amount: normalizedAmount,
           note: paymentNote.trim() || null,
         }),
         fallbackError: "Failed to record payment.",
@@ -1480,7 +1490,14 @@ export default function ReportsPage() {
               </label>
               <label className="space-y-1">
                 <span className="ims-field-label mb-0">Amount</span>
-                <Input type="number" min={0.01} step={0.01} className="ims-control-md" value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} />
+                <Input
+                  type="number"
+                  min={getSystemCurrencyInputStep(currencyCode)}
+                  step={getSystemCurrencyInputStep(currencyCode)}
+                  className="ims-control-md"
+                  value={paymentAmount}
+                  onChange={(event) => setPaymentAmount(event.target.value)}
+                />
               </label>
               <label className="space-y-1">
                 <span className="ims-field-label mb-0">Note (optional)</span>

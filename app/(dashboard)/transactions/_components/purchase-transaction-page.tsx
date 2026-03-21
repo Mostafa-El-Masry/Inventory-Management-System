@@ -33,8 +33,10 @@ import type { ExportColumn } from "@/lib/export/contracts";
 import { MAIN_WAREHOUSE_NAME } from "@/lib/locations/main-warehouse-constants";
 import {
   formatSystemCurrency,
+  getSystemCurrencyInputStep,
   type SystemCurrencyCode,
 } from "@/lib/settings/system-currency";
+import { fetchJson } from "@/lib/utils/fetch-json";
 
 import { fetchAllHistoryItems } from "./fetch-all-history-items";
 import { TransactionListSettingsMenu } from "./transaction-list-settings-menu";
@@ -80,6 +82,11 @@ type Lookup = {
   name: string;
   sku?: string;
   code?: string;
+};
+
+type LookupItemsResponse = {
+  items?: Lookup[];
+  error?: string;
 };
 
 type PurchaseHeaderAction = {
@@ -328,6 +335,7 @@ function PurchaseTransactionCreateSection({
   locationLabel,
   fixedLocationName,
   onSubmit,
+  currencyCode,
 }: {
   createTitle: string;
   suppliers: Lookup[];
@@ -338,6 +346,7 @@ function PurchaseTransactionCreateSection({
   locationLabel: string;
   fixedLocationName?: string | null;
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  currencyCode: SystemCurrencyCode;
 }) {
   return (
     <Card className="min-h-[18rem]">
@@ -397,7 +406,7 @@ function PurchaseTransactionCreateSection({
         <Input
           name="unit_cost"
           type="number"
-          step="0.01"
+          step={getSystemCurrencyInputStep(currencyCode)}
           min={0}
           placeholder="Unit cost"
           className="ims-control-lg"
@@ -737,6 +746,8 @@ export function PurchaseTransactionPage({
   const showHistorySection = viewMode !== "create";
   const fixedLocationName =
     transactionType === "RECEIPT" ? MAIN_WAREHOUSE_NAME : null;
+  const needsProductLookups = showCreateSection || !summaryHistory;
+  const needsSupplierLookups = showCreateSection || summaryHistory;
 
   const loadTransactions = useCallback(async (signal?: AbortSignal) => {
     const result = await fetchAllHistoryItems<Tx>(`/api/transactions?type=${transactionType}`, {
@@ -755,36 +766,50 @@ export function PurchaseTransactionPage({
   }, [transactionType]);
 
   const loadLookups = useCallback(async () => {
-    const [productsRes, locationsRes, suppliersRes] = await Promise.all([
-      fetch("/api/products"),
-      fetch("/api/locations"),
-      fetch("/api/suppliers"),
+    const emptyLookupResult = {
+      ok: true as const,
+      status: 200,
+      data: { items: [] as Lookup[] },
+      error: null,
+    };
+    const [productsResult, locationsResult, suppliersResult] = await Promise.all([
+      needsProductLookups
+        ? fetchJson<LookupItemsResponse>("/api/products", {
+            cache: "no-store",
+            fallbackError: "Failed to load products.",
+          })
+        : Promise.resolve(emptyLookupResult),
+      fetchJson<LookupItemsResponse>("/api/locations", {
+        cache: "no-store",
+        fallbackError: "Failed to load locations.",
+      }),
+      needsSupplierLookups
+        ? fetchJson<LookupItemsResponse>("/api/suppliers", {
+            cache: "no-store",
+            fallbackError: "Failed to load suppliers.",
+          })
+        : Promise.resolve(emptyLookupResult),
     ]);
-    const productsJson = (await productsRes.json()) as { items?: Lookup[]; error?: string };
-    const locationsJson = (await locationsRes.json()) as {
-      items?: Lookup[];
-      error?: string;
-    };
-    const suppliersJson = (await suppliersRes.json()) as {
-      items?: Lookup[];
-      error?: string;
-    };
-    if (!productsRes.ok) {
-      setError(productsJson.error ?? "Failed to load products.");
+
+    if (!productsResult.ok) {
+      setError(productsResult.error);
       return;
     }
-    if (!locationsRes.ok) {
-      setError(locationsJson.error ?? "Failed to load locations.");
+
+    if (!locationsResult.ok) {
+      setError(locationsResult.error);
       return;
     }
-    if (!suppliersRes.ok) {
-      setError(suppliersJson.error ?? "Failed to load suppliers.");
+
+    if (!suppliersResult.ok) {
+      setError(suppliersResult.error);
       return;
     }
-    setProducts(productsJson.items ?? []);
-    setLocations(locationsJson.items ?? []);
-    setSuppliers(suppliersJson.items ?? []);
-  }, []);
+
+    setProducts(productsResult.data.items ?? []);
+    setLocations(locationsResult.data.items ?? []);
+    setSuppliers(suppliersResult.data.items ?? []);
+  }, [needsProductLookups, needsSupplierLookups]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -910,14 +935,15 @@ export function PurchaseTransactionPage({
       ],
     };
 
-    const response = await fetch("/api/transactions", {
+    const result = await fetchJson<Record<string, unknown>>("/api/transactions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+      fallbackError: "Failed to create transaction.",
     });
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to create transaction.");
+
+    if (!result.ok) {
+      setError(result.error);
       setCreateLoading(false);
       return;
     }
@@ -932,12 +958,16 @@ export function PurchaseTransactionPage({
     setStateLoading(true);
     setError(null);
     setMessage(null);
-    const response = await fetch(`/api/transactions/${id}/${action}`, {
+    const result = await fetchJson<Record<string, unknown>>(
+      `/api/transactions/${id}/${action}`,
+      {
       method: "POST",
-    });
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? `Failed to ${action} transaction.`);
+        fallbackError: `Failed to ${action} transaction.`,
+      },
+    );
+
+    if (!result.ok) {
+      setError(result.error);
       setStateLoading(false);
       return;
     }
@@ -955,14 +985,18 @@ export function PurchaseTransactionPage({
     setStateLoading(true);
     setError(null);
     setMessage(null);
-    const response = await fetch(`/api/transactions/${id}/reverse`, {
+    const result = await fetchJson<Record<string, unknown>>(
+      `/api/transactions/${id}/reverse`,
+      {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reason }),
-    });
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to reverse transaction.");
+        fallbackError: "Failed to reverse transaction.",
+      },
+    );
+
+    if (!result.ok) {
+      setError(result.error);
       setStateLoading(false);
       return;
     }
@@ -992,6 +1026,7 @@ export function PurchaseTransactionPage({
           locationLabel={locationLabel}
           fixedLocationName={fixedLocationName}
           onSubmit={createTransaction}
+          currencyCode={currencyCode}
         />
       ) : null}
 

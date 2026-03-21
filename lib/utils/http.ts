@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { ZodSchema } from "zod";
 
+import { sanitizeErrorMessage } from "@/lib/utils/error-message";
+
 export function ok<T>(data: T, status = 200) {
   return NextResponse.json(data, { status });
 }
@@ -8,7 +10,7 @@ export function ok<T>(data: T, status = 200) {
 export function fail(message: string, status = 400, details?: unknown) {
   return NextResponse.json(
     {
-      error: message,
+      error: sanitizeErrorMessage(message, "Request failed."),
       details: details ?? null,
     },
     { status },

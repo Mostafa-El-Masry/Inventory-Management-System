@@ -1,3 +1,5 @@
+import { sanitizeErrorMessage } from "@/lib/utils/error-message";
+
 export type FetchJsonResult<T> =
   | {
       ok: true;
@@ -16,14 +18,18 @@ type FetchJsonInit = RequestInit & {
   fallbackError?: string;
 };
 
-function extractErrorMessage(json: unknown, fallbackError: string) {
+function extractErrorMessage(json: unknown, text: string, fallbackError: string) {
   if (
     json &&
     typeof json === "object" &&
     "error" in json &&
     typeof (json as { error: unknown }).error === "string"
   ) {
-    return (json as { error: string }).error;
+    return sanitizeErrorMessage((json as { error: string }).error, fallbackError);
+  }
+
+  if (text) {
+    return sanitizeErrorMessage(text, fallbackError);
   }
 
   return fallbackError;
@@ -52,7 +58,7 @@ export async function fetchJson<T>(
         ok: false,
         status: response.status,
         data: null,
-        error: extractErrorMessage(json, fallbackError),
+        error: extractErrorMessage(json, text, fallbackError),
       };
     }
 

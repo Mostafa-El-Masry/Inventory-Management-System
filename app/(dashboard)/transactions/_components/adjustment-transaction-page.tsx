@@ -18,6 +18,8 @@ import {
   type MasterColumnDefinition,
 } from "@/components/master/use-master-columns";
 import type { ExportColumn } from "@/lib/export/contracts";
+import { getSystemCurrencyInputStep } from "@/lib/settings/system-currency";
+import { fetchJson } from "@/lib/utils/fetch-json";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -59,6 +61,11 @@ type Lookup = {
   name: string;
   sku?: string;
   code?: string;
+};
+
+type LookupItemsResponse = {
+  items?: Lookup[];
+  error?: string;
 };
 
 type AdjustmentHistoryColumnKey =
@@ -151,7 +158,7 @@ export function AdjustmentTransactionPage({
   detailBasePath,
   summaryHistory = false,
 }: Props) {
-  const { userId: authUserId, role } = useDashboardSession();
+  const { userId: authUserId, role, currencyCode } = useDashboardSession();
   const router = useRouter();
   const canUnpost = role === "admin";
   const [transactions, setTransactions] = useState<Tx[]>([]);
@@ -209,25 +216,29 @@ export function AdjustmentTransactionPage({
   }, []);
 
   const loadLookups = useCallback(async () => {
-    const [productsRes, locationsRes] = await Promise.all([
-      fetch("/api/products"),
-      fetch("/api/locations"),
+    const [productsResult, locationsResult] = await Promise.all([
+      fetchJson<LookupItemsResponse>("/api/products", {
+        cache: "no-store",
+        fallbackError: "Failed to load products.",
+      }),
+      fetchJson<LookupItemsResponse>("/api/locations", {
+        cache: "no-store",
+        fallbackError: "Failed to load locations.",
+      }),
     ]);
-    const productsJson = (await productsRes.json()) as { items?: Lookup[]; error?: string };
-    const locationsJson = (await locationsRes.json()) as {
-      items?: Lookup[];
-      error?: string;
-    };
-    if (!productsRes.ok) {
-      setError(productsJson.error ?? "Failed to load products.");
+
+    if (!productsResult.ok) {
+      setError(productsResult.error);
       return;
     }
-    if (!locationsRes.ok) {
-      setError(locationsJson.error ?? "Failed to load locations.");
+
+    if (!locationsResult.ok) {
+      setError(locationsResult.error);
       return;
     }
-    setProducts(productsJson.items ?? []);
-    setLocations(locationsJson.items ?? []);
+
+    setProducts(productsResult.data.items ?? []);
+    setLocations(locationsResult.data.items ?? []);
   }, []);
 
   useEffect(() => {
@@ -329,14 +340,15 @@ export function AdjustmentTransactionPage({
       ],
     };
 
-    const response = await fetch("/api/transactions", {
+    const result = await fetchJson<Record<string, unknown>>("/api/transactions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+      fallbackError: "Failed to create adjustment.",
     });
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to create adjustment.");
+
+    if (!result.ok) {
+      setError(result.error);
       setCreateLoading(false);
       return;
     }
@@ -355,12 +367,16 @@ export function AdjustmentTransactionPage({
     setStateLoading(true);
     setError(null);
     setMessage(null);
-    const response = await fetch(`/api/transactions/${id}/${action}`, {
+    const result = await fetchJson<Record<string, unknown>>(
+      `/api/transactions/${id}/${action}`,
+      {
       method: "POST",
-    });
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? `Failed to ${action} transaction.`);
+        fallbackError: `Failed to ${action} transaction.`,
+      },
+    );
+
+    if (!result.ok) {
+      setError(result.error);
       setStateLoading(false);
       return;
     }
@@ -382,14 +398,18 @@ export function AdjustmentTransactionPage({
     setStateLoading(true);
     setError(null);
     setMessage(null);
-    const response = await fetch(`/api/transactions/${id}/reverse`, {
+    const result = await fetchJson<Record<string, unknown>>(
+      `/api/transactions/${id}/reverse`,
+      {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ reason }),
-    });
-    const json = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(json.error ?? "Failed to reverse transaction.");
+        fallbackError: "Failed to reverse transaction.",
+      },
+    );
+
+    if (!result.ok) {
+      setError(result.error);
       setStateLoading(false);
       return;
     }
@@ -446,7 +466,7 @@ export function AdjustmentTransactionPage({
           <Input
             name="unit_cost"
             type="number"
-            step="0.01"
+            step={getSystemCurrencyInputStep(currencyCode)}
             min={0}
             placeholder="Unit cost"
             className="ims-control-lg"

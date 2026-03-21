@@ -8,6 +8,7 @@ import {
   getSystemCurrencyInputStep,
   hasSystemCurrencyValuePrecision,
   loadSystemCurrencyCode,
+  normalizeSystemCurrencyValue,
   normalizeSystemCurrencyCode,
   roundSystemCurrencyValue,
 } from "@/lib/settings/system-currency";
@@ -57,6 +58,14 @@ describe("system currency helpers", () => {
     expect(roundSystemCurrencyValue(12.3456, "USD")).toBe(12.35);
     expect(hasSystemCurrencyValuePrecision("1.234", "KWD")).toBe(true);
     expect(hasSystemCurrencyValuePrecision("1.234", "USD")).toBe(false);
+  });
+
+  it("normalizes values to the active currency precision", () => {
+    expect(normalizeSystemCurrencyValue("0.001", "KWD")).toBe(0.001);
+    expect(normalizeSystemCurrencyValue("12.3456", "KWD")).toBe(12.346);
+    expect(normalizeSystemCurrencyValue("12.3456", "USD")).toBe(12.35);
+    expect(normalizeSystemCurrencyValue("12.3456", "EGP")).toBe(12.35);
+    expect(normalizeSystemCurrencyValue("", "KWD")).toBeNull();
   });
 
   it("loads the stored currency code from system settings", async () => {

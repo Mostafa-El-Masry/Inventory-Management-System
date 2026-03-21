@@ -11,6 +11,7 @@
     "lint": "eslint && npm run lint:units",
     "lint:units": "node ./scripts/check-no-px-literals.mjs",
     "test": "vitest run",
+    "verify": "npm run lint && npm test && npm run build",
     "test:watch": "vitest",
     "workload:generate": "node ./scripts/generate-workload.mjs",
     "workload:check": "node ./scripts/check-reports.mjs",

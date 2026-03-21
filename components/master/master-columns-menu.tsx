@@ -143,7 +143,11 @@ export function MasterColumnsMenu<K extends string>({
             <p className="text-xs font-semibold text-[var(--text-strong)] sm:text-sm">
               Visible Columns
             </p>
-            <Button variant="ghost" className="h-6 px-2 text-[11px] sm:h-7 sm:text-xs" onClick={onReset}>
+            <Button
+              variant="ghost"
+              className="h-6 px-2 text-[0.68rem] sm:h-7 sm:text-xs"
+              onClick={onReset}
+            >
               Reset
             </Button>
           </div>
@@ -186,7 +190,7 @@ export function MasterColumnsMenu<K extends string>({
             ))}
           </div>
 
-          <p className="mt-2 text-[11px] text-[var(--text-muted)] sm:text-xs">{helperText}</p>
+          <p className="mt-2 text-[0.68rem] text-[var(--text-muted)] sm:text-xs">{helperText}</p>
         </div>
       ) : null}
     </div>

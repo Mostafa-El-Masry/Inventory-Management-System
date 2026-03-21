@@ -13,6 +13,7 @@ import {
   formatSystemCurrency,
   formatSystemCurrencyParts,
   getSystemCurrencyInputStep,
+  normalizeSystemCurrencyValue,
   roundSystemCurrencyValue,
   type SystemCurrencyCode,
 } from "@/lib/settings/system-currency";
@@ -23,6 +24,7 @@ import {
   createEmptyPurchaseDraftRow,
   ensureTrailingBlankPurchaseDraftRow,
   getPurchaseDraftInitialSuggestionIndex,
+  isBlankPurchaseDraftRow,
   movePurchaseDraftSuggestionIndex,
   type PurchaseDraftRow,
   type PurchaseLookupProduct,
@@ -100,12 +102,77 @@ function buildLineTotal(
   currencyCode: SystemCurrencyCode,
 ) {
   const qty = Number(line.qty);
-  const unitCost = Number(line.unitCost);
-  if (!Number.isFinite(qty) || !Number.isFinite(unitCost)) {
+  const unitCost = normalizeSystemCurrencyValue(line.unitCost, currencyCode);
+  if (!Number.isFinite(qty) || unitCost == null || !Number.isFinite(unitCost)) {
     return 0;
   }
 
   return roundSystemCurrencyValue(qty * unitCost, currencyCode);
+}
+
+function normalizeInvoiceLineUnitCost(
+  value: string | number | null | undefined,
+  currencyCode: SystemCurrencyCode,
+) {
+  const normalizedValue = normalizeSystemCurrencyValue(value, currencyCode);
+  if (normalizedValue == null || !Number.isFinite(normalizedValue)) {
+    return "";
+  }
+
+  return String(normalizedValue);
+}
+
+function normalizeInvoiceLineDraft(
+  line: InvoiceLineDraft,
+  currencyCode: SystemCurrencyCode,
+): InvoiceLineDraft {
+  return {
+    ...line,
+    unitCost: normalizeInvoiceLineUnitCost(line.unitCost, currencyCode),
+  };
+}
+
+function reconcileDraftRowsWithNormalizedLines(
+  rows: PurchaseDraftRow[],
+  lines: Array<{
+    qty: number;
+    lot_number: string | null;
+    expiry_date: string | null;
+    unit_cost: number | null;
+  }>,
+) {
+  let lineIndex = 0;
+
+  return ensureTrailingBlankPurchaseDraftRow(
+    rows
+      .map((row) => {
+        if (isBlankPurchaseDraftRow(row)) {
+          return row;
+        }
+
+        const normalizedLine = lines[lineIndex++];
+        if (!normalizedLine) {
+          return row;
+        }
+
+        return {
+          ...row,
+          qty: String(normalizedLine.qty),
+          unitCost:
+            normalizedLine.unit_cost == null ? "" : String(normalizedLine.unit_cost),
+          lotNumber: normalizedLine.lot_number ?? "",
+          expiryDate: normalizedLine.expiry_date ?? "",
+        };
+      })
+      .filter((row, index, currentRows) => {
+        if (!isBlankPurchaseDraftRow(row)) {
+          return true;
+        }
+
+        return index === currentRows.length - 1;
+      }),
+    createNextDraftRow,
+  );
 }
 
 function normalizeComparableText(value: string | null | undefined) {
@@ -152,15 +219,15 @@ function createNextDraftRow() {
   return createEmptyPurchaseDraftRow(createLineId());
 }
 
-function createInvoiceLineDraft(line: TransactionLineDetail): InvoiceLineDraft {
+function createInvoiceLineDraft(
+  line: TransactionLineDetail,
+  currencyCode: SystemCurrencyCode,
+): InvoiceLineDraft {
   return {
     clientId: line.id || createLineId(),
     productId: line.product_id,
     qty: String(line.qty),
-    unitCost:
-      line.unit_cost == null || !Number.isFinite(line.unit_cost)
-        ? ""
-        : String(line.unit_cost),
+    unitCost: normalizeInvoiceLineUnitCost(line.unit_cost, currencyCode),
     lotNumber: line.lot_number ?? "",
     expiryDate: formatDateInput(line.expiry_date),
     displayCode: line.product_display_code,
@@ -909,7 +976,11 @@ export function PurchaseInvoicePage({
         }),
     [draftRows, productById],
   );
-  const displayLines = canEdit ? editableLines : savedLines;
+  const normalizedEditableLines = useMemo(
+    () => editableLines.map((line) => normalizeInvoiceLineDraft(line, currencyCode)),
+    [currencyCode, editableLines],
+  );
+  const displayLines = canEdit ? normalizedEditableLines : savedLines;
   const totalQty = useMemo(
     () => displayLines.reduce((total, line) => total + Number(line.qty || 0), 0),
     [displayLines],
@@ -985,7 +1056,9 @@ export function PurchaseInvoicePage({
         return;
       }
 
-      const invoiceLines = item.lines.map(createInvoiceLineDraft);
+      const invoiceLines = item.lines.map((line) =>
+        createInvoiceLineDraft(line, currencyCode),
+      );
       const lineProducts = invoiceLines
         .map(createLookupProductFromInvoiceLine)
         .filter((product): product is PurchaseLookupProduct => product !== null);
@@ -1021,7 +1094,7 @@ export function PurchaseInvoicePage({
     return () => {
       cancelled = true;
     };
-  }, [transactionId]);
+  }, [currencyCode, transactionId]);
 
   function registerProducts(productsToMerge: PurchaseLookupProduct[]) {
     if (productsToMerge.length === 0) {
@@ -1309,7 +1382,33 @@ export function PurchaseInvoicePage({
       return;
     }
 
-    setSavedLines(editableLines);
+    const normalizedDraftRows = reconcileDraftRowsWithNormalizedLines(
+      draftRows,
+      payloadResult.payload.lines,
+    );
+    const normalizedSavedLines = normalizedDraftRows
+      .filter((row) => row.productId.trim() !== "")
+      .map((row) => {
+        const product = productById.get(row.productId);
+
+        return normalizeInvoiceLineDraft(
+          {
+            clientId: row.clientId,
+            productId: row.productId,
+            qty: row.qty,
+            unitCost: row.unitCost,
+            lotNumber: row.lotNumber,
+            expiryDate: row.expiryDate,
+            displayCode: product?.sku ?? (row.skuQuery.trim() || null),
+            displayName: product?.name ?? (row.itemQuery || null),
+            displayBarcode: product?.barcode ?? null,
+          },
+          currencyCode,
+        );
+      });
+
+    setDraftRows(normalizedDraftRows);
+    setSavedLines(normalizedSavedLines);
     setMessage("Purchase invoice saved. Stock and cost updated immediately.");
   }
 
@@ -1619,7 +1718,7 @@ export function PurchaseInvoicePage({
               </div>
               <div className="purchase-invoice-print-lines">
                 <PurchaseReadOnlyLineTable
-                  lines={editableLines}
+                  lines={normalizedEditableLines}
                   productById={productById}
                   currencyCode={currencyCode}
                 />

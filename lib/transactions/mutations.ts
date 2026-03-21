@@ -2,6 +2,17 @@ import { z } from "zod";
 
 import { AuthContext, assertLocationAccess } from "@/lib/auth/permissions";
 import { ensureMainWarehouseForContext } from "@/lib/locations/main-warehouse";
+import {
+  loadSystemCurrencyCode,
+  normalizeSystemCurrencyValue,
+  type SystemCurrencyCode,
+  type SystemSettingsReader,
+} from "@/lib/settings/system-currency";
+import {
+  isMissingSnapshotColumnError,
+  stripSnapshotFields,
+  stripSnapshotFieldsFromRows,
+} from "@/lib/supabase/snapshot-schema-compat";
 import { serviceFail, serviceOk, type ServiceResult } from "@/lib/utils/service-result";
 import { transactionCreateSchema } from "@/lib/validation";
 
@@ -37,6 +48,7 @@ type TransactionDraftRpcRecord = {
 };
 
 type ResolvedTransactionWriteContext = {
+  currencyCode: SystemCurrencyCode;
   normalizedSupplierInvoiceNumber: string | null;
   sourceLocationId: string | null;
   destinationLocationId: string | null;
@@ -64,6 +76,9 @@ async function resolveTransactionWriteContext(
   context: AuthContext,
   payload: TransactionCreateInput,
 ): Promise<ServiceResult<ResolvedTransactionWriteContext>> {
+  const currencyCode = await loadSystemCurrencyCode(
+    context.supabase as unknown as SystemSettingsReader,
+  );
   const normalizedSupplierInvoiceNumber =
     payload.supplier_invoice_number?.trim() || null;
   let sourceLocationId = payload.source_location_id ?? null;
@@ -147,6 +162,7 @@ async function resolveTransactionWriteContext(
   }
 
   return serviceOk({
+    currencyCode,
     normalizedSupplierInvoiceNumber,
     sourceLocationId,
     destinationLocationId,
@@ -180,7 +196,10 @@ function buildDraftTransactionRpcPayload(
       return {
         product_id: line.product_id,
         qty: line.qty,
-        unit_cost: line.unit_cost ?? null,
+        unit_cost: normalizeSystemCurrencyValue(
+          line.unit_cost,
+          writeContext.currencyCode,
+        ),
         lot_number: line.lot_number ?? null,
         expiry_date: line.expiry_date ?? null,
         reason_code: line.reason_code ?? null,
@@ -189,6 +208,31 @@ function buildDraftTransactionRpcPayload(
         product_barcode_snapshot: product?.barcode ?? null,
       };
     }),
+  };
+}
+
+async function saveInventoryDraftWithSnapshotFallback(
+  context: AuthContext,
+  transactionId: string | null,
+  rpcPayload: ReturnType<typeof buildDraftTransactionRpcPayload>,
+) {
+  let { data, error } = await context.supabase.rpc("rpc_save_inventory_draft", {
+    p_transaction_id: transactionId,
+    p_transaction: rpcPayload.transaction,
+    p_lines: rpcPayload.lines,
+  });
+
+  if (isMissingSnapshotColumnError(error)) {
+    ({ data, error } = await context.supabase.rpc("rpc_save_inventory_draft", {
+      p_transaction_id: transactionId,
+      p_transaction: stripSnapshotFields(rpcPayload.transaction),
+      p_lines: stripSnapshotFieldsFromRows(rpcPayload.lines),
+    }));
+  }
+
+  return {
+    data,
+    error,
   };
 }
 
@@ -202,6 +246,7 @@ export async function createInventoryTransaction(
   }
 
   const {
+    currencyCode,
     normalizedSupplierInvoiceNumber,
     sourceLocationId,
     destinationLocationId,
@@ -209,6 +254,7 @@ export async function createInventoryTransaction(
     productById,
   } = writeContext.data;
   const rpcPayload = buildDraftTransactionRpcPayload(payload, {
+    currencyCode,
     normalizedSupplierInvoiceNumber,
     sourceLocationId,
     destinationLocationId,
@@ -216,11 +262,11 @@ export async function createInventoryTransaction(
     productById,
   });
 
-  const { data, error } = await context.supabase.rpc("rpc_save_inventory_draft", {
-    p_transaction_id: null,
-    p_transaction: rpcPayload.transaction,
-    p_lines: rpcPayload.lines,
-  });
+  const { data, error } = await saveInventoryDraftWithSnapshotFallback(
+    context,
+    null,
+    rpcPayload,
+  );
 
   if (error || !data) {
     return serviceFail(400, error?.message ?? "Failed to create transaction.");
@@ -280,6 +326,7 @@ export async function updateInventoryTransaction(
   }
 
   const {
+    currencyCode,
     normalizedSupplierInvoiceNumber,
     sourceLocationId,
     destinationLocationId,
@@ -287,6 +334,7 @@ export async function updateInventoryTransaction(
     productById,
   } = writeContext.data;
   const rpcPayload = buildDraftTransactionRpcPayload(payload, {
+    currencyCode,
     normalizedSupplierInvoiceNumber,
     sourceLocationId,
     destinationLocationId,
@@ -294,11 +342,11 @@ export async function updateInventoryTransaction(
     productById,
   });
 
-  const { data, error } = await context.supabase.rpc("rpc_save_inventory_draft", {
-    p_transaction_id: id,
-    p_transaction: rpcPayload.transaction,
-    p_lines: rpcPayload.lines,
-  });
+  const { data, error } = await saveInventoryDraftWithSnapshotFallback(
+    context,
+    id,
+    rpcPayload,
+  );
 
   if (error || !data) {
     return serviceFail(400, error?.message ?? "Failed to update transaction.");
